@@ -471,7 +471,6 @@ struct SwitchBuilder {
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
 	RTLIL::Module *mod;
-	RTLIL::SyncRule *sync;
 	RTLIL::Process *proc;
 	RTLIL::CaseRule *current_case;
 
@@ -483,8 +482,8 @@ public:
 
 	int print_priority = 0;
 
-	ProceduralVisitor(RTLIL::Module *mod, RTLIL::SyncRule *sync, RTLIL::Process *proc)
-			: mod(mod), sync(sync), proc(proc) {
+	ProceduralVisitor(RTLIL::Module *mod, RTLIL::Process *proc)
+			: mod(mod), proc(proc) {
 		RTLIL::SwitchRule *top_switch = new RTLIL::SwitchRule;
 		proc->root_case.switches.push_back(top_switch);
 		current_case = new RTLIL::CaseRule;
@@ -523,7 +522,8 @@ public:
 		for (auto chunk : all_driven.chunks()) {
 			RTLIL::SigSpec mapped = chunk;
 			mapped.replace(staging);
-			sync->actions.push_back(RTLIL::SigSig(chunk, mapped));
+			for (auto sync : proc->syncs)
+				sync->actions.push_back(RTLIL::SigSig(chunk, mapped));
 			root_case->actions.push_back(RTLIL::SigSig(mapped, chunk));
 		}
 	}
@@ -535,6 +535,39 @@ public:
 		proc->root_case.actions.emplace_back(ret, RTLIL::State::S0);
 		current_case->actions.emplace_back(ret, RTLIL::State::S1);
 		return ret;
+	}
+
+	// For $check, $print cells
+	void set_cell_trigger(RTLIL::Cell *cell)
+	{
+		bool implicit = false;
+		RTLIL::SigSpec triggers;
+		RTLIL::Const polarity;
+
+		for (auto sync : proc->syncs)
+		switch(sync->type) {
+		case RTLIL::STn:
+		case RTLIL::STp:
+			log_assert(sync->signal.size() == 1);
+			triggers.append(sync->signal);
+			polarity.bits.push_back(sync->type == RTLIL::STp ? RTLIL::S1 : RTLIL::S0);
+			break;
+
+		case RTLIL::STa:
+			implicit = true;
+			break;
+
+		default:
+			log_abort();
+		}
+
+		log_assert(!triggers.empty() || implicit);
+		log_assert(!(!triggers.empty() && implicit));
+		cell->parameters[Yosys::ID::TRG_ENABLE] = !implicit;
+		cell->parameters[Yosys::ID::TRG_WIDTH] = triggers.size();
+		cell->parameters[Yosys::ID::TRG_POLARITY] = polarity;
+		cell->setPort(Yosys::ID::TRG, triggers);
+		cell->setPort(Yosys::ID::EN, context_enable());
 	}
 
 	// TODO: add other kids of statements
@@ -550,17 +583,8 @@ public:
 				} else if (call.getSubroutineName() == "$display") {
 					auto cell = mod->addCell(NEW_ID, ID($print));
 					transfer_attrs(expr, cell);
-
-					require(expr, sync->signal.empty() || sync->type == RTLIL::STp || sync->type == RTLIL::STn);
-					if (!sync->signal.empty()) {
-						cell->parameters[Yosys::ID::TRG_ENABLE] = true;
-						cell->parameters[Yosys::ID::TRG_WIDTH] = 1;
-						cell->parameters[Yosys::ID::TRG_POLARITY] = (sync->type == RTLIL::STp);
-						cell->parameters[Yosys::ID::PRIORITY] = --print_priority;
-						cell->setPort(Yosys::ID::TRG, sync->signal);
-					}
-					cell->setPort(Yosys::ID::EN, context_enable());
-
+					set_cell_trigger(cell);
+					cell->parameters[Yosys::ID::PRIORITY] = --print_priority;
 					std::vector<Yosys::VerilogFmtArg> fmt_args;
 					for (auto arg : call.arguments()) {
 						log_assert(arg);
@@ -782,52 +806,83 @@ public:
 	ModulePopulatingVisitor(RTLIL::Module *mod)
 		: mod(mod) {}
 
+	bool populate_sync(RTLIL::Process *proc, const ast::TimingControl &timing)
+	{
+		switch (timing.kind) {
+		case ast::TimingControlKind::SignalEvent:
+			{
+				const auto &sigevent = timing.as<ast::SignalEventControl>();
+				RTLIL::SyncRule *sync = new RTLIL::SyncRule();
+				proc->syncs.push_back(sync);
+				RTLIL::SigSpec sig = evaluate_rhs(mod, sigevent.expr, NULL);
+				require(sigevent, sig.size() == 1);
+				require(sigevent, sigevent.iffCondition == NULL);
+				sync->signal = sig;
+				switch (sigevent.edge) {
+				case ast::EdgeKind::None:
+					return false;
+				case ast::EdgeKind::PosEdge:
+					sync->type = RTLIL::SyncType::STp;
+					break;
+				case ast::EdgeKind::NegEdge:
+					sync->type = RTLIL::SyncType::STn;
+					break;
+				case ast::EdgeKind::BothEdges:
+					sync->type = RTLIL::SyncType::STe;
+					break;
+				}
+			}
+			return true;
+		case ast::TimingControlKind::ImplicitEvent:
+			{
+				RTLIL::SyncRule *sync = new RTLIL::SyncRule();
+				proc->syncs.push_back(sync);
+				sync->type = RTLIL::SyncType::STa;
+			}
+			return true;
+		case ast::TimingControlKind::EventList:
+			{
+				const auto &evlist = timing.as<ast::EventListControl>();
+				for (auto ev : evlist.events) {
+					log_assert(ev);
+					if (!populate_sync(proc, *ev))
+						return false;
+				}
+			}
+			return true;
+		default:
+			return false;
+		}
+	}
+
 	void handle(const ast::ProceduralBlockSymbol &sym)
 	{
 		switch (sym.procedureKind) {
 		case ast::ProceduralBlockKind::Always:
+		case ast::ProceduralBlockKind::AlwaysFF:
 			{
 				RTLIL::Process *proc = mod->addProcess(NEW_ID);
 				require(sym, sym.getBody().kind == ast::StatementKind::Timed);
 
+				const auto &timed = sym.getBody().as<ast::TimedStatement>();
+				if (!populate_sync(proc, timed.timing))
+					unimplemented(timed)
+
+				ProceduralVisitor visitor(mod, proc);
+				timed.stmt.visit(visitor);
+				visitor.staging_done();
+			}
+			break;
+
+		case ast::ProceduralBlockKind::AlwaysComb:
+			{
+				RTLIL::Process *proc = mod->addProcess(NEW_ID);
 				RTLIL::SyncRule *sync = new RTLIL::SyncRule;
 				proc->syncs.push_back(sync);
+				sync->type = RTLIL::SyncType::STa;
 
-				const auto &timed = sym.getBody().as<ast::TimedStatement>();
-				switch (timed.timing.kind) {
-				case ast::TimingControlKind::SignalEvent:
-					{
-						const auto &sigevent = timed.timing.as<ast::SignalEventControl>();
-						RTLIL::SigSpec sig = evaluate_rhs(mod, sigevent.expr, NULL);
-						require(sigevent, sig.size() == 1);
-						require(sigevent, sigevent.iffCondition == NULL);
-						sync->signal = sig;
-						switch (sigevent.edge) {
-						case ast::EdgeKind::None:
-							log_abort();
-						case ast::EdgeKind::PosEdge:
-							sync->type = RTLIL::SyncType::STp;
-							break;
-						case ast::EdgeKind::NegEdge:
-							sync->type = RTLIL::SyncType::STn;
-							break;
-						case ast::EdgeKind::BothEdges:
-							sync->type = RTLIL::SyncType::STe;
-							break;
-						}
-					}
-					break;
-				case ast::TimingControlKind::ImplicitEvent:
-					{
-						sync->type = RTLIL::SyncType::STa;
-					}
-					break;
-				default:
-					unimplemented(timed);
-				}
-
-				ProceduralVisitor visitor(mod, sync, proc);
-				timed.stmt.visit(visitor);
+				ProceduralVisitor visitor(mod, proc);
+				sym.getBody().visit(visitor);
 				visitor.staging_done();
 			}
 			break;
