@@ -984,6 +984,8 @@ public:
 		visitDefault(sym);
 	}
 
+	void handle(const ast::TypeAliasType &type) {}
+
 	void handle(const ast::Symbol &sym)
 	{
 		unimplemented(sym);
