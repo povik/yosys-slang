@@ -917,7 +917,28 @@ public:
 
 	void handle(const ast::VariableSymbol &sym)
 	{
-		require(sym, !sym.getInitializer()); // TODO: populate `init`
+		RTLIL::Wire *w = mod->wire(net_id(sym));
+		log_assert(w);
+		RTLIL::Const initval;
+		if (sym.getInitializer()) {
+			auto init = sym.getInitializer();
+			{ // TODO: get rid of
+				ast::ASTContext ctx(global_compilation->getRoot(), ast::LookupLocation::max);
+				ctx.tryEval(*init);
+			}
+			require(sym, init->constant);
+			auto const_ = init->constant;
+			require(sym, const_->isInteger());
+			initval = svint_const(const_->integer());
+		} else {
+			require(sym, sym.getType().isIntegral());
+			if (sym.getType().isFourState())
+				initval = {RTLIL::S0, w->width};
+			else
+				initval = {RTLIL::Sx, w->width};
+		}
+		if (!initval.is_fully_undef())
+			w->attributes[RTLIL::ID::init] = initval;
 	}
 
 	void handle(const ast::PortSymbol &sym)
