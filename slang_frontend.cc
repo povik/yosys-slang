@@ -902,6 +902,11 @@ public:
 				sym.getBody().visit(visitor);
 			}
 			break;
+		case ast::ProceduralBlockKind::Final:
+			{
+				/* no-op */
+			}
+			break;
 		default:
 			unimplemented(sym);
 		}		
