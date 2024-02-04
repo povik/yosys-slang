@@ -692,10 +692,6 @@ public:
 			stmt->visit(*this);
 	}
 
-	void handle(YS_MAYBE_UNUSED const ast::InvalidStatement &stmt) { log_abort(); }
-	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
-	void handle(const ast::Statement &stmt) { unimplemented(stmt); }
-
 	void handle(const ast::ConditionalStatement &cond)
 	{
 		require(cond, cond.conditions.size() == 1);
@@ -774,6 +770,14 @@ public:
 		current_case = new RTLIL::CaseRule;
 		dummy_switch->cases.push_back(current_case);
 	}
+
+	void handle(YS_MAYBE_UNUSED const ast::InvalidStatement &stmt) { log_abort(); }
+	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
+
+	void handle(const ast::Statement &stmt)
+	{
+		unimplemented(stmt);
+	}
 };
 
 struct WireAddingVisitor : public ast::ASTVisitor<WireAddingVisitor, true, false> {
@@ -798,6 +802,11 @@ public:
 	RTLIL::Module *mod;
 	InitialProceduralVisitor(RTLIL::Module *mod)
 		: mod(mod) {}
+
+	void handle(const ast::Symbol &sym)
+	{
+		unimplemented(sym);
+	}
 };
 
 struct ModulePopulatingVisitor : public ast::ASTVisitor<ModulePopulatingVisitor, true, false> {
@@ -967,7 +976,17 @@ public:
 	{
 		if (sym.isUninstantiated)
 			return;
-		this->visitDefault(sym);
+		visitDefault(sym);
+	}
+
+	void handle(const ast::InstanceBodySymbol &sym)
+	{
+		visitDefault(sym);
+	}
+
+	void handle(const ast::Symbol &sym)
+	{
+		unimplemented(sym);
 	}
 };
 
