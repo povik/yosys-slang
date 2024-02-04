@@ -1018,6 +1018,8 @@ public:
 
 		mod->fixup_ports();
 		mod->check();
+
+		this->visitDefault(symbol);
 	}
 };
 
