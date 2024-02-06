@@ -24,6 +24,7 @@ using Yosys::log;
 using Yosys::log_error;
 using Yosys::log_warning;
 using Yosys::log_id;
+using Yosys::log_signal;
 using Yosys::ys_debug;
 using Yosys::ceil_log2;
 
@@ -865,19 +866,28 @@ public:
 				RTLIL::SyncRule *sync = new RTLIL::SyncRule();
 				proc->syncs.push_back(sync);
 				RTLIL::SigSpec sig = evaluate_rhs(mod, sigevent.expr, NULL);
-				require(sigevent, sig.size() == 1);
 				require(sigevent, sigevent.iffCondition == NULL);
 				sync->signal = sig;
 				switch (sigevent.edge) {
 				case ast::EdgeKind::None:
-					return false;
+					{
+						auto src = format_src(timing);
+						log_warning("%s: Turning non-edge sensitivity on %s to implicit sensitivity\n",
+									src.c_str(), log_signal(sig));
+						sync->type = RTLIL::SyncType::STa;
+						sync->signal = {};
+					}
+					break;
 				case ast::EdgeKind::PosEdge:
+					require(sigevent, sig.size() == 1);
 					sync->type = RTLIL::SyncType::STp;
 					break;
 				case ast::EdgeKind::NegEdge:
+					require(sigevent, sig.size() == 1);
 					sync->type = RTLIL::SyncType::STn;
 					break;
 				case ast::EdgeKind::BothEdges:
+					require(sigevent, sig.size() == 1);
 					sync->type = RTLIL::SyncType::STe;
 					break;
 				}
