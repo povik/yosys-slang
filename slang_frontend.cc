@@ -280,6 +280,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			case ast::UnaryOperator::BitwiseOr: type = ID($reduce_or); break;
 			case ast::UnaryOperator::BitwiseAnd: type = ID($reduce_and); break;
 			case ast::UnaryOperator::BitwiseNand: type = ID($reduce_and); invert = true; break;
+			case ast::UnaryOperator::BitwiseNor: type = ID($reduce_or); invert = true; break;
 			default:
 				unimplemented(unop);
 			}
