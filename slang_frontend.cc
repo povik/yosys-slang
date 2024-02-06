@@ -192,6 +192,16 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 			ret = evaluate_lhs(mod, elemsel.value()).extract(stride * idx, stride);
 		}
 		break;
+	case ast::ExpressionKind::MemberAccess:
+		{
+			const auto &acc = expr.as<ast::MemberAccessExpression>();
+			require(expr, acc.member.kind == ast::SymbolKind::Field);
+			const auto &member = acc.member.as<ast::FieldSymbol>();
+			require(acc, member.randMode == ast::RandMode::None);
+			return evaluate_lhs(mod, acc.value()).extract(member.bitOffset,
+								expr.type->getBitstreamWidth());
+		}
+		break;
 	default:
 		unimplemented(expr);
 		break;
@@ -441,6 +451,16 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			RTLIL::SigSpec concat = evaluate_rhs(mod, repl.concat(), ctx);
 			for (int i = 0; i < reps; i++)
 				ret.append(concat);
+		}
+		break;
+	case ast::ExpressionKind::MemberAccess:
+		{
+			const auto &acc = expr.as<ast::MemberAccessExpression>();
+			require(expr, acc.member.kind == ast::SymbolKind::Field);
+			const auto &member = acc.member.as<ast::FieldSymbol>();
+			require(acc, member.randMode == ast::RandMode::None);
+			return evaluate_rhs(mod, acc.value(), ctx).extract(member.bitOffset,
+								expr.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::Call:
