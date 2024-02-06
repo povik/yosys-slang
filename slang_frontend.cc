@@ -108,6 +108,34 @@ static const RTLIL::Const svint_const(const slang::SVInt &svint)
 	return ret;
 }
 
+static const RTLIL::Const const_const(const slang::ConstantValue &constval)
+{
+	log_assert(!constval.isReal());
+	log_assert(!constval.isShortReal());
+	log_assert(!constval.isNullHandle());
+	log_assert(!constval.isUnbounded());
+	log_assert(!constval.isMap());
+	log_assert(!constval.isQueue());
+	log_assert(!constval.isUnion());
+
+	if (constval.isInteger()) {
+		return svint_const(constval.integer());
+	} else if (constval.isUnpacked()) {
+		RTLIL::Const ret;
+		// TODO: is this right?
+		for (auto &el : constval.elements()) {
+			auto piece = const_const(el);
+			ret.bits.insert(ret.bits.begin(), piece.bits.begin(), piece.bits.end());
+		}
+		log_assert(ret.size() == constval.getBitstreamWidth());
+		return ret;
+	} else if (constval.isString()) {
+		RTLIL::Const ret = svint_const(constval.convertToInt().integer());
+		ret.flags |= RTLIL::CONST_FLAG_STRING;
+		return ret;
+	}
+}
+
 template<typename T>
 void transfer_attrs(T &from, RTLIL::AttrObject *to)
 {
@@ -937,7 +965,7 @@ public:
 	{
 		RTLIL::Wire *w = mod->wire(net_id(sym));
 		log_assert(w);
-		RTLIL::Const initval;
+		slang::ConstantValue defvalue;
 		if (sym.getInitializer()) {
 			auto init = sym.getInitializer();
 			{ // TODO: get rid of
@@ -945,16 +973,11 @@ public:
 				ctx.tryEval(*init);
 			}
 			require(sym, init->constant);
-			auto const_ = init->constant;
-			require(sym, const_->isInteger());
-			initval = svint_const(const_->integer());
+			defvalue = *init->constant;
 		} else {
-			require(sym, sym.getType().isIntegral());
-			if (sym.getType().isFourState())
-				initval = {RTLIL::S0, w->width};
-			else
-				initval = {RTLIL::Sx, w->width};
+			defvalue = sym.getType().getDefaultValue();
 		}
+		RTLIL::Const initval = const_const(defvalue);
 		if (!initval.is_fully_undef())
 			w->attributes[RTLIL::ID::init] = initval;
 	}
