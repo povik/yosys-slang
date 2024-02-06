@@ -33,6 +33,33 @@ namespace ast = slang::ast;
 ast::Compilation *global_compilation;
 const slang::SourceManager *global_sourcemgr;
 
+slang::SourceRange source_location(const ast::Symbol &obj)			{ return slang::SourceRange(obj.location, obj.location); }
+slang::SourceRange source_location(const ast::Expression &expr)		{ return expr.sourceRange; }
+slang::SourceRange source_location(const ast::Statement &stmt)		{ return stmt.sourceRange; }
+slang::SourceRange source_location(const ast::TimingControl &stmt)	{ return stmt.sourceRange; }
+
+template<typename T>
+std::string format_src(const T &obj)
+{
+	auto sm = global_sourcemgr;
+	auto sr = source_location(obj);
+
+	if (!sm->isFileLoc(sr.start()) || !sm->isFileLoc(sr.end()))
+		return "";
+
+	if (sr.start() == sr.end()) {
+		auto loc = sr.start();
+		std::string fn{sm->getFileName(loc)};
+		return Yosys::stringf("%s:%d.%d", fn.c_str(),
+			(int) sm->getLineNumber(loc), (int) sm->getColumnNumber(loc));
+	} else {
+		std::string fn{sm->getFileName(sr.start())};
+		return Yosys::stringf("%s:%d.%d-%d.%d", fn.c_str(),
+			(int) sm->getLineNumber(sr.start()), (int) sm->getColumnNumber(sr.start()),
+			(int) sm->getLineNumber(sr.end()), (int) sm->getColumnNumber(sr.end()));
+	}
+}
+
 template<typename T>
 void unimplemented_(const T &obj, const char *file, int line, const char *condition)
 {
@@ -41,7 +68,15 @@ void unimplemented_(const T &obj, const char *file, int line, const char *condit
 	ast::ASTSerializer serializer(*global_compilation, writer);
 	serializer.serialize(obj);
 	std::cout << writer.view() << std::endl;
-	log_error("Feature unimplemented at %s:%d, see AST dump above%s%s%s\n",
+	auto loc = source_location(obj);
+	log_assert(loc.start().buffer() == loc.end().buffer());
+	std::string_view source_text = global_sourcemgr->getSourceText(loc.start().buffer());
+	int col_no = global_sourcemgr->getColumnNumber(loc.start());
+	const char *line_start = source_text.data() + loc.start().offset() - col_no + 1;
+	const char *line_end = line_start;
+	while (*line_end && *line_end != '\n' && *line_end != '\r') line_end++;
+	std::cout << "Source line " << format_src(obj) << ": " << std::string_view(line_start, line_end) << std::endl;
+	log_error("Feature unimplemented at %s:%d, see AST and code line dump above%s%s%s\n",
 			  file, line, condition ? " (failed condition \"" : "", condition ? condition : "", condition ? "\")" : "");
 }
 #define require(obj, property) { if (!(property)) unimplemented_(obj, __FILE__, __LINE__, #property); }
@@ -76,31 +111,9 @@ static const RTLIL::Const svint_const(const slang::SVInt &svint)
 template<typename T>
 void transfer_attrs(T &from, RTLIL::AttrObject *to)
 {
-	auto sm = global_sourcemgr;
-	auto &sr = from.sourceRange;
-	if (sm->isFileLoc(sr.start()) && sm->isFileLoc(sr.end())) {
-		std::string fn{sm->getFileName(sr.start())};
-		to->set_src_attribute(Yosys::stringf("%s:%d.%d-%d.%d",
-			fn.c_str(), (int) sm->getLineNumber(sr.start()), (int) sm->getColumnNumber(sr.start()),
-			(int) sm->getLineNumber(sr.end()), (int) sm->getColumnNumber(sr.end())));
-	}
-
-	for (auto attr : global_compilation->getAttributes(from)) {
-		require(*attr, attr->getValue().isInteger());
-		to->attributes[id(attr->name)] = svint_const(attr->getValue().integer());
-	}
-}
-
-template<typename T>
-void transfer_attrs2(T &from, RTLIL::AttrObject *to)
-{
-	auto sm = global_sourcemgr;
-	auto &loc = from.location;
-	if (sm->isFileLoc(loc)) {
-		std::string fn{sm->getFileName(loc)};
-		to->set_src_attribute(Yosys::stringf("%s:%d.%d",
-			fn.c_str(), (int) sm->getLineNumber(loc), (int) sm->getColumnNumber(loc)));
-	}
+	auto src = format_src(from);
+	if (!src.empty())
+		to->attributes[Yosys::ID::src] = src;
 
 	for (auto attr : global_compilation->getAttributes(from)) {
 		require(*attr, attr->getValue().isInteger());
@@ -793,7 +806,7 @@ public:
 	void handle(const ast::ValueSymbol &sym)
 	{
 		auto w = mod->addWire(net_id(sym), sym.getType().getBitstreamWidth());
-		transfer_attrs2(sym, w);
+		transfer_attrs(sym, w);
 	}
 };
 
@@ -984,7 +997,7 @@ public:
 			}
 			cell->setPort(net_id(conn->port), signal);
 		}
-		transfer_attrs2(sym, cell);
+		transfer_attrs(sym, cell);
 	}
 
 	void handle(const ast::ContinuousAssignSymbol &sym)
@@ -1036,7 +1049,7 @@ public:
 		}
 
 		RTLIL::Module *mod = design->addModule(id(symbol.body.name));
-		transfer_attrs2(symbol.body, mod);
+		transfer_attrs(symbol.body, mod);
 
 		WireAddingVisitor wadder(mod);
 		symbol.body.visit(wadder);
