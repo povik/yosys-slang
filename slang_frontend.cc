@@ -201,8 +201,20 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 	return ret;
 }
 
+struct ProcedureContext
+{
+	// rvalue substitutions from blocking assignments
+	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs;
+
+	// arguments
+	Yosys::dict<const ast::Symbol*, RTLIL::SigSpec, Yosys::hash_ptr_ops> args;
+};
+
+static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpression &call,
+										ProcedureContext *ctx);
+
 static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expression &expr,
-										 const Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> *subs)
+										 ProcedureContext *ctx)
 {
 	RTLIL::SigSpec ret;
 
@@ -226,11 +238,13 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			case ast::SymbolKind::Net:
 			case ast::SymbolKind::Variable:
 				{
+					const auto &valsym = sym.as<ast::ValueSymbol>();
+					require(expr, valsym.getParentScope()->asSymbol().kind == ast::SymbolKind::InstanceBody);
 					RTLIL::Wire *wire = mod->wire(net_id(sym));
 					log_assert(wire);
 					ret = wire;
-					if (subs)
-						ret.replace(*subs);
+					if (ctx)
+						ret.replace(ctx->rvalue_subs);
 				}
 				break;
 			case ast::SymbolKind::Parameter:
@@ -242,6 +256,12 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 					ret = svint_const(exprconst->integer());
 				}
 				break;
+			case ast::SymbolKind::FormalArgument:
+				{
+					require(expr, ctx && ctx->args.count(&sym));
+					ret = ctx->args.at(&sym);
+				}
+				break;
 			default:
 				unimplemented(sym);
 			}
@@ -250,7 +270,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::UnaryOp:
 		{
 			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
-			RTLIL::SigSpec left = evaluate_rhs(mod, unop.operand(), subs);
+			RTLIL::SigSpec left = evaluate_rhs(mod, unop.operand(), ctx);
 			bool invert = false;
 
 			RTLIL::IdString type;
@@ -282,8 +302,8 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::BinaryOp:
 		{
 			const ast::BinaryExpression &biop = expr.as<ast::BinaryExpression>();
-			RTLIL::SigSpec left = evaluate_rhs(mod, biop.left(), subs);
-			RTLIL::SigSpec right = evaluate_rhs(mod, biop.right(), subs);
+			RTLIL::SigSpec left = evaluate_rhs(mod, biop.left(), ctx);
+			RTLIL::SigSpec right = evaluate_rhs(mod, biop.right(), ctx);
 
 			RTLIL::IdString type;
 			switch (biop.op) {
@@ -352,7 +372,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			require(expr, from.isIntegral() /* && from.isScalar() */);
 			require(expr, to.isIntegral() /* && to.isScalar() */);
 			require(conv, from.isSigned() == to.isSigned() || to.getBitWidth() <= from.getBitWidth());
-			ret = evaluate_rhs(mod, conv.operand(), subs);
+			ret = evaluate_rhs(mod, conv.operand(), ctx);
 			ret.extend_u0((int) to.getBitWidth(), to.isSigned());
 		}
 		break;
@@ -369,7 +389,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			require(expr, sel.right().constant && sel.left().constant);
 			int right = sel.right().constant->integer().as<int>().value(); // TODO: left vs right
 			int left = sel.left().constant->integer().as<int>().value();
-			ret = evaluate_rhs(mod, sel.value(), subs).extract(right, left - right + 1);
+			ret = evaluate_rhs(mod, sel.value(), ctx).extract(right, left - right + 1);
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
@@ -379,8 +399,8 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			int stride = elemsel.value().type->getArrayElementType()->getBitWidth();
 
 			// TODO: check what's proper out-of-range handling
-			RTLIL::SigSpec idx = evaluate_rhs(mod, elemsel.selector(), subs);
-			RTLIL::SigSpec val = evaluate_rhs(mod, elemsel.value(), subs);
+			RTLIL::SigSpec idx = evaluate_rhs(mod, elemsel.selector(), ctx);
+			RTLIL::SigSpec val = evaluate_rhs(mod, elemsel.value(), ctx);
 			log_assert(val.size() % stride == 0);
 			RTLIL::SigBit valid = RTLIL::State::S1;
 			if (ceil_log2(val.size() / stride) < idx.size())
@@ -395,7 +415,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 		{
 			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
 			for (auto op : concat.operands())
-				ret = {ret, evaluate_rhs(mod, *op, subs)};
+				ret = {ret, evaluate_rhs(mod, *op, ctx)};
 		}
 		break;
 	case ast::ExpressionKind::ConditionalOp:
@@ -406,9 +426,9 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			require(expr, !ternary.conditions[0].pattern);
 
 			ret = mod->Mux(NEW_ID,
-				evaluate_rhs(mod, ternary.right(), subs),
-				evaluate_rhs(mod, ternary.left(), subs),
-				mod->ReduceBool(NEW_ID, evaluate_rhs(mod, *(ternary.conditions[0].expr), subs))
+				evaluate_rhs(mod, ternary.right(), ctx),
+				evaluate_rhs(mod, ternary.left(), ctx),
+				mod->ReduceBool(NEW_ID, evaluate_rhs(mod, *(ternary.conditions[0].expr), ctx))
 			);
 		}
 		break;
@@ -417,7 +437,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			const auto &repl = expr.as<ast::ReplicationExpression>();
 			require(expr, repl.count().constant); // TODO: message
 			int reps = repl.count().constant->integer().as<int>().value(); // TODO: checking
-			RTLIL::SigSpec concat = evaluate_rhs(mod, repl.concat(), subs);
+			RTLIL::SigSpec concat = evaluate_rhs(mod, repl.concat(), ctx);
 			for (int i = 0; i < reps; i++)
 				ret.append(concat);
 		}
@@ -425,10 +445,16 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::Call:
 		{
 			const auto &call = expr.as<ast::CallExpression>();
-			// TODO: message
-			require(expr, call.getSubroutineName() == "$signed");
-			require(expr, call.arguments().size() == 1);
-			return evaluate_rhs(mod, *call.arguments()[0], subs);
+			if (call.isSystemCall()) {
+				require(expr, call.getSubroutineName() == "$signed");
+				require(expr, call.arguments().size() == 1);
+				ret = evaluate_rhs(mod, *call.arguments()[0], ctx);
+			} else {
+				const auto &subr = *std::get<0>(call.subroutine);
+				require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
+				return evaluate_function(mod, call, ctx);
+
+			}
 		}
 		break;
 	default:
@@ -516,16 +542,18 @@ public:
 	RTLIL::Process *proc;
 	RTLIL::CaseRule *current_case;
 
-	// rvalue substitutions from blocking assignments
-	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs;
+	ProcedureContext ctx;
 
 	Yosys::SigPool assigned_blocking;
 	Yosys::SigPool assigned_nonblocking;
 
+	// TODO: static
 	int print_priority = 0;
 
-	ProceduralVisitor(RTLIL::Module *mod, RTLIL::Process *proc)
-			: mod(mod), proc(proc) {
+	enum Mode { ALWAYS, FUNCTION } mode;
+
+	ProceduralVisitor(RTLIL::Module *mod, RTLIL::Process *proc, Mode mode)
+			: mod(mod), proc(proc), mode(mode) {
 		RTLIL::SwitchRule *top_switch = new RTLIL::SwitchRule;
 		proc->root_case.switches.push_back(top_switch);
 		current_case = new RTLIL::CaseRule;
@@ -651,7 +679,7 @@ public:
 							}
 						default:
 							fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
-							fmt_arg.sig = evaluate_rhs(mod, *arg, &rvalue_subs);
+							fmt_arg.sig = evaluate_rhs(mod, *arg, &ctx);
 							fmt_arg.signed_ = arg->type->isSigned();
 							break;
 						}
@@ -685,7 +713,7 @@ public:
 		if (assign.left().kind == ast::ExpressionKind::ElementSelect \
 				&& !assign.left().as<ast::ElementSelectExpression>().selector().constant) {
 			auto &elemsel = assign.left().as<ast::ElementSelectExpression>();
-			RTLIL::SigSpec selvalue = evaluate_rhs(mod, elemsel.selector(), &rvalue_subs);
+			RTLIL::SigSpec selvalue = evaluate_rhs(mod, elemsel.selector(), &ctx);
 			require(expr, elemsel.value().type->getArrayElementType()); // TODO: extend
 			int stride = elemsel.value().type->getArrayElementType()->getBitWidth();
 
@@ -693,22 +721,22 @@ public:
 			log_assert(lvalue.size() % stride == 0);
 			// TODO: check out-of-range handling
 			RTLIL::SigSpec mask = mod->Demux(NEW_ID, RTLIL::SigSpec(RTLIL::State::S1, stride), selvalue);
-			RTLIL::SigSpec lvalue_rhs = evaluate_rhs(mod, elemsel.value(), &rvalue_subs);
+			RTLIL::SigSpec lvalue_rhs = evaluate_rhs(mod, elemsel.value(), &ctx);
 			RTLIL::SigSpec rvalue_repeat;
-			rvalue = evaluate_rhs(mod, assign.right(), &rvalue_subs);
+			rvalue = evaluate_rhs(mod, assign.right(), &ctx);
 			while (rvalue_repeat.size() < lvalue.size())
 				rvalue_repeat.append(rvalue);
 			mask.extend_u0(lvalue.size());
 			rvalue = mod->Bwmux(NEW_ID, lvalue_rhs, rvalue_repeat, mask);
 		} else {
 			lvalue = evaluate_lhs(mod, assign.left());
-			rvalue = evaluate_rhs(mod, assign.right(), &rvalue_subs);
+			rvalue = evaluate_rhs(mod, assign.right(), &ctx);
 		}
 		log_assert(lvalue.size() == rvalue.size());
 
 		if (blocking) {
 			for (int i = 0; i < lvalue.size(); i++)
-				rvalue_subs[lvalue[i]] = rvalue[i];
+				ctx.rvalue_subs[lvalue[i]] = rvalue[i];
 			// TODO: proper message on blocking/nonblocking mixing
 			log_assert(!assigned_nonblocking.check_any(lvalue));
 			assigned_blocking.add(lvalue);
@@ -741,9 +769,9 @@ public:
 
 		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec condition = mod->ReduceBool(NEW_ID,
-			evaluate_rhs(mod, *cond.conditions[0].expr, &rvalue_subs)
+			evaluate_rhs(mod, *cond.conditions[0].expr, &ctx)
 		);
-		SwitchBuilder b(current_case, &rvalue_subs, condition);
+		SwitchBuilder b(current_case, &ctx.rvalue_subs, condition);
 		transfer_attrs(cond, b.sw);
 
 		b.branch({RTLIL::S1}, [&](RTLIL::CaseRule *rule){
@@ -775,15 +803,15 @@ public:
 		require(stmt, stmt.check == ast::UniquePriorityCheck::None);
 
 		RTLIL::CaseRule *case_save = current_case;
-		RTLIL::SigSpec dispatch = evaluate_rhs(mod, stmt.expr, &rvalue_subs);
-		SwitchBuilder b(current_case, &rvalue_subs, dispatch);
+		RTLIL::SigSpec dispatch = evaluate_rhs(mod, stmt.expr, &ctx);
+		SwitchBuilder b(current_case, &ctx.rvalue_subs, dispatch);
 		transfer_attrs(stmt, b.sw);
 
 		for (auto item : stmt.items) {
 			std::vector<RTLIL::SigSpec> compares;
 			for (auto expr : item.expressions) {
 				log_assert(expr);
-				RTLIL::SigSpec compare = evaluate_rhs(mod, *expr, &rvalue_subs);
+				RTLIL::SigSpec compare = evaluate_rhs(mod, *expr, &ctx);
 				log_assert(compare.size() == dispatch.size());
 				compares.push_back(compare);
 			}
@@ -822,6 +850,27 @@ public:
 		unimplemented(stmt);
 	}
 };
+
+static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpression &call,
+										ProcedureContext *ctx)
+{
+	const auto &subr = *std::get<0>(call.subroutine);
+	log_assert(subr.subroutineKind == ast::SubroutineKind::Function);
+	RTLIL::Process *proc = mod->addProcess(NEW_ID);
+	ProceduralVisitor visitor(mod, proc, ProceduralVisitor::FUNCTION);
+	log_assert(call.arguments().size() == subr.getArguments().size());
+	for (int i = 0; i < call.arguments().size(); i++)
+		visitor.ctx.args[subr.getArguments()[i]] = \
+			evaluate_rhs(mod, *call.arguments()[i], ctx);
+	subr.getBody().visit(visitor);
+
+	// This is either a hack or brilliant: it just so happens that the WireAddingVisitor
+	// has created a placeholder wire we can use here. That wire doesn't make sense as a
+	// netlist element though.
+	RTLIL::SigSpec ret = mod->wire(net_id(*subr.returnValVar));
+	ret.replace(visitor.staging);
+	return ret;
+}
 
 struct WireAddingVisitor : public ast::ASTVisitor<WireAddingVisitor, true, false> {
 public:
@@ -929,7 +978,7 @@ public:
 				if (!populate_sync(proc, timed.timing))
 					unimplemented(timed)
 
-				ProceduralVisitor visitor(mod, proc);
+				ProceduralVisitor visitor(mod, proc, ProceduralVisitor::ALWAYS);
 				timed.stmt.visit(visitor);
 				visitor.staging_done();
 			}
@@ -942,7 +991,7 @@ public:
 				proc->syncs.push_back(sync);
 				sync->type = RTLIL::SyncType::STa;
 
-				ProceduralVisitor visitor(mod, proc);
+				ProceduralVisitor visitor(mod, proc, ProceduralVisitor::ALWAYS);
 				sym.getBody().visit(visitor);
 				visitor.staging_done();
 			}
@@ -1040,11 +1089,6 @@ public:
 		mod->connect(evaluate_lhs(mod, expr.left()), evaluate_rhs(mod, expr.right(), NULL));		
 	}
 
-	void handle(const ast::SubroutineSymbol &sym)
-	{
-		require(sym, sym.members().empty());
-	}
-
 	void handle(const ast::GenerateBlockSymbol &sym)
 	{
 		if (sym.isUninstantiated)
@@ -1059,6 +1103,7 @@ public:
 
 	void handle(const ast::TypeAliasType &type) {}
 	void handle(const ast::TransparentMemberSymbol &sym) {}
+	void handle(YS_MAYBE_UNUSED const ast::SubroutineSymbol &sym) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{
