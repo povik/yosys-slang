@@ -815,6 +815,7 @@ public:
 
 	void handle(YS_MAYBE_UNUSED const ast::InvalidStatement &stmt) { log_abort(); }
 	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
+	void handle(YS_MAYBE_UNUSED const ast::VariableDeclStatement &stmt) {}
 
 	void handle(const ast::Statement &stmt)
 	{
@@ -1057,6 +1058,12 @@ public:
 	}
 
 	void handle(const ast::TypeAliasType &type) {}
+	void handle(const ast::TransparentMemberSymbol &sym) {}
+
+	void handle(const ast::StatementBlockSymbol &sym)
+	{
+		visitDefault(sym);
+	}
 
 	void handle(const ast::Symbol &sym)
 	{
