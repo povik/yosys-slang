@@ -821,7 +821,10 @@ public:
 	void handle(const ast::CaseStatement &stmt)
 	{
 		require(stmt, stmt.condition == ast::CaseStatementCondition::Normal);
-		require(stmt, stmt.check == ast::UniquePriorityCheck::None);
+		if (stmt.check != ast::UniquePriorityCheck::None) {
+			auto src = format_src(stmt);
+			log_warning("%s: Ignoring priority check\n", src.c_str());
+		}
 
 		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec dispatch = evaluate_rhs(mod, stmt.expr, &ctx);
