@@ -1314,6 +1314,7 @@ public:
 
 	void handle(YS_MAYBE_UNUSED const ast::Type &type) {}
 	void handle(YS_MAYBE_UNUSED const ast::NetType &type) {}
+	void handle(YS_MAYBE_UNUSED const ast::ForwardingTypedefSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::TransparentMemberSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::SubroutineSymbol &sym) {}
 	void handle(const ast::VariableSymbol &sym) {}
