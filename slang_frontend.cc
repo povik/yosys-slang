@@ -599,6 +599,14 @@ struct SwitchBuilder {
 	}
 };
 
+void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
+{
+	for (int i = mask.size() - 1; i >= 0; i--) {
+		if (mask[i] == RTLIL::S0)
+			target.remove(i, 1);
+	}
+}
+
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
 	RTLIL::Module *mod;
@@ -770,36 +778,90 @@ public:
 		const auto &assign = expr.expr.as<ast::AssignmentExpression>();
 		bool blocking = !assign.isNonBlocking();
 
-		RTLIL::SigSpec lvalue;
-		RTLIL::SigSpec rvalue;
+		RTLIL::SigSpec rvalue = evaluate_rhs(mod, assign.right(), &ctx);
 
-		if (assign.left().kind == ast::ExpressionKind::ElementSelect \
-				&& !assign.left().as<ast::ElementSelectExpression>().selector().constant) {
-			auto &elemsel = assign.left().as<ast::ElementSelectExpression>();
-			RTLIL::SigSpec selvalue = evaluate_rhs(mod, elemsel.selector(), &ctx);
-			require(expr, elemsel.value().type->getArrayElementType()); // TODO: extend
-			int stride = elemsel.value().type->getArrayElementType()->getBitWidth();
+		const ast::Expression *raw_lexpr = &assign.left();
+		RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
 
-			lvalue = evaluate_lhs(mod, elemsel.value());
-			log_assert(lvalue.size() % stride == 0);
-			// TODO: check out-of-range handling
-			RTLIL::SigSpec mask = mod->Demux(NEW_ID, RTLIL::SigSpec(RTLIL::State::S1, stride), selvalue);
-			RTLIL::SigSpec lvalue_rhs = evaluate_rhs(mod, elemsel.value(), &ctx);
-			RTLIL::SigSpec rvalue_repeat;
-			rvalue = evaluate_rhs(mod, assign.right(), &ctx);
-			while (rvalue_repeat.size() < lvalue.size())
-				rvalue_repeat.append(rvalue);
-			mask.extend_u0(lvalue.size());
-			rvalue = mod->Bwmux(NEW_ID, lvalue_rhs, rvalue_repeat, mask);
-		} else {
-			lvalue = evaluate_lhs(mod, assign.left());
-			rvalue = evaluate_rhs(mod, assign.right(), &ctx);
+		bool finished_etching = false;
+		while (!finished_etching) {
+			switch (raw_lexpr->kind) {
+			case ast::ExpressionKind::RangeSelect:
+				{
+					const ast::RangeSelectExpression &sel = raw_lexpr->as<ast::RangeSelectExpression>();
+					require(expr, sel.getSelectionKind() == ast::RangeSelectionKind::Simple);
+					require(expr, sel.left().constant && sel.right().constant);
+					int left = sel.left().constant->integer().as<int>().value();
+					int right = sel.right().constant->integer().as<int>().value();
+					require(expr, sel.value().type->hasFixedRange());
+					auto range = sel.value().type->getFixedRange();
+					int raw_left = range.translateIndex(left);
+					int raw_right = range.translateIndex(right);
+					log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
+					int stride = sel.value().type->getBitstreamWidth() / range.width();
+					RTLIL::SigSpec elem_0(RTLIL::S0, stride);
+					RTLIL::SigSpec elem_x(RTLIL::Sx, stride);
+					raw_mask = {elem_0.repeat(range.width() - raw_left - 1), raw_mask, elem_0.repeat(raw_right)};
+					raw_rvalue = {elem_x.repeat(range.width() - raw_left - 1), raw_rvalue, elem_x.repeat(raw_right)};
+					raw_lexpr = &sel.value();
+				}
+				break;
+			case ast::ExpressionKind::ElementSelect:
+				{
+					auto &elemsel = raw_lexpr->as<ast::ElementSelectExpression>();
+					require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
+					int stride = elemsel.type->getBitstreamWidth();
+					auto range = elemsel.value().type->getFixedRange();
+					RTLIL::SigSpec raw_idx;
+					RTLIL::SigBit valid;
+					std::tie(raw_idx, valid) = translate_index(mod, elemsel.selector(), range, &ctx);
+					// TODO: use valid
+					raw_mask = mod->Demux(NEW_ID, raw_mask, raw_idx);
+					raw_mask.extend_u0(stride * range.width());
+					raw_rvalue = raw_rvalue.repeat(range.width());
+					raw_lexpr = &elemsel.value();
+				}
+				break;
+			case ast::ExpressionKind::MemberAccess:
+				{
+					const auto &acc = raw_lexpr->as<ast::MemberAccessExpression>();
+					require(expr, acc.member.kind == ast::SymbolKind::Field);
+					const auto &member = acc.member.as<ast::FieldSymbol>();
+					require(acc, member.randMode == ast::RandMode::None);
+					int pad = acc.value().type->getBitstreamWidth() - acc.type->getBitstreamWidth() - member.bitOffset;
+					raw_mask = {RTLIL::SigSpec(RTLIL::S0, pad), raw_mask, RTLIL::SigSpec(RTLIL::S0, member.bitOffset)};
+					raw_rvalue = {RTLIL::SigSpec(RTLIL::Sx, pad), raw_rvalue, RTLIL::SigSpec(RTLIL::Sx, member.bitOffset)};
+					raw_lexpr = &acc.value();
+				}
+				break;
+			default:
+				finished_etching = true;
+				break;
+			}
+			if (raw_mask.size() != raw_lexpr->type->getBitstreamWidth())
+				unimplemented(expr);
+			log_assert(raw_mask.size() == raw_lexpr->type->getBitstreamWidth());
+			log_assert(raw_rvalue.size() == raw_lexpr->type->getBitstreamWidth());
 		}
-		log_assert(lvalue.size() == rvalue.size());
 
+		RTLIL::SigSpec lvalue = evaluate_lhs(mod, *raw_lexpr);
+		crop_zero_mask(raw_mask, lvalue);
+		crop_zero_mask(raw_mask, raw_rvalue);
+		crop_zero_mask(raw_mask, raw_mask);
+
+		RTLIL::SigSpec masked_rvalue;
+		if (raw_mask.is_fully_ones()) {
+			masked_rvalue = raw_rvalue;
+		} else {
+			RTLIL::SigSpec raw_lvalue_sampled = lvalue;
+			raw_lvalue_sampled.replace(ctx.rvalue_subs);
+			masked_rvalue = mod->Bwmux(NEW_ID, raw_lvalue_sampled, raw_rvalue, raw_mask);
+		}
+
+		log_assert(lvalue.size() == masked_rvalue.size());
 		if (blocking) {
 			for (int i = 0; i < lvalue.size(); i++)
-				ctx.rvalue_subs[lvalue[i]] = rvalue[i];
+				ctx.rvalue_subs[lvalue[i]] = masked_rvalue[i];
 			// TODO: proper message on blocking/nonblocking mixing
 			log_assert(!assigned_nonblocking.check_any(lvalue));
 			assigned_blocking.add(lvalue);
@@ -811,7 +873,7 @@ public:
 
 		current_case->actions.push_back(RTLIL::SigSig(
 			staging_signal(lvalue),
-			rvalue
+			masked_rvalue
 		));
 	}
 
