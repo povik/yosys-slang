@@ -1232,8 +1232,9 @@ public:
 		visitDefault(sym);
 	}
 
-	void handle(const ast::TypeAliasType &type) {}
-	void handle(const ast::TransparentMemberSymbol &sym) {}
+	void handle(YS_MAYBE_UNUSED const ast::Type &type) {}
+	void handle(YS_MAYBE_UNUSED const ast::NetType &type) {}
+	void handle(YS_MAYBE_UNUSED const ast::TransparentMemberSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::SubroutineSymbol &sym) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
