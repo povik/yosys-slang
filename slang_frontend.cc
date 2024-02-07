@@ -168,11 +168,17 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
 			require(expr, sel.getSelectionKind() == ast::RangeSelectionKind::Simple);
-			require(expr, sel.right().constant && sel.left().constant);
-			int right = sel.right().constant->integer().as<int>().value(); // TODO: left vs right
+			require(expr, sel.left().constant && sel.right().constant);
 			int left = sel.left().constant->integer().as<int>().value();
-
-			ret = evaluate_lhs(mod, sel.value()).extract(right, left - right + 1);
+			int right = sel.right().constant->integer().as<int>().value();
+			require(expr, sel.value().type->hasFixedRange());
+			auto range = sel.value().type->getFixedRange();
+			int raw_left = range.translateIndex(left);
+			int raw_right = range.translateIndex(right);
+			log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
+			int stride = sel.value().type->getBitstreamWidth() / range.width();
+			ret = evaluate_lhs(mod, sel.value()).extract(raw_right * stride,
+												stride * (raw_left - raw_right + 1));
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
@@ -427,10 +433,17 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
 			require(expr, sel.getSelectionKind() == ast::RangeSelectionKind::Simple);
-			require(expr, sel.right().constant && sel.left().constant);
-			int right = sel.right().constant->integer().as<int>().value(); // TODO: left vs right
+			require(expr, sel.left().constant && sel.right().constant);
 			int left = sel.left().constant->integer().as<int>().value();
-			ret = evaluate_rhs(mod, sel.value(), ctx).extract(right, left - right + 1);
+			int right = sel.right().constant->integer().as<int>().value();
+			require(expr, sel.value().type->hasFixedRange());
+			auto range = sel.value().type->getFixedRange();
+			int raw_left = range.translateIndex(left);
+			int raw_right = range.translateIndex(right);
+			log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
+			int stride = sel.value().type->getBitstreamWidth() / range.width();
+			ret = evaluate_rhs(mod, sel.value(), ctx).extract(raw_right * stride,
+												stride * (raw_left - raw_right + 1));
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
