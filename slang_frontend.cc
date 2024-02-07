@@ -169,6 +169,7 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 
 static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expression &expr)
 {
+	require(expr, expr.type->isFixedSize());
 	RTLIL::SigSpec ret;
 
 	switch (expr.kind) {
@@ -278,6 +279,7 @@ static const std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(RTLIL::Mod
 static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expression &expr,
 										 ProcedureContext *ctx)
 {
+	require(expr, expr.type->isFixedSize());
 	RTLIL::SigSpec ret;
 
 	{
@@ -1015,6 +1017,7 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 	// This is either a hack or brilliant: it just so happens that the WireAddingVisitor
 	// has created a placeholder wire we can use here. That wire doesn't make sense as a
 	// netlist element though.
+	require(subr, subr.returnValVar->getType().isFixedSize());
 	RTLIL::SigSpec ret = mod->wire(net_id(*subr.returnValVar));
 	ret.replace(visitor.staging);
 	return ret;
