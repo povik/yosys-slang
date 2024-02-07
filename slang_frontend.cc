@@ -186,10 +186,11 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 			require(expr, elemsel.selector().constant);
-			require(expr, elemsel.value().type->getArrayElementType()); // TODO: extend
+			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
 			int idx = elemsel.selector().constant->integer().as<int>().value();
-			int stride = elemsel.value().type->getArrayElementType()->getBitWidth();
-			ret = evaluate_lhs(mod, elemsel.value()).extract(stride * idx, stride);
+			int stride = elemsel.type->getBitstreamWidth();
+			uint32_t raw_idx = elemsel.value().type->getFixedRange().translateIndex(idx);
+			ret = evaluate_lhs(mod, elemsel.value()).extract(stride * raw_idx, stride);
 		}
 		break;
 	case ast::ExpressionKind::MemberAccess:
@@ -207,6 +208,7 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 		break;
 	}
 
+	log_assert(expr.type->isFixedSize());
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
 }
@@ -222,6 +224,34 @@ struct ProcedureContext
 
 static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpression &call,
 										ProcedureContext *ctx);
+
+static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expression &expr,
+										 ProcedureContext *ctx);
+
+static const std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(RTLIL::Module *mod, const ast::Expression &idxexpr,
+																	  slang::ConstantRange range, ProcedureContext *ctx)
+{
+	RTLIL::SigSpec idx = evaluate_rhs(mod, idxexpr, ctx);
+	bool idx_signed = idxexpr.type->isSigned();
+
+	if (!idx_signed) {
+		idx.append(RTLIL::S0);
+		idx_signed = true;
+	}
+
+	RTLIL::SigBit valid = mod->LogicAnd(NEW_ID,
+		mod->Le(NEW_ID, idx, RTLIL::Const(range.upper()), /* is_signed */ true),
+		mod->Ge(NEW_ID, idx, RTLIL::Const(range.lower()), /* is_signed */ true)
+	);
+
+	RTLIL::SigSpec raw_idx;
+	if (range.left > range.right)
+		raw_idx = mod->Sub(NEW_ID, idx, RTLIL::Const(range.right), /* is_signed */ true);
+	else
+		raw_idx = mod->Sub(NEW_ID, RTLIL::Const(range.right), idx, /* is_signed */ true);
+	raw_idx.extend_u0(ceil_log2(range.width()));
+	return std::make_pair(raw_idx, valid);
+}
 
 static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expression &expr,
 										 ProcedureContext *ctx)
@@ -406,20 +436,18 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::ElementSelect:
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
-			require(expr, elemsel.value().type->getArrayElementType());
-			int stride = elemsel.value().type->getArrayElementType()->getBitWidth();
-
+			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
+			int stride = elemsel.type->getBitstreamWidth();
+			RTLIL::SigSpec base_value = evaluate_rhs(mod, elemsel.value(), ctx);
+			log_assert(base_value.size() % stride == 0);
+			auto range = elemsel.value().type->getFixedRange();
+			RTLIL::SigSpec raw_idx;
+			RTLIL::SigBit valid;
+			std::tie(raw_idx, valid) = translate_index(mod, elemsel.selector(), range, ctx);
+			log_assert(stride * (1 << raw_idx.size()) >= base_value.size());
+			base_value.append(RTLIL::SigSpec(RTLIL::Sx, stride * (1 << raw_idx.size()) - base_value.size()));
 			// TODO: check what's proper out-of-range handling
-			RTLIL::SigSpec idx = evaluate_rhs(mod, elemsel.selector(), ctx);
-			RTLIL::SigSpec val = evaluate_rhs(mod, elemsel.value(), ctx);
-			log_assert(val.size() % stride == 0);
-			RTLIL::SigBit valid = RTLIL::State::S1;
-			if (ceil_log2(val.size() / stride) < idx.size())
-				valid = mod->LogicNot(NEW_ID, idx.extract_end(ceil_log2(val.size())));
-
-			val.extend_u0(stride * (1 << ceil_log2(val.size()))); // extend val
-			idx.extend_u0(ceil_log2(val.size() / stride)); // crop idx
-			ret = mod->Mux(NEW_ID, RTLIL::SigSpec(RTLIL::State::Sx, stride), mod->Bmux(NEW_ID, val, idx), valid);
+			ret = mod->Mux(NEW_ID, RTLIL::SigSpec(RTLIL::State::Sx, stride), mod->Bmux(NEW_ID, base_value, raw_idx), valid);
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
@@ -483,6 +511,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	}
 
 done:
+	log_assert(expr.type->isFixedSize());
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
 }
