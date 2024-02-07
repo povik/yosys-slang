@@ -1024,9 +1024,9 @@ public:
 	InitialProceduralVisitor(RTLIL::Module *mod)
 		: mod(mod) {}
 
-	void handle(const ast::Symbol &sym)
+	void handle(const ast::Statement &stmt)
 	{
-		unimplemented(sym);
+		unimplemented(stmt);
 	}
 };
 
