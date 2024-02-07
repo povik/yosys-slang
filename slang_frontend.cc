@@ -6,6 +6,9 @@
 //
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Compilation.h"
+#include "slang/ast/EvalContext.h"
+#include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/TextDiagnosticClient.h"
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
@@ -18,7 +21,9 @@
 #include "kernel/sigtools.h"
 #include "kernel/utils.h"
 
-PRIVATE_NAMESPACE_BEGIN
+#include "initial_eval.h"
+
+inline namespace slang_frontend {
 
 using Yosys::log;
 using Yosys::log_error;
@@ -33,6 +38,8 @@ namespace ast = slang::ast;
 
 ast::Compilation *global_compilation;
 const slang::SourceManager *global_sourcemgr;
+slang::DiagnosticEngine *global_diagengine;
+slang::TextDiagnosticClient *global_diagclient;
 
 slang::SourceRange source_location(const ast::Symbol &obj)			{ return slang::SourceRange(obj.location, obj.location); }
 slang::SourceRange source_location(const ast::Expression &expr)		{ return expr.sourceRange; }
@@ -82,6 +89,15 @@ void unimplemented_(const T &obj, const char *file, int line, const char *condit
 }
 #define require(obj, property) { if (!(property)) unimplemented_(obj, __FILE__, __LINE__, #property); }
 #define unimplemented(obj) { unimplemented_(obj, __FILE__, __LINE__, NULL); }
+
+// step outside slang_frontend namespace for a minute, to patch in
+// unimplemented() into the SlangInitial evaluator
+};
+ast::Statement::EvalResult SlangInitial::EvalVisitor::visit(const ast::Statement &stmt)
+{
+	unimplemented(stmt);
+}
+inline namespace slang_frontend {
 
 const RTLIL::IdString id(const std::string_view &view)
 {
@@ -735,7 +751,7 @@ public:
 						case ast::ExpressionKind::StringLiteral:
 							fmt_arg.type = Yosys::VerilogFmtArg::STRING;
 							fmt_arg.str = std::string{arg->as<ast::StringLiteral>().getValue()};
-							fmt_arg.sig = {}; // TODO
+							fmt_arg.sig = {};
 							break;
 						case ast::ExpressionKind::Call:
 							if (arg->as<ast::CallExpression>().getSubroutineName() == "$time") {
@@ -1000,41 +1016,56 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 	return ret;
 }
 
-struct WireAddingVisitor : public ast::ASTVisitor<WireAddingVisitor, true, false> {
-public:
-	RTLIL::Module *mod;
-
-	WireAddingVisitor(RTLIL::Module *mod)
-		: mod(mod) {}
-
-	// Do not descend into other modules
-	void handle(YS_MAYBE_UNUSED const ast::InstanceSymbol &sym) { }
-
-	void handle(const ast::ValueSymbol &sym)
-	{
-		require(sym, sym.getType().isFixedSize());
-		auto w = mod->addWire(net_id(sym), sym.getType().getBitstreamWidth());
-		transfer_attrs(sym, w);
-	}
-};
-
-struct InitialProceduralVisitor : public ast::ASTVisitor<InitialProceduralVisitor, true, false> {
-public:
-	RTLIL::Module *mod;
-	InitialProceduralVisitor(RTLIL::Module *mod)
-		: mod(mod) {}
-
-	void handle(const ast::Statement &stmt)
-	{
-		unimplemented(stmt);
-	}
-};
-
 struct ModulePopulatingVisitor : public ast::ASTVisitor<ModulePopulatingVisitor, true, false> {
 public:
 	RTLIL::Module *mod;
+
+	struct InitialEvalVisitor : SlangInitial::EvalVisitor {
+		RTLIL::Module *mod;
+
+		InitialEvalVisitor(ast::Compilation *compilation, RTLIL::Module *mod)
+			: SlangInitial::EvalVisitor(compilation), mod(mod) {}
+
+		void handleDisplay(const slang::ast::CallExpression &call, const std::vector<slang::ConstantValue> &args) {
+			auto cell = mod->addCell(NEW_ID, ID($print));
+			// TODO: attributes
+			// TODO: priority
+			cell->parameters[Yosys::ID::TRG_ENABLE] = true;
+			cell->parameters[Yosys::ID::TRG_WIDTH] = 0;
+			cell->parameters[Yosys::ID::TRG_POLARITY] = {};
+			cell->parameters[Yosys::ID::PRIORITY] = 0;
+			cell->setPort(Yosys::ID::EN, RTLIL::S1);
+			cell->setPort(Yosys::ID::TRG, {});
+			std::vector<Yosys::VerilogFmtArg> fmt_args;
+			for (int i = 0; i < call.arguments().size(); i++) {
+				const ast::Expression *arg_expr = call.arguments()[i];
+				const auto &arg = args[i];
+				Yosys::VerilogFmtArg fmt_arg = {};
+				// TODO: location info in fmt_arg
+				if (arg_expr->kind == ast::ExpressionKind::StringLiteral) {
+					fmt_arg.type = Yosys::VerilogFmtArg::STRING;
+					fmt_arg.str = std::string{arg_expr->as<ast::StringLiteral>().getValue()};
+					fmt_arg.sig = {}; // TODO
+				} else if (arg.isInteger()) {
+					fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
+					fmt_arg.sig = svint_const(arg.integer());
+					fmt_arg.signed_ = arg.integer().isSigned();
+				} else {
+					log_assert(false && "unimplemented");
+				}
+				fmt_args.push_back(fmt_arg);	
+			}
+			Yosys::Fmt fmt = {};
+			// TODO: default_base is subroutine dependent, final newline is $display-only
+			fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
+							  std::string{call.getSubroutineName()}, mod->name);
+			fmt.append_string("\n");
+			fmt.emit_rtlil(cell);
+		}
+	} initial_eval;
+
 	ModulePopulatingVisitor(RTLIL::Module *mod)
-		: mod(mod) {}
+		: mod(mod), initial_eval(global_compilation, mod) {}
 
 	bool populate_sync(RTLIL::Process *proc, const ast::TimingControl &timing)
 	{
@@ -1128,8 +1159,14 @@ public:
 
 		case ast::ProceduralBlockKind::Initial:
 			{
-				InitialProceduralVisitor visitor(mod);
-				sym.getBody().visit(visitor);
+				auto result = sym.getBody().visit(initial_eval);
+				if (result != ast::Statement::EvalResult::Success) {
+					for (auto& diag : initial_eval.context.getAllDiagnostics())
+        				global_diagengine->issue(diag);
+        			auto str = global_diagclient->getString();
+					log_error("Failed to execute initial block\n%s\n",
+							  str.c_str());
+				}
 			}
 			break;
 		case ast::ProceduralBlockKind::Final:
@@ -1148,27 +1185,6 @@ public:
 	{
 		if (sym.getInitializer())
 			mod->connect(mod->wire(net_id(sym)), evaluate_rhs(mod, *sym.getInitializer(), NULL));
-	}
-
-	void handle(const ast::VariableSymbol &sym)
-	{
-		RTLIL::Wire *w = mod->wire(net_id(sym));
-		log_assert(w);
-		slang::ConstantValue defvalue;
-		if (sym.getInitializer()) {
-			auto init = sym.getInitializer();
-			{ // TODO: get rid of
-				ast::ASTContext ctx(global_compilation->getRoot(), ast::LookupLocation::max);
-				ctx.tryEval(*init);
-			}
-			require(sym, init->constant);
-			defvalue = *init->constant;
-		} else {
-			defvalue = sym.getType().getDefaultValue();
-		}
-		RTLIL::Const initval = const_const(defvalue);
-		if (!initval.is_fully_undef())
-			w->attributes[RTLIL::ID::init] = initval;
 	}
 
 	void handle(const ast::PortSymbol &sym)
@@ -1229,13 +1245,78 @@ public:
 
 	void handle(const ast::InstanceBodySymbol &sym)
 	{
+		auto wadd = ast::makeVisitor([&](auto& visitor, const ast::ValueSymbol &sym) {
+			if (sym.getType().isFixedSize()) {
+				auto w = mod->addWire(net_id(sym), sym.getType().getBitstreamWidth());
+				transfer_attrs(sym, w);
+			}
+		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+			/* do not descend into other modules */
+		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
+			/* stop at uninstantiated generate blocks */
+			if (sym.isUninstantiated)
+				return;
+			visitor.visitDefault(sym);
+		});
+		sym.visit(wadd);
+
+		auto varinit = ast::makeVisitor([&](auto& visitor, const ast::VariableSymbol &sym) {
+			slang::ConstantValue initval = nullptr;
+			if (sym.getInitializer())
+				initval = sym.getInitializer()->eval(initial_eval.context);
+			initial_eval.context.createLocal(&sym, initval);
+		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+			/* do not descend into other modules */
+		}, [&](auto& visitor, const ast::ProceduralBlockSymbol& sym) {
+			/* do not descend into procedural blocks */
+		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
+			/* stop at uninstantiated generate blocks */
+			if (sym.isUninstantiated)
+				return;
+			visitor.visitDefault(sym);
+		});
+		sym.visit(varinit);
+
 		visitDefault(sym);
+
+		// now transfer the initializers from variables onto RTLIL wires
+		auto inittransfer = ast::makeVisitor([&](auto& visitor, const ast::VariableSymbol &sym) {
+			if (sym.getType().isFixedSize()) {
+				auto storage = initial_eval.context.findLocal(&sym);
+				log_assert(storage);
+				auto const_ = const_const(*storage);
+				if (!const_.is_fully_undef()) {
+					auto wire = mod->wire(net_id(sym));
+					log_assert(wire);
+					wire->attributes[RTLIL::ID::init] = const_;
+				}
+			}
+		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+			/* do not descend into other modules */
+		}, [&](auto& visitor, const ast::ProceduralBlockSymbol& sym) {
+			/* do not descend into procedural blocks */
+		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
+			/* stop at uninstantiated generate blocks */
+			if (sym.isUninstantiated)
+				return;
+			visitor.visitDefault(sym);
+		});
+		sym.visit(inittransfer);
+
+		for (auto& diag : initial_eval.context.getAllDiagnostics())
+        	global_diagengine->issue(diag);
+		auto str = global_diagclient->getString();
+		if (global_diagengine->getNumErrors())
+			log_error("%s", str.c_str());
+		else
+			log("%s", str.c_str());
 	}
 
 	void handle(YS_MAYBE_UNUSED const ast::Type &type) {}
 	void handle(YS_MAYBE_UNUSED const ast::NetType &type) {}
 	void handle(YS_MAYBE_UNUSED const ast::TransparentMemberSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::SubroutineSymbol &sym) {}
+	void handle(const ast::VariableSymbol &sym) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{
@@ -1269,9 +1350,6 @@ public:
 		symbol.body.getHierarchicalPath(hierName);
 		RTLIL::Module *mod = design->addModule(id(hierName));
 		transfer_attrs(symbol.body, mod);
-
-		WireAddingVisitor wadder(mod);
-		symbol.body.visit(wadder);
 
 		ModulePopulatingVisitor modpop(mod);
 		symbol.body.visit(modpop);
@@ -1339,6 +1417,9 @@ struct SlangFrontend : Frontend {
 
 			global_compilation = &(*compilation);
 			global_sourcemgr = compilation->getSourceManager();
+			global_diagengine = &driver.diagEngine;
+			global_diagclient = driver.diagClient.get();
+			global_diagclient->clear();
 			RTLILGenVisitor visitor(*compilation, design);
 			compilation->getRoot().visit(visitor);
 		} catch (const std::exception& e) {
@@ -1347,4 +1428,4 @@ struct SlangFrontend : Frontend {
 	}
 } SlangFrontend;
 
-PRIVATE_NAMESPACE_END
+};

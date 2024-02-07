@@ -48,7 +48,7 @@ First build slang and install it into `build/slang_install`:
 
 Then build the `build/slang.so` plugin for Yosys:
 
-    yosys-config --build build/slang.so slang_frontend.cc -Ibuild/slang_install/include -std=c++20 -DSLANG_BOOST_SINGLE_HEADER -Lbuild/slang_install/lib -lsvlang -lfmt
+    yosys-config --build build/slang.so slang_frontend.cc initial_eval.cc -Ibuild/slang_install/include -std=c++20 -DSLANG_BOOST_SINGLE_HEADER -Lbuild/slang_install/lib -lsvlang -lfmt
 
 ## Usage
 
@@ -66,10 +66,10 @@ Sample usage:
 
     read_slang picorv32.v --top picorv32 -D DEBUG
 
-# Contributing
+## Contributing
 
 This is foremost a demonstrator with no fixed plans for its future. Any contributions, gradual improvements, or just better characterization of the available and missing feature sets are welcome! The glue code here understands some AST features, and rejects others, but it's not clear what language features that translates to when there's preprocessing done by slang.
 
-# License
+## License
 
-The glue code (`slang_frontend.cc`) is distributed under the ISC license, see `LICENSE`.
+The main glue code (`slang_frontend.cc`) is distributed under the ISC license, see `LICENSE`. The `initial_eval.cc` code contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
