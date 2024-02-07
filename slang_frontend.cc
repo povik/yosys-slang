@@ -337,6 +337,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 
 			RTLIL::IdString type;
 			switch (unop.op) {
+			case ast::UnaryOperator::Minus: type = ID($neg); break;
 			case ast::UnaryOperator::LogicalNot: type = ID($logic_not); break;
 			case ast::UnaryOperator::BitwiseNot: type = ID($not); break;
 			case ast::UnaryOperator::BitwiseOr: type = ID($reduce_or); break;
@@ -368,6 +369,9 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			RTLIL::SigSpec left = evaluate_rhs(mod, biop.left(), ctx);
 			RTLIL::SigSpec right = evaluate_rhs(mod, biop.right(), ctx);
 
+			bool a_signed = biop.left().type->isSigned();
+			bool b_signed = biop.right().type->isSigned();
+
 			RTLIL::IdString type;
 			switch (biop.op) {
 			case ast::BinaryOperator::Add:      type = ID($add); break;
@@ -391,8 +395,8 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			//case ast::BinaryOperator::WildcardInequality;
 			case ast::BinaryOperator::LogicalAnd:	type = ID($logic_and); break;
 			case ast::BinaryOperator::LogicalOr:	type = ID($logic_or); break;
-			//case ast::BinaryOperator::LogicalImplication;
-			//case ast::BinaryOperator::LogicalEquivalence;
+			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = mod->LogicNot(NEW_ID, left); a_signed = false; break;
+			case ast::BinaryOperator::LogicalEquivalence: type = ID($eq); left = mod->ReduceBool(NEW_ID, left); right = mod->ReduceBool(NEW_ID, right); a_signed = b_signed = false; break;
 			case ast::BinaryOperator::LogicalShiftLeft:	type = ID($sshl); break;
 			case ast::BinaryOperator::LogicalShiftRight:	type = ID($sshr); break;
 			case ast::BinaryOperator::ArithmeticShiftLeft:	type = ID($shl); break; // TODO: check shl vs sshl
@@ -407,8 +411,8 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			cell->setPort(RTLIL::ID::B, right);
 			cell->setParam(RTLIL::ID::A_WIDTH, left.size());
 			cell->setParam(RTLIL::ID::B_WIDTH, right.size());
-			cell->setParam(RTLIL::ID::A_SIGNED, biop.left().type->isSigned());
-			cell->setParam(RTLIL::ID::B_SIGNED, biop.right().type->isSigned());
+			cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
+			cell->setParam(RTLIL::ID::B_SIGNED, b_signed);
 			cell->setParam(RTLIL::ID::Y_WIDTH, expr.type->getBitWidth());
 			ret = mod->addWire(NEW_ID, expr.type->getBitstreamWidth());
 			cell->setPort(RTLIL::ID::Y, ret);
