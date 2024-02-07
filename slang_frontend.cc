@@ -1193,7 +1193,9 @@ public:
 	void handle(const ast::InstanceSymbol &sym)
 	{
 		require(sym, sym.isModule());
-		RTLIL::Cell *cell = mod->addCell(id(sym.name), id(sym.body.name));
+		std::string modName;
+		sym.body.getHierarchicalPath(modName);
+		RTLIL::Cell *cell = mod->addCell(id(sym.name), id(modName));
 		for (auto *conn : sym.getPortConnections()) {
 			if (!conn->getExpression())
 				continue;
@@ -1261,7 +1263,9 @@ public:
 			return;
 		}
 
-		RTLIL::Module *mod = design->addModule(id(symbol.body.name));
+		std::string hierName;
+		symbol.body.getHierarchicalPath(hierName);
+		RTLIL::Module *mod = design->addModule(id(hierName));
 		transfer_attrs(symbol.body, mod);
 
 		WireAddingVisitor wadder(mod);
