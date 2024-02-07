@@ -1012,6 +1012,7 @@ public:
 
 	void handle(const ast::ValueSymbol &sym)
 	{
+		require(sym, sym.getType().isFixedSize());
 		auto w = mod->addWire(net_id(sym), sym.getType().getBitstreamWidth());
 		transfer_attrs(sym, w);
 	}
