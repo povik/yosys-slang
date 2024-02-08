@@ -1052,7 +1052,11 @@ public:
 				if (arg_expr->kind == ast::ExpressionKind::StringLiteral) {
 					fmt_arg.type = Yosys::VerilogFmtArg::STRING;
 					fmt_arg.str = std::string{arg_expr->as<ast::StringLiteral>().getValue()};
-					fmt_arg.sig = {}; // TODO
+					fmt_arg.sig = RTLIL::Const(fmt_arg.str);
+				} else if (arg.isString()) {
+					fmt_arg.type = Yosys::VerilogFmtArg::STRING;
+					fmt_arg.str = arg.str();
+					fmt_arg.sig = RTLIL::Const(fmt_arg.str);
 				} else if (arg.isInteger()) {
 					fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
 					fmt_arg.sig = svint_const(arg.integer());
