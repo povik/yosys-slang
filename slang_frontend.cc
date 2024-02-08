@@ -1319,6 +1319,7 @@ public:
 			log_error("%s", str.c_str());
 		else
 			log("%s", str.c_str());
+		global_diagclient->clear();
 	}
 
 	void handle(YS_MAYBE_UNUSED const ast::Type &type) {}
