@@ -1058,7 +1058,7 @@ public:
 					fmt_arg.sig = svint_const(arg.integer());
 					fmt_arg.signed_ = arg.integer().isSigned();
 				} else {
-					log_assert(false && "unimplemented");
+					unimplemented(*arg_expr);
 				}
 				fmt_args.push_back(fmt_arg);	
 			}
