@@ -672,4 +672,9 @@ ER EvalVisitor::visit(const ExpressionStatement &stmt)
 	return expr.eval(context) ? ER::Success : ER::Fail;
 }
 
+ER EvalVisitor::visit(const EmptyStatement &stmt)
+{
+	return ER::Success;
+}
+
 };
