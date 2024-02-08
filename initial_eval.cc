@@ -24,6 +24,7 @@
 //
 #include "slang/ast/Compilation.h"
 #include "slang/diagnostics/ConstEvalDiags.h"
+#include "slang/diagnostics/DeclarationsDiags.h"
 #include "slang/diagnostics/NumericDiags.h"
 
 #include "initial_eval.h"
@@ -40,7 +41,6 @@ namespace SlangInitial {
 inline constexpr slang::DiagCode ParallelBlockUnsupported(DiagSubsystem::Netlist, 101);
 inline constexpr slang::DiagCode TODO(DiagSubsystem::Netlist, 102);
 inline constexpr slang::DiagCode BadEvaluation(DiagSubsystem::Netlist, 103);
-inline constexpr slang::DiagCode SysTaskIgnored(DiagSubsystem::Netlist, 104);
 
 EvalVisitor::EvalVisitor(Compilation *compilation)
 	: context(ASTContext(compilation->getRoot(), LookupLocation::max))
@@ -640,7 +640,7 @@ void EvalVisitor::handleDisplay(const CallExpression &call,
 								const std::vector<ConstantValue> &args)
 {
 	(void) args;
-	context.addDiag(SysTaskIgnored, call.sourceRange)
+	context.addDiag(slang::diag::ConstSysTaskIgnored, call.sourceRange)
 					<< call.getSubroutineName();
 }
 
@@ -651,10 +651,10 @@ ER EvalVisitor::visit(const ExpressionStatement &stmt)
 	if (expr.kind == ExpressionKind::Call) {
 		const auto &call = expr.as<CallExpression>();
 		if (call.isSystemCall() && call.getSubroutineKind() == SubroutineKind::Task) {
-			if (call.getSubroutineName() != "$display") {
-				context.addDiag(SysTaskIgnored, call.sourceRange)
-								<< call.getSubroutineName();
-			} else {
+			if (call.getSubroutineName() == "$fatal") {
+				context.addDiag(slang::diag::FatalTask, call.sourceRange);
+				return ER::Fail;
+			} else if (call.getSubroutineName() == "$display") {
 				std::vector<ConstantValue> args;
 				for (auto arg_expr : call.arguments())
 					args.push_back(arg_expr->eval(context));
@@ -662,6 +662,9 @@ ER EvalVisitor::visit(const ExpressionStatement &stmt)
 					if (arg.bad())
 						return ER::Fail;
 				handleDisplay(call, args);
+			} else {
+				context.addDiag(slang::diag::ConstSysTaskIgnored, call.sourceRange)
+								<< call.getSubroutineName();
 			}
 			return ER::Success;
 		}
