@@ -43,7 +43,7 @@ inline constexpr slang::DiagCode TODO(DiagSubsystem::Netlist, 102);
 inline constexpr slang::DiagCode BadEvaluation(DiagSubsystem::Netlist, 103);
 
 EvalVisitor::EvalVisitor(Compilation *compilation)
-	: context(ASTContext(compilation->getRoot(), LookupLocation::max))
+	: context(ASTContext(compilation->getRoot(), LookupLocation::max), /* HACK */ ast::EvalFlags::IsScript)
 {
 	context.pushEmptyFrame();
 }
