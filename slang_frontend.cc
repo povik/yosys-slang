@@ -1186,8 +1186,6 @@ public:
 		}		
 	}
 
-	void handle(YS_MAYBE_UNUSED const ast::ParameterSymbol &sym) {}
-
 	void handle(const ast::NetSymbol &sym)
 	{
 		if (sym.getInitializer())
@@ -1324,6 +1322,9 @@ public:
 	void handle(YS_MAYBE_UNUSED const ast::ForwardingTypedefSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::TransparentMemberSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::SubroutineSymbol &sym) {}
+	void handle(YS_MAYBE_UNUSED const ast::ParameterSymbol &sym) {}
+	void handle(YS_MAYBE_UNUSED const ast::TypeParameterSymbol &sym) {}
+
 	void handle(const ast::VariableSymbol &sym) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
