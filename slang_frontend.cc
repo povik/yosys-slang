@@ -241,8 +241,21 @@ struct ProcedureContext
 	// rvalue substitutions from blocking assignments
 	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs;
 
-	// arguments
-	Yosys::dict<const ast::Symbol*, RTLIL::SigSpec, Yosys::hash_ptr_ops> args;
+	void set(RTLIL::SigSpec lhs, RTLIL::SigSpec value)
+	{
+		log_assert(lhs.size() == value.size());
+		for (int i = 0; i < lhs.size(); i++)
+			rvalue_subs[lhs[i]] = value[i];
+	}
+
+	ast::EvalContext eval;
+
+	// TODO: avoid using global
+	ProcedureContext()
+			: eval(ast::ASTContext(global_compilation->getRoot(),
+								   ast::LookupLocation::max)) {
+		eval.pushEmptyFrame();
+	}
 };
 
 static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpression &call,
@@ -358,15 +371,23 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	require(expr, expr.type->isFixedSize());
 	RTLIL::SigSpec ret;
 
-	{
-		// TODO: we seem to need this for `expr.constant`, are we using it right?
-		ast::ASTContext ctx(global_compilation->getRoot(), ast::LookupLocation::max);
-		ctx.tryEval(expr);
-	}
+	if (!ctx) {
+		{
+			// TODO: we seem to need this for `expr.constant`, are we using it right?
+			ast::ASTContext ctx(global_compilation->getRoot(), ast::LookupLocation::max);
+			ctx.tryEval(expr);
+		}
 
-	if (true && expr.constant) {
-		ret = svint_const(expr.constant->integer());
-		goto done;
+		if (true && expr.constant) {
+			ret = const_const(*expr.constant);
+			goto done;
+		}
+	} else {
+		auto const_ = expr.eval(ctx->eval);
+		if (const_) {
+			ret = const_const(const_);
+			goto done;
+		}
 	}
 
 	switch (expr.kind) {
@@ -377,9 +398,9 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			switch (sym.kind) {
 			case ast::SymbolKind::Net:
 			case ast::SymbolKind::Variable:
+			case ast::SymbolKind::FormalArgument:
 				{
 					const auto &valsym = sym.as<ast::ValueSymbol>();
-					require(expr, valsym.getParentScope()->asSymbol().kind == ast::SymbolKind::InstanceBody);
 					RTLIL::Wire *wire = mod->wire(net_id(sym));
 					log_assert(wire);
 					ret = wire;
@@ -394,12 +415,6 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 					auto exprconst = valsym.getInitializer()->constant;
 					require(valsym, exprconst && exprconst->isInteger());
 					ret = svint_const(exprconst->integer());
-				}
-				break;
-			case ast::SymbolKind::FormalArgument:
-				{
-					require(expr, ctx && ctx->args.count(&sym));
-					ret = ctx->args.at(&sym);
 				}
 				break;
 			default:
@@ -959,8 +974,7 @@ public:
 
 		log_assert(lvalue.size() == masked_rvalue.size());
 		if (blocking) {
-			for (int i = 0; i < lvalue.size(); i++)
-				ctx.rvalue_subs[lvalue[i]] = masked_rvalue[i];
+			ctx.set(lvalue, masked_rvalue);
 			// TODO: proper message on blocking/nonblocking mixing
 			log_assert(!assigned_nonblocking.check_any(lvalue));
 			assigned_blocking.add(lvalue);
@@ -1086,9 +1100,12 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 	RTLIL::Process *proc = mod->addProcess(NEW_ID);
 	ProceduralVisitor visitor(mod, proc, ProceduralVisitor::FUNCTION);
 	log_assert(call.arguments().size() == subr.getArguments().size());
-	for (int i = 0; i < call.arguments().size(); i++)
-		visitor.ctx.args[subr.getArguments()[i]] = \
-			evaluate_rhs(mod, *call.arguments()[i], ctx);
+
+	for (int i = 0; i < call.arguments().size(); i++) {
+		RTLIL::Wire *w = mod->wire(net_id(*subr.getArguments()[i]));
+		log_assert(w);
+		visitor.ctx.set(w, evaluate_rhs(mod, *call.arguments()[i], ctx));
+	}
 	subr.getBody().visit(visitor);
 
 	// This is either a hack or brilliant: it just so happens that the WireAddingVisitor
