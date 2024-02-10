@@ -1299,11 +1299,14 @@ public:
 
 	void handle(const ast::ProceduralBlockSymbol &sym)
 	{
-		switch (sym.procedureKind) {
+		auto kind = sym.procedureKind;
+		switch (kind) {
 		case ast::ProceduralBlockKind::Always:
 		case ast::ProceduralBlockKind::AlwaysFF:
 			{
 				RTLIL::Process *proc = mod->addProcess(NEW_ID);
+				if (kind == ast::ProceduralBlockKind::AlwaysFF)
+					proc->attributes[Yosys::ID::always_ff] = true;
 				require(sym, sym.getBody().kind == ast::StatementKind::Timed);
 
 				const auto &timed = sym.getBody().as<ast::TimedStatement>();
@@ -1317,8 +1320,13 @@ public:
 			break;
 
 		case ast::ProceduralBlockKind::AlwaysComb:
+		case ast::ProceduralBlockKind::AlwaysLatch:
 			{
 				RTLIL::Process *proc = mod->addProcess(NEW_ID);
+				if (kind == ast::ProceduralBlockKind::AlwaysComb)
+					proc->attributes[Yosys::ID::always_comb] = true;
+				if (kind == ast::ProceduralBlockKind::AlwaysLatch)
+					proc->attributes[Yosys::ID::always_latch] = true;
 				RTLIL::SyncRule *sync = new RTLIL::SyncRule;
 				proc->syncs.push_back(sync);
 				sync->type = RTLIL::SyncType::STa;
