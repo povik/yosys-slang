@@ -730,6 +730,8 @@ public:
 
 	ProcedureContext ctx;
 
+	const ast::SubroutineSymbol *subroutine;
+
 	Yosys::SigPool assigned_blocking;
 	Yosys::SigPool assigned_nonblocking;
 
@@ -1146,6 +1148,14 @@ public:
 	{
 		unimplemented(stmt);
 	}
+
+	void handle(const ast::ReturnStatement &stmt)
+	{
+		require(stmt, mode == FUNCTION);
+		log_assert(subroutine);
+		impl_assign_simple(mod->wire(net_id(*subroutine->returnValVar)),
+						   evaluate_rhs(mod, *stmt.expr, &ctx), true);
+	}
 };
 
 static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpression &call,
@@ -1155,6 +1165,7 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 	log_assert(subr.subroutineKind == ast::SubroutineKind::Function);
 	RTLIL::Process *proc = mod->addProcess(NEW_ID);
 	ProceduralVisitor visitor(mod, proc, ProceduralVisitor::FUNCTION);
+	visitor.subroutine = &subr;
 	log_assert(call.arguments().size() == subr.getArguments().size());
 
 	for (int i = 0; i < call.arguments().size(); i++) {
