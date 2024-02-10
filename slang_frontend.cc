@@ -1133,6 +1133,39 @@ public:
 		dummy_switch->cases.push_back(current_case);
 	}
 
+	void handle(YS_MAYBE_UNUSED const ast::ForLoopStatement &stmt) {
+		require(stmt, !stmt.steps.empty() && stmt.stopExpr);
+
+		// TODO: `stmt.loopVars` vs. `stmt.initializers`
+		// What do these two do, *exactly*? Which one should we handle first?
+		for (auto var : stmt.loopVars) {
+			require(stmt, var->getInitializer());
+			auto initval = var->getInitializer()->eval(ctx.eval);
+			require(stmt, !initval.bad());
+			ctx.eval.createLocal(var, initval);
+		}
+
+		for (auto init : stmt.initializers) {
+			require(*init, init->kind == ast::ExpressionKind::Assignment);
+			const auto &assign = init->as<ast::AssignmentExpression>();
+			require(*init, assign.left().kind == ast::ExpressionKind::NamedValue);
+			const auto &lhs = assign.left().as<ast::NamedValueExpression>();
+			auto initval = assign.right().eval(ctx.eval);
+			require(*init, !initval.bad());
+			ctx.eval.createLocal(&lhs.symbol, initval);
+		}
+
+		while (true) {
+			auto cv = stmt.stopExpr->eval(ctx.eval);
+			require(stmt, (bool) cv);
+			if (!cv.isTrue())
+				break;
+			stmt.body.visit(*this);
+			for (auto step : stmt.steps)
+				require(stmt, (bool) step->eval(ctx.eval));
+		}
+	}
+
 	void handle(YS_MAYBE_UNUSED const ast::InvalidStatement &stmt) { log_abort(); }
 	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
 	void handle(YS_MAYBE_UNUSED const ast::VariableDeclStatement &stmt) {
