@@ -251,9 +251,85 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expression &expr,
 										 ProcedureContext *ctx);
 
+// A `Module` with a bit of constant folding layered on top,
+// this is required for efficient procedure lowering
+struct ModuleLayer {
+	RTLIL::Module *mod;
+	ModuleLayer(RTLIL::Module *mod) : mod(mod) {}
+
+	RTLIL::SigSpec Sub(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+		if (b.is_fully_ones())
+			return a;
+		if (a.is_fully_const() && b.is_fully_const())
+			return RTLIL::const_sub(a.as_const(), b.as_const(), is_signed, is_signed,
+									std::max(a.size(), b.size()) + 1);
+		return mod->Sub(NEW_ID, a, b, is_signed);
+	}
+
+	RTLIL::SigSpec Demux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
+		log_assert(s.size() < 24);
+		RTLIL::SigSpec zeropad(RTLIL::S0, a.size());
+		if (s.is_fully_const()) {
+			int idx_const = s.as_const().as_int();
+			return {zeropad.repeat((1 << s.size()) - 1 - idx_const),
+						a, zeropad.repeat(idx_const)};
+		}
+		return mod->Demux(NEW_ID, a, s);
+	}
+
+	RTLIL::SigSpec Le(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+		if (a.is_fully_const() && b.is_fully_const())
+			return RTLIL::const_le(a.as_const(), b.as_const(), is_signed, is_signed, 1);
+		return mod->Le(NEW_ID, a, b, is_signed);
+	}
+
+	RTLIL::SigSpec Ge(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+		if (a.is_fully_const() && b.is_fully_const())
+			return RTLIL::const_ge(a.as_const(), b.as_const(), is_signed, is_signed, 1);
+		return mod->Ge(NEW_ID, a, b, is_signed);
+	}
+
+	RTLIL::SigSpec LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
+		if (a.is_fully_zero() || b.is_fully_zero())
+			return RTLIL::Const(0, 1);
+		if (a.is_fully_def() && b.size() == 1)
+			return b;
+		if (b.is_fully_def() && a.size() == 1)
+			return a;
+		return mod->LogicAnd(NEW_ID, a, b);
+	}
+
+	RTLIL::SigSpec Mux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
+		log_assert(a.size() == b.size());
+		log_assert(s.size() == 1);
+		if (s[0] == RTLIL::S0)
+			return a;
+		if (s[0] == RTLIL::S1)
+			return b;
+		return mod->Mux(NEW_ID, a, b, s);
+	}
+
+	RTLIL::SigSpec Bwmux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
+		log_assert(a.size() == b.size());
+		log_assert(a.size() == s.size());
+		if (s.is_fully_const()) {
+			RTLIL::SigSpec result(RTLIL::Sx, a.size());
+			for (int i = 0; i < a.size(); i++) {
+				if (s[i] == RTLIL::S0)
+					result[i] = a[i];
+				else if (s[i] == RTLIL::S1)
+					result[i] = b[i];
+			}
+			return result;
+		}
+		return mod->Bwmux(NEW_ID, a, b, s);
+	}
+};
+
 static const std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(RTLIL::Module *mod, const ast::Expression &idxexpr,
 																	  slang::ConstantRange range, ProcedureContext *ctx)
 {
+	ModuleLayer modl(mod);
 	RTLIL::SigSpec idx = evaluate_rhs(mod, idxexpr, ctx);
 	bool idx_signed = idxexpr.type->isSigned();
 
@@ -262,16 +338,16 @@ static const std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(RTLIL::Mod
 		idx_signed = true;
 	}
 
-	RTLIL::SigBit valid = mod->LogicAnd(NEW_ID,
-		mod->Le(NEW_ID, idx, RTLIL::Const(range.upper()), /* is_signed */ true),
-		mod->Ge(NEW_ID, idx, RTLIL::Const(range.lower()), /* is_signed */ true)
+	RTLIL::SigBit valid = modl.LogicAnd(
+		modl.Le(idx, RTLIL::Const(range.upper()), /* is_signed */ true),
+		modl.Ge(idx, RTLIL::Const(range.lower()), /* is_signed */ true)
 	);
 
 	RTLIL::SigSpec raw_idx;
 	if (range.left > range.right)
-		raw_idx = mod->Sub(NEW_ID, idx, RTLIL::Const(range.right), /* is_signed */ true);
+		raw_idx = modl.Sub(idx, RTLIL::Const(range.right), /* is_signed */ true);
 	else
-		raw_idx = mod->Sub(NEW_ID, RTLIL::Const(range.right), idx, /* is_signed */ true);
+		raw_idx = modl.Sub(RTLIL::Const(range.right), idx, /* is_signed */ true);
 	raw_idx.extend_u0(ceil_log2(range.width()));
 	return std::make_pair(raw_idx, valid);
 }
@@ -802,6 +878,7 @@ public:
 
 		RTLIL::SigSpec rvalue = evaluate_rhs(mod, assign.right(), &ctx);
 
+		ModuleLayer modl(mod);
 		const ast::Expression *raw_lexpr = &assign.left();
 		RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
 
@@ -877,7 +954,7 @@ public:
 		} else {
 			RTLIL::SigSpec raw_lvalue_sampled = lvalue;
 			raw_lvalue_sampled.replace(ctx.rvalue_subs);
-			masked_rvalue = mod->Bwmux(NEW_ID, raw_lvalue_sampled, raw_rvalue, raw_mask);
+			masked_rvalue = modl.Bwmux(raw_lvalue_sampled, raw_rvalue, raw_mask);
 		}
 
 		log_assert(lvalue.size() == masked_rvalue.size());
