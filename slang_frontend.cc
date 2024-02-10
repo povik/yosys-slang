@@ -720,6 +720,8 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
 	}
 }
 
+Yosys::IdString id_slang_nonstatic("\\slang_nonstatic");
+
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
 	RTLIL::Module *mod;
@@ -774,6 +776,9 @@ public:
 
 		RTLIL::CaseRule *root_case = &proc->root_case;
 		for (auto chunk : all_driven.chunks()) {
+			if (chunk.wire && chunk.wire->get_bool_attribute(id_slang_nonstatic))
+				continue;
+
 			RTLIL::SigSpec mapped = chunk;
 			mapped.replace(staging);
 			for (auto sync : proc->syncs)
@@ -1118,7 +1123,24 @@ public:
 
 	void handle(YS_MAYBE_UNUSED const ast::InvalidStatement &stmt) { log_abort(); }
 	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
-	void handle(YS_MAYBE_UNUSED const ast::VariableDeclStatement &stmt) {}
+	void handle(YS_MAYBE_UNUSED const ast::VariableDeclStatement &stmt) {
+		if (stmt.symbol.lifetime != ast::VariableLifetime::Static) {
+			RTLIL::Wire *target = mod->wire(net_id(stmt.symbol));
+			log_assert(target);
+			RTLIL::SigSpec initval;
+
+			if (stmt.symbol.getInitializer())
+				initval = evaluate_rhs(mod, *stmt.symbol.getInitializer(), &ctx);
+			else
+				initval = const_const(stmt.symbol.getType().getDefaultValue());
+
+			impl_assign_simple(
+				target,
+				initval,
+				true
+			);
+		}
+	}
 
 	void handle(const ast::Statement &stmt)
 	{
@@ -1386,6 +1408,10 @@ public:
 			if (sym.getType().isFixedSize()) {
 				auto w = mod->addWire(net_id(sym), sym.getType().getBitstreamWidth());
 				transfer_attrs(sym, w);
+
+				if (sym.kind == ast::SymbolKind::Variable &&
+						sym.as<ast::VariableSymbol>().lifetime != ast::VariableLifetime::Static)
+					w->attributes[id_slang_nonstatic] = true;
 			}
 		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
 			/* do not descend into other modules */
