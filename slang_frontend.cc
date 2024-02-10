@@ -1079,14 +1079,24 @@ public:
 	void handle(const ast::CaseStatement &stmt)
 	{
 		require(stmt, stmt.condition == ast::CaseStatementCondition::Normal);
-		if (stmt.check != ast::UniquePriorityCheck::None) {
-			auto src = format_src(stmt);
-			log_warning("%s: Ignoring priority check\n", src.c_str());
-		}
-
 		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec dispatch = evaluate_rhs(mod, stmt.expr, &ctx);
 		SwitchBuilder b(current_case, &ctx.rvalue_subs, dispatch);
+
+		switch (stmt.check) {
+		case ast::UniquePriorityCheck::Priority: 
+			b.sw->attributes[Yosys::ID::full_case] = true;
+			break;
+		case ast::UniquePriorityCheck::Unique:
+			b.sw->attributes[Yosys::ID::full_case] = true;
+			b.sw->attributes[Yosys::ID::parallel_case] = true;
+			break;
+		case ast::UniquePriorityCheck::Unique0:
+			b.sw->attributes[Yosys::ID::parallel_case] = true;
+			break;
+		case ast::UniquePriorityCheck::None:
+			break;
+		}
 		transfer_attrs(stmt, b.sw);
 
 		for (auto item : stmt.items) {
