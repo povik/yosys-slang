@@ -1623,7 +1623,9 @@ struct SlangFrontend : Frontend {
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
 		std::optional<bool> dump_ast;
+		std::optional<bool> no_proc;
 		driver.cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
+		driver.cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
 		log("%s\n", driver.cmdLine.getHelpText("Slang-based SystemVerilog frontend").c_str());
 	}
 
@@ -1636,7 +1638,9 @@ struct SlangFrontend : Frontend {
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
 		std::optional<bool> dump_ast;
+		std::optional<bool> no_proc;
 		driver.cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
+		driver.cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
 		{
 			std::vector<char *> c_args;
 			for (auto arg : args) {
@@ -1676,6 +1680,24 @@ struct SlangFrontend : Frontend {
 			compilation->getRoot().visit(visitor);
 		} catch (const std::exception& e) {
 			log_error("Exception: %s\n", e.what());
+		}
+
+		if (!(no_proc.has_value() && no_proc.value())) {
+			log_push();
+			call(design, "proc_clean");
+			call(design, "proc_rmdead");
+			call(design, "proc_prune");
+			call(design, "proc_init");
+			call(design, "proc_arst");
+			call(design, "proc_rom");
+			call(design, "proc_mux");
+			call(design, "proc_clean");
+			call(design, "proc_usage");
+			call(design, "proc_dlatch");
+			call(design, "proc_dff");
+			call(design, "proc_clean");
+			call(design, "opt_expr -keepdc");
+			log_pop();
 		}
 	}
 } SlangFrontend;
