@@ -108,7 +108,20 @@ static const RTLIL::IdString net_id(const ast::Symbol &symbol)
 {
 	std::string hierPath;
 	symbol.getHierarchicalPath(hierPath);
-	return RTLIL::escape_id(hierPath);
+	auto dot = hierPath.find('.');
+	log_assert(dot != std::string::npos);
+	return RTLIL::escape_id(hierPath.substr(dot + 1));
+}
+
+static const RTLIL::IdString module_type_id(const ast::InstanceSymbol &sym)
+{
+	require(sym, sym.isModule());
+	std::string instance;
+	sym.body.getHierarchicalPath(instance);
+	if (instance == sym.body.name)
+		return RTLIL::escape_id(std::string(sym.body.name));
+	else
+		return RTLIL::escape_id(std::string(sym.body.name) + "$" + instance);
 }
 
 static const RTLIL::Const svint_const(const slang::SVInt &svint)
@@ -1431,9 +1444,9 @@ public:
 	void handle(const ast::InstanceSymbol &sym)
 	{
 		require(sym, sym.isModule());
-		std::string modName;
-		sym.body.getHierarchicalPath(modName);
-		RTLIL::Cell *cell = mod->addCell(id(sym.name), id(modName));
+		std::string instanceName;
+		sym.body.getHierarchicalPath(instanceName);
+		RTLIL::Cell *cell = mod->addCell(id(instanceName), module_type_id(sym));
 		for (auto *conn : sym.getPortConnections()) {
 			if (!conn->getExpression())
 				continue;
@@ -1587,9 +1600,7 @@ public:
 			return;
 		}
 
-		std::string hierName;
-		symbol.body.getHierarchicalPath(hierName);
-		RTLIL::Module *mod = design->addModule(id(hierName));
+		RTLIL::Module *mod = design->addModule(module_type_id(symbol));
 		transfer_attrs(symbol.body, mod);
 
 		ModulePopulatingVisitor modpop(mod);
