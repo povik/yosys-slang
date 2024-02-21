@@ -1246,18 +1246,17 @@ public:
 
 	struct InitialEvalVisitor : SlangInitial::EvalVisitor {
 		RTLIL::Module *mod;
+		int print_priority;
 
 		InitialEvalVisitor(ast::Compilation *compilation, RTLIL::Module *mod)
-			: SlangInitial::EvalVisitor(compilation), mod(mod) {}
+			: SlangInitial::EvalVisitor(compilation), mod(mod), print_priority(0) {}
 
 		void handleDisplay(const slang::ast::CallExpression &call, const std::vector<slang::ConstantValue> &args) {
 			auto cell = mod->addCell(NEW_ID, ID($print));
-			// TODO: attributes
-			// TODO: priority
 			cell->parameters[Yosys::ID::TRG_ENABLE] = true;
 			cell->parameters[Yosys::ID::TRG_WIDTH] = 0;
 			cell->parameters[Yosys::ID::TRG_POLARITY] = {};
-			cell->parameters[Yosys::ID::PRIORITY] = 0;
+			cell->parameters[Yosys::ID::PRIORITY] = print_priority--;
 			cell->setPort(Yosys::ID::EN, RTLIL::S1);
 			cell->setPort(Yosys::ID::TRG, {});
 			std::vector<Yosys::VerilogFmtArg> fmt_args;
@@ -1289,6 +1288,7 @@ public:
 							  std::string{call.getSubroutineName()}, mod->name);
 			fmt.append_string("\n");
 			fmt.emit_rtlil(cell);
+			transfer_attrs(call, cell);
 		}
 	} initial_eval;
 
