@@ -1601,7 +1601,7 @@ public:
 		}
 
 		RTLIL::Module *mod = design->addModule(module_type_id(symbol));
-		transfer_attrs(symbol.body, mod);
+		transfer_attrs(symbol.body.getDefinition(), mod);
 
 		ModulePopulatingVisitor modpop(mod);
 		symbol.body.visit(modpop);
