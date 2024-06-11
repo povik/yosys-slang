@@ -276,8 +276,8 @@ ER EvalVisitor::visit(const CaseStatement &stmt)
 	for (auto& group : stmt.items) {
 		for (auto item : group.expressions) {
 			bool matched;
-			if (item->kind == ExpressionKind::OpenRange) {
-				ConstantValue val = item->as<OpenRangeExpression>().checkInside(context, cv);
+			if (item->kind == ExpressionKind::ValueRange) {
+				ConstantValue val = item->as<ValueRangeExpression>().checkInside(context, cv);
 				if (!val)
 					return ER::Fail;
 
