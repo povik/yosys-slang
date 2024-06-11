@@ -998,7 +998,7 @@ public:
 					Yosys::Fmt fmt = {};
 					fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
 									  std::string{call.getSubroutineName()}, mod->name);
-					fmt.append_string("\n");
+					fmt.append_literal("\n");
 					fmt.emit_rtlil(cell);
 				} else if (!call.isSystemCall()) {
 					auto subroutine = std::get<0>(call.subroutine);
@@ -1286,7 +1286,7 @@ public:
 			// TODO: default_base is subroutine dependent, final newline is $display-only
 			fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
 							  std::string{call.getSubroutineName()}, mod->name);
-			fmt.append_string("\n");
+			fmt.append_literal("\n");
 			fmt.emit_rtlil(cell);
 			transfer_attrs(call, cell);
 		}
