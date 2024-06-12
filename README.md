@@ -46,7 +46,7 @@ Check out the repository including the submodule, e.g. with
 
 First build slang and install it into `build/slang_install`:
 
-    cmake -S slang -B build/slang -DCMAKE_INSTALL_PREFIX=build/slang_install -DSLANG_USE_MIMALLOC=OFF
+    cmake -S third_party/slang -B build/slang -DCMAKE_INSTALL_PREFIX=build/slang_install -DSLANG_USE_MIMALLOC=OFF
     make -C build/slang -j$(nproc)
     make -C build/slang install
 
