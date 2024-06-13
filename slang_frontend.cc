@@ -350,6 +350,16 @@ struct ModuleLayer {
 		}
 		return mod->Bwmux(NEW_ID, a, b, s);
 	}
+
+	RTLIL::SigSpec Bmux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
+		log_assert(a.size() % (1 << s.size()) == 0);
+		log_assert(a.size() >= 1 << s.size());
+		int stride = a.size() >> s.size();
+		if (s.is_fully_def()) {
+			return a.extract(s.as_const().as_int() * stride, stride);
+		}
+		return mod->Bmux(NEW_ID, a, s);
+	}
 };
 
 static const std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(RTLIL::Module *mod, const ast::Expression &idxexpr,
@@ -574,6 +584,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 		break;
 	case ast::ExpressionKind::ElementSelect:
 		{
+			ModuleLayer modl(mod);
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
 			int stride = elemsel.type->getBitstreamWidth();
@@ -586,7 +597,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			log_assert(stride * (1 << raw_idx.size()) >= base_value.size());
 			base_value.append(RTLIL::SigSpec(RTLIL::Sx, stride * (1 << raw_idx.size()) - base_value.size()));
 			// TODO: check what's proper out-of-range handling
-			ret = mod->Mux(NEW_ID, RTLIL::SigSpec(RTLIL::State::Sx, stride), mod->Bmux(NEW_ID, base_value, raw_idx), valid);
+			ret = modl.Mux(RTLIL::SigSpec(RTLIL::State::Sx, stride), modl.Bmux(base_value, raw_idx), valid);
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
