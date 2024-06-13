@@ -1556,6 +1556,29 @@ public:
 		global_diagclient->clear();
 	}
 
+	void handle(const ast::UninstantiatedDefSymbol &sym)
+	{
+		require(sym, !sym.isChecker());
+		require(sym, sym.paramExpressions.empty());
+
+		std::string instanceName;
+		sym.getHierarchicalPath(instanceName);
+
+		RTLIL::Cell *cell = mod->addCell(id(instanceName),
+										 id(sym.definitionName));
+
+		auto port_names = sym.getPortNames();
+		auto port_conns = sym.getPortConnections();
+
+		log_assert(port_names.size() == port_conns.size());
+		for (int i = 0; i < port_names.size(); i++) {
+			require(sym, !port_names[i].empty());
+			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
+			cell->setPort(RTLIL::escape_id(std::string{port_names[i]}),
+						  evaluate_rhs(mod, expr, NULL));
+		}
+	}
+
 	void handle(YS_MAYBE_UNUSED const ast::Type &type) {}
 	void handle(YS_MAYBE_UNUSED const ast::NetType &type) {}
 	void handle(YS_MAYBE_UNUSED const ast::ForwardingTypedefSymbol &sym) {}
