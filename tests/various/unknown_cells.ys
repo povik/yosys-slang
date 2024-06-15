@@ -1,0 +1,5 @@
+read_verilog <<EOF
+module sky130_fd_sc_hd__clkbuf_1(input wire A, output wire X);
+endmodule
+EOF
+read_slang --ignore-unknown-modules unknown_cells.sv
