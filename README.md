@@ -12,21 +12,15 @@ This combination of software projects (Yosys and Slang) is perfect, because:
 
 ## Status
 
-Basically this can parse out simple Verilog projects (it does parse a functioning [picorv32](https://github.com/YosysHQ/picorv32)!). An incomplete list of missing features:
+Basically this can parse out simple Verilog projects (it does parse a functioning [picorv32](https://github.com/YosysHQ/picorv32)!). Some missing features are:
 
- * Memories
+ * Memory inference
 
- * Full support for basic operators
+ * Interfaces
 
- * Full display task support (only supports `$display` now)
+ * Full-featured execution of initial blocks
 
  * Assertions, formal statements
-
- * Imprinting parameters into names of netlist-level modules to avoid conflicts
-
-   * Right now, to avoid conflicts, the frontend uses full hierarchical paths of an instantiation to label modules in RTLIL. This means that every instantiation of a module gets its own module in RTLIL, which is wasteful. It is not obvious though if we can get an elaborated AST from Slang such that identical modules are only represented once, which would match what we want on the netlist side.
-
- * Advanced SystemVerilog features
 
 `yosys-slang` is on the [CHIPS Alliance sv-tests dashboard](https://chipsalliance.github.io/sv-tests-results/) where failing test cases and their error messages (with useful line numbers and AST dumps!) can be browsed.
 
