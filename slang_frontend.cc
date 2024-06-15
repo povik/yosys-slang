@@ -104,13 +104,46 @@ const RTLIL::IdString id(const std::string_view &view)
 	return RTLIL::escape_id(std::string(view));
 }
 
-static const RTLIL::IdString net_id(const ast::Symbol &symbol)
+static void build_hierpath(std::ostringstream &s, const ast::Scope *scope)
 {
-	std::string hierPath;
-	symbol.getHierarchicalPath(hierPath);
-	auto dot = hierPath.find('.');
-	log_assert(dot != std::string::npos);
-	return RTLIL::escape_id(hierPath.substr(dot + 1));
+	if (!scope ||
+		// stop at the containing instance
+		scope->asSymbol().kind == ast::SymbolKind::InstanceBody)
+		return;
+
+	if (auto parent = scope->asSymbol().getHierarchicalParent())
+		build_hierpath(s, parent);
+
+	auto symbol = &scope->asSymbol();
+
+	if (symbol->kind == ast::SymbolKind::GenerateBlockArray) {
+		auto &array = symbol->as<ast::GenerateBlockArraySymbol>();
+		s << array.getExternalName();
+	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
+		auto &block = symbol->as<ast::GenerateBlockSymbol>();
+		if (auto index = block.arrayIndex) {
+			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]."; 
+		} else {
+			s << block.getExternalName() << ".";
+		}
+	} else if (symbol->kind == ast::SymbolKind::Instance ||
+			   symbol->kind == ast::SymbolKind::CheckerInstance) {
+		auto &inst = symbol->as<ast::InstanceSymbolBase>();
+		if (!inst.arrayPath.empty()) {
+            for (size_t i = 0; i < inst.arrayPath.size(); i++)
+            	s << "[" << inst.arrayPath[i] << "]";
+		}
+	} else if (!symbol->name.empty()) {
+		s << symbol->name << ".";
+	}
+}
+
+static const RTLIL::IdString scoped_id(const ast::Symbol &symbol)
+{
+	std::ostringstream path;
+	build_hierpath(path, symbol.getParentScope());
+	path << symbol.name;
+	return RTLIL::escape_id(path.str());
 }
 
 static const RTLIL::IdString module_type_id(const ast::InstanceSymbol &sym)
@@ -189,7 +222,7 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::NamedValue:
 		{
 			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
-			RTLIL::Wire *wire = mod->wire(net_id(sym));
+			RTLIL::Wire *wire = mod->wire(scoped_id(sym));
 			log_assert(wire);
 			ret = wire;
 		}
@@ -424,7 +457,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			case ast::SymbolKind::FormalArgument:
 				{
 					const auto &valsym = sym.as<ast::ValueSymbol>();
-					RTLIL::Wire *wire = mod->wire(net_id(sym));
+					RTLIL::Wire *wire = mod->wire(scoped_id(sym));
 					log_assert(wire);
 					ret = wire;
 					if (ctx)
@@ -1020,7 +1053,7 @@ public:
 						auto dir = arg->direction;
 						log_assert(dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::Out);
 						if (dir == ast::ArgumentDirection::In) {
-							RTLIL::Wire *w = mod->wire(net_id(*arg));
+							RTLIL::Wire *w = mod->wire(scoped_id(*arg));
 							log_assert(w);
 							ctx.set(w, evaluate_rhs(mod, *call.arguments()[i], &ctx));
 						}
@@ -1032,7 +1065,7 @@ public:
 							require(expr, call.arguments()[i]->kind == ast::ExpressionKind::Assignment);
 							auto &assign = call.arguments()[i]->as<ast::AssignmentExpression>();
 							require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
-							RTLIL::Wire *w = mod->wire(net_id(*arg));
+							RTLIL::Wire *w = mod->wire(scoped_id(*arg));
 							log_assert(w);
 							RTLIL::SigSpec rvalue = w;
 							rvalue.replace(ctx.rvalue_subs);
@@ -1194,7 +1227,7 @@ public:
 	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
 	void handle(YS_MAYBE_UNUSED const ast::VariableDeclStatement &stmt) {
 		if (stmt.symbol.lifetime != ast::VariableLifetime::Static) {
-			RTLIL::Wire *target = mod->wire(net_id(stmt.symbol));
+			RTLIL::Wire *target = mod->wire(scoped_id(stmt.symbol));
 			log_assert(target);
 			RTLIL::SigSpec initval;
 
@@ -1220,7 +1253,7 @@ public:
 	{
 		require(stmt, mode == FUNCTION);
 		log_assert(subroutine);
-		impl_assign_simple(mod->wire(net_id(*subroutine->returnValVar)),
+		impl_assign_simple(mod->wire(scoped_id(*subroutine->returnValVar)),
 						   evaluate_rhs(mod, *stmt.expr, &ctx), true);
 	}
 };
@@ -1236,7 +1269,7 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 	log_assert(call.arguments().size() == subr.getArguments().size());
 
 	for (int i = 0; i < call.arguments().size(); i++) {
-		RTLIL::Wire *w = mod->wire(net_id(*subr.getArguments()[i]));
+		RTLIL::Wire *w = mod->wire(scoped_id(*subr.getArguments()[i]));
 		log_assert(w);
 		visitor.ctx.set(w, evaluate_rhs(mod, *call.arguments()[i], ctx));
 	}
@@ -1246,7 +1279,7 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 	// has created a placeholder wire we can use here. That wire doesn't make sense as a
 	// netlist element though.
 	require(subr, subr.returnValVar->getType().isFixedSize());
-	RTLIL::SigSpec ret = mod->wire(net_id(*subr.returnValVar));
+	RTLIL::SigSpec ret = mod->wire(scoped_id(*subr.returnValVar));
 	ret.replace(visitor.staging);
 	return ret;
 }
@@ -1429,12 +1462,12 @@ public:
 	void handle(const ast::NetSymbol &sym)
 	{
 		if (sym.getInitializer())
-			mod->connect(mod->wire(net_id(sym)), evaluate_rhs(mod, *sym.getInitializer(), NULL));
+			mod->connect(mod->wire(scoped_id(sym)), evaluate_rhs(mod, *sym.getInitializer(), NULL));
 	}
 
 	void handle(const ast::PortSymbol &sym)
 	{
-		RTLIL::Wire *wire = mod->wire(net_id(*sym.internalSymbol));
+		RTLIL::Wire *wire = mod->wire(scoped_id(*sym.internalSymbol));
 		log_assert(wire);
 		switch (sym.direction) {
 		case ast::ArgumentDirection::In:
@@ -1455,9 +1488,7 @@ public:
 	void handle(const ast::InstanceSymbol &sym)
 	{
 		require(sym, sym.isModule());
-		std::string instanceName;
-		sym.body.getHierarchicalPath(instanceName);
-		RTLIL::Cell *cell = mod->addCell(id(instanceName), module_type_id(sym));
+		RTLIL::Cell *cell = mod->addCell(scoped_id(sym.body), module_type_id(sym));
 		for (auto *conn : sym.getPortConnections()) {
 			if (!conn->getExpression())
 				continue;
@@ -1470,7 +1501,7 @@ public:
 			} else {
 				signal = evaluate_rhs(mod, expr, NULL);
 			}
-			cell->setPort(net_id(conn->port), signal);
+			cell->setPort(scoped_id(conn->port), signal);
 		}
 		transfer_attrs(sym, cell);
 	}
@@ -1497,7 +1528,7 @@ public:
 	{
 		auto wadd = ast::makeVisitor([&](auto& visitor, const ast::ValueSymbol &sym) {
 			if (sym.getType().isFixedSize()) {
-				auto w = mod->addWire(net_id(sym), sym.getType().getBitstreamWidth());
+				auto w = mod->addWire(scoped_id(sym), sym.getType().getBitstreamWidth());
 				transfer_attrs(sym, w);
 
 				if (sym.kind == ast::SymbolKind::Variable &&
@@ -1540,7 +1571,7 @@ public:
 				log_assert(storage);
 				auto const_ = const_const(*storage);
 				if (!const_.is_fully_undef()) {
-					auto wire = mod->wire(net_id(sym));
+					auto wire = mod->wire(scoped_id(sym));
 					log_assert(wire);
 					wire->attributes[RTLIL::ID::init] = const_;
 				}
@@ -1572,10 +1603,7 @@ public:
 		require(sym, !sym.isChecker());
 		require(sym, sym.paramExpressions.empty());
 
-		std::string instanceName;
-		sym.getHierarchicalPath(instanceName);
-
-		RTLIL::Cell *cell = mod->addCell(id(instanceName),
+		RTLIL::Cell *cell = mod->addCell(scoped_id(sym),
 										 id(sym.definitionName));
 
 		auto port_names = sym.getPortNames();
