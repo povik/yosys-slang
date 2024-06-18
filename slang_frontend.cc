@@ -157,7 +157,7 @@ static const RTLIL::IdString module_type_id(const ast::InstanceSymbol &sym)
 		return RTLIL::escape_id(std::string(sym.body.name) + "$" + instance);
 }
 
-static const RTLIL::Const svint_const(const slang::SVInt &svint)
+static const RTLIL::Const convert_svint(const slang::SVInt &svint)
 {
 	RTLIL::Const ret;
 	ret.bits.reserve(svint.getBitWidth());
@@ -171,7 +171,7 @@ static const RTLIL::Const svint_const(const slang::SVInt &svint)
 	return ret;
 }
 
-static const RTLIL::Const const_const(const slang::ConstantValue &constval)
+static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 {
 	log_assert(!constval.isReal());
 	log_assert(!constval.isShortReal());
@@ -182,18 +182,18 @@ static const RTLIL::Const const_const(const slang::ConstantValue &constval)
 	log_assert(!constval.isUnion());
 
 	if (constval.isInteger()) {
-		return svint_const(constval.integer());
+		return convert_svint(constval.integer());
 	} else if (constval.isUnpacked()) {
 		RTLIL::Const ret;
 		// TODO: is this right?
 		for (auto &el : constval.elements()) {
-			auto piece = const_const(el);
+			auto piece = convert_const(el);
 			ret.bits.insert(ret.bits.begin(), piece.bits.begin(), piece.bits.end());
 		}
 		log_assert(ret.size() == constval.getBitstreamWidth());
 		return ret;
 	} else if (constval.isString()) {
-		RTLIL::Const ret = svint_const(constval.convertToInt().integer());
+		RTLIL::Const ret = convert_svint(constval.convertToInt().integer());
 		ret.flags |= RTLIL::CONST_FLAG_STRING;
 		return ret;
 	}
@@ -208,7 +208,7 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 
 	for (auto attr : global_compilation->getAttributes(from)) {
 		require(*attr, attr->getValue().isInteger());
-		to->attributes[id(attr->name)] = svint_const(attr->getValue().integer());
+		to->attributes[id(attr->name)] = convert_svint(attr->getValue().integer());
 	}
 }
 
@@ -435,13 +435,13 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 		}
 
 		if (true && expr.constant) {
-			ret = const_const(*expr.constant);
+			ret = convert_const(*expr.constant);
 			goto done;
 		}
 	} else {
 		auto const_ = expr.eval(ctx->eval);
 		if (const_) {
-			ret = const_const(const_);
+			ret = convert_const(const_);
 			goto done;
 		}
 	}
@@ -470,7 +470,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 					require(valsym, valsym.getInitializer());
 					auto exprconst = valsym.getInitializer()->constant;
 					require(valsym, exprconst && exprconst->isInteger());
-					ret = svint_const(exprconst->integer());
+					ret = convert_svint(exprconst->integer());
 				}
 				break;
 			default:
@@ -595,7 +595,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::IntegerLiteral:
 		{
 			const ast::IntegerLiteral &lit = expr.as<ast::IntegerLiteral>();
-			ret = svint_const(lit.getValue());
+			ret = convert_svint(lit.getValue());
 		}
 		break;
 	case ast::ExpressionKind::RangeSelect:
@@ -1234,7 +1234,7 @@ public:
 			if (stmt.symbol.getInitializer())
 				initval = evaluate_rhs(mod, *stmt.symbol.getInitializer(), &ctx);
 			else
-				initval = const_const(stmt.symbol.getType().getDefaultValue());
+				initval = convert_const(stmt.symbol.getType().getDefaultValue());
 
 			impl_assign_simple(
 				target,
@@ -1319,7 +1319,7 @@ public:
 					fmt_arg.sig = RTLIL::Const(fmt_arg.str);
 				} else if (arg.isInteger()) {
 					fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
-					fmt_arg.sig = svint_const(arg.integer());
+					fmt_arg.sig = convert_svint(arg.integer());
 					fmt_arg.signed_ = arg.integer().isSigned();
 				} else {
 					unimplemented(*arg_expr);
@@ -1569,7 +1569,7 @@ public:
 			if (sym.getType().isFixedSize()) {
 				auto storage = initial_eval.context.findLocal(&sym);
 				log_assert(storage);
-				auto const_ = const_const(*storage);
+				auto const_ = convert_const(*storage);
 				if (!const_.is_fully_undef()) {
 					auto wire = mod->wire(scoped_id(sym));
 					log_assert(wire);
