@@ -1488,7 +1488,7 @@ public:
 	void handle(const ast::InstanceSymbol &sym)
 	{
 		require(sym, sym.isModule());
-		RTLIL::Cell *cell = mod->addCell(scoped_id(sym.body), module_type_id(sym));
+		RTLIL::Cell *cell = mod->addCell(scoped_id(sym), module_type_id(sym));
 		for (auto *conn : sym.getPortConnections()) {
 			if (!conn->getExpression())
 				continue;
