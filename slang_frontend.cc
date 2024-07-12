@@ -1741,6 +1741,8 @@ static void build_hierpath2(const ast::InstanceBodySymbol &realm,
 		s << ".";
 	} else if (!symbol->name.empty()) {
 		s << symbol->name << ".";
+	} else if (symbol->kind == ast::SymbolKind::StatementBlock) {
+		s << "$" << (int) symbol->getIndex() << ".";
 	}
 }
 
