@@ -984,9 +984,14 @@ public:
 					auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
 					Addressing addr(eval, sel);
 					int stride = sel.value().type->getBitstreamWidth() / addr.range.width();
-					require(*raw_lexpr, stride == 1);
-					raw_mask = addr.shift_up(raw_mask, false, sel.value().type->getBitstreamWidth());
-					raw_rvalue = addr.shift_up(raw_rvalue, true, sel.value().type->getBitstreamWidth());
+					int wider_size = sel.value().type->getBitstreamWidth();
+					if (stride == 1) {
+						raw_mask = addr.shift_up(raw_mask, false, wider_size);
+						raw_rvalue = addr.shift_up(raw_rvalue, true, wider_size);
+					} else {
+						raw_mask = addr.embed(raw_mask, wider_size, stride, RTLIL::S0);
+						raw_rvalue = addr.embed(raw_rvalue, wider_size, stride, RTLIL::Sx);
+					}
 					raw_lexpr = &sel.value();
 				}
 				break;

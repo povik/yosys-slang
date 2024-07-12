@@ -52,7 +52,7 @@ struct Addressing {
 	Addressing(SignalEvalContext &eval, const ast::RangeSelectExpression &sel)
 		: expr(sel), eval(eval), netlist(eval.netlist)
 	{
-		require(sel, sel.value().type->isArray() && sel.value().type->hasFixedRange());
+		require(sel, sel.value().type->hasFixedRange());
 		range = sel.value().type->getFixedRange();
 
 		switch (sel.getSelectionKind()) {
@@ -249,6 +249,14 @@ struct Addressing {
 		int offset = raw_signal.as_const().as_int() + base_offset;
 		require(expr, offset >= 0 && offset + width <= val.size());
 		return val.extract(offset, width);
+	}
+
+	Signal embed(Signal val, int output_len, int stride, RTLIL::State padding)
+	{
+		require(expr, raw_signal.is_fully_def());
+		int offset = raw_signal.as_const().as_int() + base_offset;
+		require(expr, offset >= 0 && offset * stride + val.size() <= output_len);
+		return {Signal(padding, output_len - offset * stride - val.size()), val, {Signal(padding, offset * stride)}};
 	}
 };
 
