@@ -22,6 +22,7 @@
 #include "kernel/utils.h"
 
 #include "initial_eval.h"
+#include "slang_frontend.h"
 
 inline namespace slang_frontend {
 
@@ -213,7 +214,7 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 }
 
 
-static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expression &expr)
+static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Expression &expr)
 {
 	require(expr, expr.type->isFixedSize());
 	RTLIL::SigSpec ret;
@@ -222,7 +223,7 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::NamedValue:
 		{
 			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
-			RTLIL::Wire *wire = mod->wire(scoped_id(sym));
+			RTLIL::Wire *wire = netlist.wire(sym);
 			log_assert(wire);
 			ret = wire;
 		}
@@ -240,7 +241,7 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 			int raw_right = range.translateIndex(right);
 			log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
 			int stride = sel.value().type->getBitstreamWidth() / range.width();
-			ret = evaluate_lhs(mod, sel.value()).extract(raw_right * stride,
+			ret = evaluate_lhs(netlist, sel.value()).extract(raw_right * stride,
 												stride * (raw_left - raw_right + 1));
 		}
 		break;
@@ -248,7 +249,7 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 		{
 			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
 			for (auto op : concat.operands())
-				ret = {ret, evaluate_lhs(mod, *op)};
+				ret = {ret, evaluate_lhs(netlist, *op)};
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
@@ -259,7 +260,7 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 			int idx = elemsel.selector().constant->integer().as<int>().value();
 			int stride = elemsel.type->getBitstreamWidth();
 			uint32_t raw_idx = elemsel.value().type->getFixedRange().translateIndex(idx);
-			ret = evaluate_lhs(mod, elemsel.value()).extract(stride * raw_idx, stride);
+			ret = evaluate_lhs(netlist, elemsel.value()).extract(stride * raw_idx, stride);
 		}
 		break;
 	case ast::ExpressionKind::MemberAccess:
@@ -268,7 +269,7 @@ static const RTLIL::SigSpec evaluate_lhs(RTLIL::Module *mod, const ast::Expressi
 			require(expr, acc.member.kind == ast::SymbolKind::Field);
 			const auto &member = acc.member.as<ast::FieldSymbol>();
 			require(acc, member.randMode == ast::RandMode::None);
-			return evaluate_lhs(mod, acc.value()).extract(member.bitOffset,
+			return evaluate_lhs(netlist, acc.value()).extract(member.bitOffset,
 								expr.type->getBitstreamWidth());
 		}
 		break;
@@ -304,144 +305,121 @@ struct ProcedureContext
 	}
 };
 
-static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpression &call,
-										ProcedureContext *ctx);
+static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call);
 
-static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expression &expr,
-										 ProcedureContext *ctx);
+RTLIL::SigSpec RTLILBuilder::Sub(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+	if (b.is_fully_ones())
+		return a;
+	if (a.is_fully_const() && b.is_fully_const())
+		return RTLIL::const_sub(a.as_const(), b.as_const(), is_signed, is_signed,
+								std::max(a.size(), b.size()) + 1);
+	return canvas->Sub(NEW_ID, a, b, is_signed);
+}
 
-// A `Module` with a bit of constant folding layered on top,
-// this is required for efficient procedure lowering
-struct ModuleLayer {
-	RTLIL::Module *mod;
-	ModuleLayer(RTLIL::Module *mod) : mod(mod) {}
-
-	RTLIL::SigSpec Sub(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
-		if (b.is_fully_ones())
-			return a;
-		if (a.is_fully_const() && b.is_fully_const())
-			return RTLIL::const_sub(a.as_const(), b.as_const(), is_signed, is_signed,
-									std::max(a.size(), b.size()) + 1);
-		return mod->Sub(NEW_ID, a, b, is_signed);
+RTLIL::SigSpec RTLILBuilder::Demux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
+	log_assert(s.size() < 24);
+	RTLIL::SigSpec zeropad(RTLIL::S0, a.size());
+	if (s.is_fully_const()) {
+		int idx_const = s.as_const().as_int();
+		return {zeropad.repeat((1 << s.size()) - 1 - idx_const),
+					a, zeropad.repeat(idx_const)};
 	}
+	return canvas->Demux(NEW_ID, a, s);
+}
 
-	RTLIL::SigSpec Demux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
-		log_assert(s.size() < 24);
-		RTLIL::SigSpec zeropad(RTLIL::S0, a.size());
-		if (s.is_fully_const()) {
-			int idx_const = s.as_const().as_int();
-			return {zeropad.repeat((1 << s.size()) - 1 - idx_const),
-						a, zeropad.repeat(idx_const)};
+RTLIL::SigSpec RTLILBuilder::Le(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+	if (a.is_fully_const() && b.is_fully_const())
+		return RTLIL::const_le(a.as_const(), b.as_const(), is_signed, is_signed, 1);
+	return canvas->Le(NEW_ID, a, b, is_signed);
+}
+
+RTLIL::SigSpec RTLILBuilder::Ge(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+	if (a.is_fully_const() && b.is_fully_const())
+		return RTLIL::const_ge(a.as_const(), b.as_const(), is_signed, is_signed, 1);
+	return canvas->Ge(NEW_ID, a, b, is_signed);
+}
+
+RTLIL::SigSpec RTLILBuilder::LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
+	if (a.is_fully_zero() || b.is_fully_zero())
+		return RTLIL::Const(0, 1);
+	if (a.is_fully_def() && b.size() == 1)
+		return b;
+	if (b.is_fully_def() && a.size() == 1)
+		return a;
+	return canvas->LogicAnd(NEW_ID, a, b);
+}
+
+RTLIL::SigSpec RTLILBuilder::Mux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
+	log_assert(a.size() == b.size());
+	log_assert(s.size() == 1);
+	if (s[0] == RTLIL::S0)
+		return a;
+	if (s[0] == RTLIL::S1)
+		return b;
+	return canvas->Mux(NEW_ID, a, b, s);
+}
+
+RTLIL::SigSpec RTLILBuilder::Bwmux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
+	log_assert(a.size() == b.size());
+	log_assert(a.size() == s.size());
+	if (s.is_fully_const()) {
+		RTLIL::SigSpec result(RTLIL::Sx, a.size());
+		for (int i = 0; i < a.size(); i++) {
+			if (s[i] == RTLIL::S0)
+				result[i] = a[i];
+			else if (s[i] == RTLIL::S1)
+				result[i] = b[i];
 		}
-		return mod->Demux(NEW_ID, a, s);
+		return result;
 	}
+	return canvas->Bwmux(NEW_ID, a, b, s);
+}
 
-	RTLIL::SigSpec Le(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
-		if (a.is_fully_const() && b.is_fully_const())
-			return RTLIL::const_le(a.as_const(), b.as_const(), is_signed, is_signed, 1);
-		return mod->Le(NEW_ID, a, b, is_signed);
+RTLIL::SigSpec RTLILBuilder::Bmux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
+	log_assert(a.size() % (1 << s.size()) == 0);
+	log_assert(a.size() >= 1 << s.size());
+	int stride = a.size() >> s.size();
+	if (s.is_fully_def()) {
+		return a.extract(s.as_const().as_int() * stride, stride);
 	}
+	return canvas->Bmux(NEW_ID, a, s);
+}
 
-	RTLIL::SigSpec Ge(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
-		if (a.is_fully_const() && b.is_fully_const())
-			return RTLIL::const_ge(a.as_const(), b.as_const(), is_signed, is_signed, 1);
-		return mod->Ge(NEW_ID, a, b, is_signed);
-	}
-
-	RTLIL::SigSpec LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
-		if (a.is_fully_zero() || b.is_fully_zero())
-			return RTLIL::Const(0, 1);
-		if (a.is_fully_def() && b.size() == 1)
-			return b;
-		if (b.is_fully_def() && a.size() == 1)
-			return a;
-		return mod->LogicAnd(NEW_ID, a, b);
-	}
-
-	RTLIL::SigSpec Mux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
-		log_assert(a.size() == b.size());
-		log_assert(s.size() == 1);
-		if (s[0] == RTLIL::S0)
-			return a;
-		if (s[0] == RTLIL::S1)
-			return b;
-		return mod->Mux(NEW_ID, a, b, s);
-	}
-
-	RTLIL::SigSpec Bwmux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
-		log_assert(a.size() == b.size());
-		log_assert(a.size() == s.size());
-		if (s.is_fully_const()) {
-			RTLIL::SigSpec result(RTLIL::Sx, a.size());
-			for (int i = 0; i < a.size(); i++) {
-				if (s[i] == RTLIL::S0)
-					result[i] = a[i];
-				else if (s[i] == RTLIL::S1)
-					result[i] = b[i];
-			}
-			return result;
-		}
-		return mod->Bwmux(NEW_ID, a, b, s);
-	}
-
-	RTLIL::SigSpec Bmux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
-		log_assert(a.size() % (1 << s.size()) == 0);
-		log_assert(a.size() >= 1 << s.size());
-		int stride = a.size() >> s.size();
-		if (s.is_fully_def()) {
-			return a.extract(s.as_const().as_int() * stride, stride);
-		}
-		return mod->Bmux(NEW_ID, a, s);
-	}
-};
-
-static const std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(RTLIL::Module *mod, const ast::Expression &idxexpr,
-																	  slang::ConstantRange range, ProcedureContext *ctx)
+std::pair<RTLIL::SigSpec, RTLIL::SigBit> SignalEvalContext::translate_index(
+		const ast::Expression &expr, slang::ConstantRange range)
 {
-	ModuleLayer modl(mod);
-	RTLIL::SigSpec idx = evaluate_rhs(mod, idxexpr, ctx);
-	bool idx_signed = idxexpr.type->isSigned();
+	RTLIL::SigSpec idx = (*this)(expr);
+	bool idx_signed = expr.type->isSigned();
 
 	if (!idx_signed) {
 		idx.append(RTLIL::S0);
 		idx_signed = true;
 	}
 
-	RTLIL::SigBit valid = modl.LogicAnd(
-		modl.Le(idx, RTLIL::Const(range.upper()), /* is_signed */ true),
-		modl.Ge(idx, RTLIL::Const(range.lower()), /* is_signed */ true)
+	RTLIL::SigBit valid = netlist.LogicAnd(
+		netlist.Le(idx, RTLIL::Const(range.upper()), /* is_signed */ true),
+		netlist.Ge(idx, RTLIL::Const(range.lower()), /* is_signed */ true)
 	);
 
 	RTLIL::SigSpec raw_idx;
 	if (range.left > range.right)
-		raw_idx = modl.Sub(idx, RTLIL::Const(range.right), /* is_signed */ true);
+		raw_idx = netlist.Sub(idx, RTLIL::Const(range.right), /* is_signed */ true);
 	else
-		raw_idx = modl.Sub(RTLIL::Const(range.right), idx, /* is_signed */ true);
+		raw_idx = netlist.Sub(RTLIL::Const(range.right), idx, /* is_signed */ true);
 	raw_idx.extend_u0(ceil_log2(range.width()));
 	return std::make_pair(raw_idx, valid);
 }
 
-static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expression &expr,
-										 ProcedureContext *ctx)
+RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
 	require(expr, expr.type->isFixedSize());
+	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
 
-	if (!ctx) {
-		{
-			// TODO: we seem to need this for `expr.constant`, are we using it right?
-			ast::ASTContext ctx(global_compilation->getRoot(), ast::LookupLocation::max);
-			ctx.tryEval(expr);
-		}
-
-		if (true && expr.constant) {
-			ret = convert_const(*expr.constant);
-			goto done;
-		}
-	} else {
-		auto const_ = expr.eval(ctx->eval);
-		if (const_) {
-			ret = convert_const(const_);
+	{
+		auto const_result = expr.eval(this->const_);
+		if (const_result) {
+			ret = convert_const(const_result);
 			goto done;
 		}
 	}
@@ -457,11 +435,10 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			case ast::SymbolKind::FormalArgument:
 				{
 					const auto &valsym = sym.as<ast::ValueSymbol>();
-					RTLIL::Wire *wire = mod->wire(scoped_id(sym));
+					RTLIL::Wire *wire = netlist.wire(sym);
 					log_assert(wire);
 					ret = wire;
-					if (ctx)
-						ret.replace(ctx->rvalue_subs);
+					ret.replace(rvalue_subs);
 				}
 				break;
 			case ast::SymbolKind::Parameter:
@@ -481,7 +458,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::UnaryOp:
 		{
 			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
-			RTLIL::SigSpec left = evaluate_rhs(mod, unop.operand(), ctx);
+			RTLIL::SigSpec left = (*this)(unop.operand());
 			bool invert = false;
 
 			RTLIL::IdString type;
@@ -515,8 +492,8 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 	case ast::ExpressionKind::BinaryOp:
 		{
 			const ast::BinaryExpression &biop = expr.as<ast::BinaryExpression>();
-			RTLIL::SigSpec left = evaluate_rhs(mod, biop.left(), ctx);
-			RTLIL::SigSpec right = evaluate_rhs(mod, biop.right(), ctx);
+			RTLIL::SigSpec left = (*this)(biop.left());
+			RTLIL::SigSpec right = (*this)(biop.right());
 
 			bool a_signed = biop.left().type->isSigned();
 			bool b_signed = biop.right().type->isSigned();
@@ -588,7 +565,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			require(expr, from.isIntegral() /* && from.isScalar() */);
 			require(expr, to.isIntegral() /* && to.isScalar() */);
 			require(conv, from.isSigned() == to.isSigned() || to.getBitWidth() <= from.getBitWidth());
-			ret = evaluate_rhs(mod, conv.operand(), ctx);
+			ret = (*this)(conv.operand());
 			ret.extend_u0((int) to.getBitWidth(), to.isSigned());
 		}
 		break;
@@ -611,33 +588,32 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			int raw_right = range.translateIndex(right);
 			log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
 			int stride = sel.value().type->getBitstreamWidth() / range.width();
-			ret = evaluate_rhs(mod, sel.value(), ctx).extract(raw_right * stride,
-												stride * (raw_left - raw_right + 1));
+			ret = (*this)(sel.value()).extract(raw_right * stride,
+											 stride * (raw_left - raw_right + 1));
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
 		{
-			ModuleLayer modl(mod);
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
 			int stride = elemsel.type->getBitstreamWidth();
-			RTLIL::SigSpec base_value = evaluate_rhs(mod, elemsel.value(), ctx);
+			RTLIL::SigSpec base_value = (*this)(elemsel.value());
 			log_assert(base_value.size() % stride == 0);
 			auto range = elemsel.value().type->getFixedRange();
 			RTLIL::SigSpec raw_idx;
 			RTLIL::SigBit valid;
-			std::tie(raw_idx, valid) = translate_index(mod, elemsel.selector(), range, ctx);
+			std::tie(raw_idx, valid) = translate_index(elemsel.selector(), range);
 			log_assert(stride * (1 << raw_idx.size()) >= base_value.size());
 			base_value.append(RTLIL::SigSpec(RTLIL::Sx, stride * (1 << raw_idx.size()) - base_value.size()));
 			// TODO: check what's proper out-of-range handling
-			ret = modl.Mux(RTLIL::SigSpec(RTLIL::State::Sx, stride), modl.Bmux(base_value, raw_idx), valid);
+			ret = netlist.Mux(RTLIL::SigSpec(RTLIL::State::Sx, stride), netlist.Bmux(base_value, raw_idx), valid);
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
 		{
 			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
 			for (auto op : concat.operands())
-				ret = {ret, evaluate_rhs(mod, *op, ctx)};
+				ret = {ret, (*this)(*op)};
 		}
 		break;
 	case ast::ExpressionKind::ConditionalOp:
@@ -648,9 +624,9 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			require(expr, !ternary.conditions[0].pattern);
 
 			ret = mod->Mux(NEW_ID,
-				evaluate_rhs(mod, ternary.right(), ctx),
-				evaluate_rhs(mod, ternary.left(), ctx),
-				mod->ReduceBool(NEW_ID, evaluate_rhs(mod, *(ternary.conditions[0].expr), ctx))
+				(*this)(ternary.right()),
+				(*this)(ternary.left()),
+				mod->ReduceBool(NEW_ID, (*this)(*(ternary.conditions[0].expr)))
 			);
 		}
 		break;
@@ -659,7 +635,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			const auto &repl = expr.as<ast::ReplicationExpression>();
 			require(expr, repl.count().constant); // TODO: message
 			int reps = repl.count().constant->integer().as<int>().value(); // TODO: checking
-			RTLIL::SigSpec concat = evaluate_rhs(mod, repl.concat(), ctx);
+			RTLIL::SigSpec concat = (*this)(repl.concat());
 			for (int i = 0; i < reps; i++)
 				ret.append(concat);
 		}
@@ -670,7 +646,7 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			require(expr, acc.member.kind == ast::SymbolKind::Field);
 			const auto &member = acc.member.as<ast::FieldSymbol>();
 			require(acc, member.randMode == ast::RandMode::None);
-			return evaluate_rhs(mod, acc.value(), ctx).extract(member.bitOffset,
+			return (*this)(acc.value()).extract(member.bitOffset,
 								expr.type->getBitstreamWidth());
 		}
 		break;
@@ -680,12 +656,11 @@ static const RTLIL::SigSpec evaluate_rhs(RTLIL::Module *mod, const ast::Expressi
 			if (call.isSystemCall()) {
 				require(expr, call.getSubroutineName() == "$signed");
 				require(expr, call.arguments().size() == 1);
-				ret = evaluate_rhs(mod, *call.arguments()[0], ctx);
+				ret = (*this)(*call.arguments()[0]);
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
 				require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
-				return evaluate_function(mod, call, ctx);
-
+				return evaluate_function(*this, call);
 			}
 		}
 		break;
@@ -697,6 +672,12 @@ done:
 	log_assert(expr.type->isFixedSize());
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
+}
+
+SignalEvalContext::SignalEvalContext(NetlistContext &netlist)
+	: netlist(netlist), const_(ast::ASTContext(netlist.compilation.getRoot(),
+											   ast::LookupLocation::max))
+{
 }
 
 struct SwitchBuilder {
@@ -781,11 +762,12 @@ Yosys::IdString id_slang_nonstatic("\\slang_nonstatic");
 
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
+	NetlistContext &netlist;
 	RTLIL::Module *mod;
 	RTLIL::Process *proc;
 	RTLIL::CaseRule *current_case;
 
-	ProcedureContext ctx;
+	SignalEvalContext eval;
 
 	const ast::SubroutineSymbol *subroutine;
 
@@ -797,8 +779,9 @@ public:
 
 	enum Mode { ALWAYS, FUNCTION } mode;
 
-	ProceduralVisitor(RTLIL::Module *mod, RTLIL::Process *proc, Mode mode)
-			: mod(mod), proc(proc), mode(mode) {
+	ProceduralVisitor(NetlistContext &netlist, RTLIL::Process *proc, Mode mode)
+			: netlist(netlist), mod(netlist.canvas), proc(proc), eval(netlist), mode(mode) {
+		eval.const_.pushEmptyFrame();
 		RTLIL::SwitchRule *top_switch = new RTLIL::SwitchRule;
 		proc->root_case.switches.push_back(top_switch);
 		current_case = new RTLIL::CaseRule;
@@ -892,7 +875,7 @@ public:
 	{
 		log_assert(lvalue.size() == rvalue.size());
 		if (blocking) {
-			ctx.set(lvalue, rvalue);
+			eval.set(lvalue, rvalue);
 			// TODO: proper message on blocking/nonblocking mixing
 			log_assert(!assigned_nonblocking.check_any(lvalue));
 			assigned_blocking.add(lvalue);
@@ -910,7 +893,6 @@ public:
 
 	void impl_assign(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
 	{
-		ModuleLayer modl(mod);
 		bool blocking = !assign.isNonBlocking();
 		const ast::Expression *raw_lexpr = &assign.left();
 		RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
@@ -946,9 +928,9 @@ public:
 					auto range = elemsel.value().type->getFixedRange();
 					RTLIL::SigSpec raw_idx;
 					RTLIL::SigBit valid;
-					std::tie(raw_idx, valid) = translate_index(mod, elemsel.selector(), range, &ctx);
+					std::tie(raw_idx, valid) = eval.translate_index(elemsel.selector(), range);
 					// TODO: use valid
-					raw_mask = modl.Demux(raw_mask, raw_idx);
+					raw_mask = netlist.Demux(raw_mask, raw_idx);
 					raw_mask.extend_u0(stride * range.width());
 					raw_rvalue = raw_rvalue.repeat(range.width());
 					raw_lexpr = &elemsel.value();
@@ -976,7 +958,7 @@ public:
 			log_assert(raw_rvalue.size() == raw_lexpr->type->getBitstreamWidth());
 		}
 
-		RTLIL::SigSpec lvalue = evaluate_lhs(mod, *raw_lexpr);
+		RTLIL::SigSpec lvalue = evaluate_lhs(netlist, *raw_lexpr);
 		crop_zero_mask(raw_mask, lvalue);
 		crop_zero_mask(raw_mask, raw_rvalue);
 		crop_zero_mask(raw_mask, raw_mask);
@@ -986,8 +968,8 @@ public:
 			masked_rvalue = raw_rvalue;
 		} else {
 			RTLIL::SigSpec raw_lvalue_sampled = lvalue;
-			raw_lvalue_sampled.replace(ctx.rvalue_subs);
-			masked_rvalue = modl.Bwmux(raw_lvalue_sampled, raw_rvalue, raw_mask);
+			raw_lvalue_sampled.replace(eval.rvalue_subs);
+			masked_rvalue = netlist.Bwmux(raw_lvalue_sampled, raw_rvalue, raw_mask);
 		}
 
 		impl_assign_simple(lvalue, masked_rvalue, blocking);
@@ -1032,7 +1014,7 @@ public:
 							}
 						default:
 							fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
-							fmt_arg.sig = evaluate_rhs(mod, *arg, &ctx);
+							fmt_arg.sig = eval(*arg);
 							fmt_arg.signed_ = arg->type->isSigned();
 							break;
 						}
@@ -1055,7 +1037,7 @@ public:
 						if (dir == ast::ArgumentDirection::In) {
 							RTLIL::Wire *w = mod->wire(scoped_id(*arg));
 							log_assert(w);
-							ctx.set(w, evaluate_rhs(mod, *call.arguments()[i], &ctx));
+							eval.set(w, eval(*call.arguments()[i]));
 						}
 					}
 					subroutine->visit(*this);
@@ -1065,10 +1047,10 @@ public:
 							require(expr, call.arguments()[i]->kind == ast::ExpressionKind::Assignment);
 							auto &assign = call.arguments()[i]->as<ast::AssignmentExpression>();
 							require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
-							RTLIL::Wire *w = mod->wire(scoped_id(*arg));
+							RTLIL::Wire *w = netlist.wire(*arg);
 							log_assert(w);
 							RTLIL::SigSpec rvalue = w;
-							rvalue.replace(ctx.rvalue_subs);
+							rvalue.replace(eval.rvalue_subs);
 							impl_assign(assign, rvalue);
 						}
 					}
@@ -1080,7 +1062,7 @@ public:
 		case ast::ExpressionKind::Assignment:
 			{
 				const auto &assign = expr.expr.as<ast::AssignmentExpression>();
-				impl_assign(assign, evaluate_rhs(mod, assign.right(), &ctx));
+				impl_assign(assign, eval(assign.right()));
 			}
 			break;
 		default:
@@ -1105,9 +1087,9 @@ public:
 
 		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec condition = mod->ReduceBool(NEW_ID,
-			evaluate_rhs(mod, *cond.conditions[0].expr, &ctx)
+			eval(*cond.conditions[0].expr)
 		);
-		SwitchBuilder b(current_case, &ctx.rvalue_subs, condition);
+		SwitchBuilder b(current_case, &eval.rvalue_subs, condition);
 		transfer_attrs(cond, b.sw);
 
 		b.branch({RTLIL::S1}, [&](RTLIL::CaseRule *rule){
@@ -1137,8 +1119,8 @@ public:
 	{
 		require(stmt, stmt.condition == ast::CaseStatementCondition::Normal);
 		RTLIL::CaseRule *case_save = current_case;
-		RTLIL::SigSpec dispatch = evaluate_rhs(mod, stmt.expr, &ctx);
-		SwitchBuilder b(current_case, &ctx.rvalue_subs, dispatch);
+		RTLIL::SigSpec dispatch = eval(stmt.expr);
+		SwitchBuilder b(current_case, &eval.rvalue_subs, dispatch);
 
 		switch (stmt.check) {
 		case ast::UniquePriorityCheck::Priority: 
@@ -1160,7 +1142,7 @@ public:
 			std::vector<RTLIL::SigSpec> compares;
 			for (auto expr : item.expressions) {
 				log_assert(expr);
-				RTLIL::SigSpec compare = evaluate_rhs(mod, *expr, &ctx);
+				RTLIL::SigSpec compare = eval(*expr);
 				log_assert(compare.size() == dispatch.size());
 				compares.push_back(compare);
 			}
@@ -1197,9 +1179,9 @@ public:
 		// What do these two do, *exactly*? Which one should we handle first?
 		for (auto var : stmt.loopVars) {
 			require(stmt, var->getInitializer());
-			auto initval = var->getInitializer()->eval(ctx.eval);
+			auto initval = var->getInitializer()->eval(eval.const_);
 			require(stmt, !initval.bad());
-			ctx.eval.createLocal(var, initval);
+			eval.const_.createLocal(var, initval);
 		}
 
 		for (auto init : stmt.initializers) {
@@ -1207,19 +1189,19 @@ public:
 			const auto &assign = init->as<ast::AssignmentExpression>();
 			require(*init, assign.left().kind == ast::ExpressionKind::NamedValue);
 			const auto &lhs = assign.left().as<ast::NamedValueExpression>();
-			auto initval = assign.right().eval(ctx.eval);
+			auto initval = assign.right().eval(eval.const_);
 			require(*init, !initval.bad());
-			ctx.eval.createLocal(&lhs.symbol, initval);
+			eval.const_.createLocal(&lhs.symbol, initval);
 		}
 
 		while (true) {
-			auto cv = stmt.stopExpr->eval(ctx.eval);
+			auto cv = stmt.stopExpr->eval(eval.const_);
 			require(stmt, (bool) cv);
 			if (!cv.isTrue())
 				break;
 			stmt.body.visit(*this);
 			for (auto step : stmt.steps)
-				require(stmt, (bool) step->eval(ctx.eval));
+				require(stmt, (bool) step->eval(eval.const_));
 		}
 	}
 
@@ -1227,12 +1209,12 @@ public:
 	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
 	void handle(YS_MAYBE_UNUSED const ast::VariableDeclStatement &stmt) {
 		if (stmt.symbol.lifetime != ast::VariableLifetime::Static) {
-			RTLIL::Wire *target = mod->wire(scoped_id(stmt.symbol));
+			RTLIL::Wire *target = netlist.wire(stmt.symbol);
 			log_assert(target);
 			RTLIL::SigSpec initval;
 
 			if (stmt.symbol.getInitializer())
-				initval = evaluate_rhs(mod, *stmt.symbol.getInitializer(), &ctx);
+				initval = eval(*stmt.symbol.getInitializer());
 			else
 				initval = convert_const(stmt.symbol.getType().getDefaultValue());
 
@@ -1254,24 +1236,24 @@ public:
 		require(stmt, mode == FUNCTION);
 		log_assert(subroutine);
 		impl_assign_simple(mod->wire(scoped_id(*subroutine->returnValVar)),
-						   evaluate_rhs(mod, *stmt.expr, &ctx), true);
+						   eval(*stmt.expr), true);
 	}
 };
 
-static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpression &call,
-										ProcedureContext *ctx)
+static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call)
 {
 	const auto &subr = *std::get<0>(call.subroutine);
 	log_assert(subr.subroutineKind == ast::SubroutineKind::Function);
-	RTLIL::Process *proc = mod->addProcess(NEW_ID);
-	ProceduralVisitor visitor(mod, proc, ProceduralVisitor::FUNCTION);
+	RTLIL::Module *mod = eval.netlist.canvas;
+	RTLIL::Process *proc = eval.netlist.canvas->addProcess(NEW_ID);
+	ProceduralVisitor visitor(eval.netlist, proc, ProceduralVisitor::FUNCTION);
 	visitor.subroutine = &subr;
 	log_assert(call.arguments().size() == subr.getArguments().size());
 
 	for (int i = 0; i < call.arguments().size(); i++) {
 		RTLIL::Wire *w = mod->wire(scoped_id(*subr.getArguments()[i]));
 		log_assert(w);
-		visitor.ctx.set(w, evaluate_rhs(mod, *call.arguments()[i], ctx));
+		eval.set(w, eval(*call.arguments()[i]));
 	}
 	subr.getBody().visit(visitor);
 
@@ -1284,9 +1266,10 @@ static RTLIL::SigSpec evaluate_function(RTLIL::Module *mod, const ast::CallExpre
 	return ret;
 }
 
-struct ModulePopulatingVisitor : public ast::ASTVisitor<ModulePopulatingVisitor, true, false> {
+struct PopulateNetlist : public ast::ASTVisitor<PopulateNetlist, true, false> {
 public:
-	RTLIL::Module *mod;
+	NetlistContext &netlist;
+	std::vector<const ast::InstanceSymbol *> deferred_modules;
 
 	struct InitialEvalVisitor : SlangInitial::EvalVisitor {
 		RTLIL::Module *mod;
@@ -1336,8 +1319,8 @@ public:
 		}
 	} initial_eval;
 
-	ModulePopulatingVisitor(RTLIL::Module *mod)
-		: mod(mod), initial_eval(global_compilation, mod) {}
+	PopulateNetlist(NetlistContext &netlist)
+		: netlist(netlist), initial_eval(&netlist.compilation, netlist.canvas) {}
 
 	bool populate_sync(RTLIL::Process *proc, const ast::TimingControl &timing)
 	{
@@ -1347,7 +1330,7 @@ public:
 				const auto &sigevent = timing.as<ast::SignalEventControl>();
 				RTLIL::SyncRule *sync = new RTLIL::SyncRule();
 				proc->syncs.push_back(sync);
-				RTLIL::SigSpec sig = evaluate_rhs(mod, sigevent.expr, NULL);
+				RTLIL::SigSpec sig = netlist.eval(sigevent.expr);
 				require(sigevent, sigevent.iffCondition == NULL);
 				sync->signal = sig;
 				switch (sigevent.edge) {
@@ -1404,7 +1387,7 @@ public:
 		case ast::ProceduralBlockKind::Always:
 		case ast::ProceduralBlockKind::AlwaysFF:
 			{
-				RTLIL::Process *proc = mod->addProcess(NEW_ID);
+				RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
 				if (kind == ast::ProceduralBlockKind::AlwaysFF)
 					proc->attributes[Yosys::ID::always_ff] = true;
 				require(sym, sym.getBody().kind == ast::StatementKind::Timed);
@@ -1413,7 +1396,7 @@ public:
 				if (!populate_sync(proc, timed.timing))
 					unimplemented(timed)
 
-				ProceduralVisitor visitor(mod, proc, ProceduralVisitor::ALWAYS);
+				ProceduralVisitor visitor(netlist, proc, ProceduralVisitor::ALWAYS);
 				timed.stmt.visit(visitor);
 				visitor.staging_done();
 			}
@@ -1422,7 +1405,7 @@ public:
 		case ast::ProceduralBlockKind::AlwaysComb:
 		case ast::ProceduralBlockKind::AlwaysLatch:
 			{
-				RTLIL::Process *proc = mod->addProcess(NEW_ID);
+				RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
 				if (kind == ast::ProceduralBlockKind::AlwaysComb)
 					proc->attributes[Yosys::ID::always_comb] = true;
 				if (kind == ast::ProceduralBlockKind::AlwaysLatch)
@@ -1431,7 +1414,7 @@ public:
 				proc->syncs.push_back(sync);
 				sync->type = RTLIL::SyncType::STa;
 
-				ProceduralVisitor visitor(mod, proc, ProceduralVisitor::ALWAYS);
+				ProceduralVisitor visitor(netlist, proc, ProceduralVisitor::ALWAYS);
 				sym.getBody().visit(visitor);
 				visitor.staging_done();
 			}
@@ -1462,12 +1445,15 @@ public:
 	void handle(const ast::NetSymbol &sym)
 	{
 		if (sym.getInitializer())
-			mod->connect(mod->wire(scoped_id(sym)), evaluate_rhs(mod, *sym.getInitializer(), NULL));
+			netlist.canvas->connect(netlist.wire(sym), netlist.eval(*sym.getInitializer()));
 	}
 
 	void handle(const ast::PortSymbol &sym)
 	{
-		RTLIL::Wire *wire = mod->wire(scoped_id(*sym.internalSymbol));
+		if (sym.getParentScope()->getContainingInstance() != &netlist.realm)
+			return;
+
+		RTLIL::Wire *wire = netlist.wire(*sym.internalSymbol);
 		log_assert(wire);
 		switch (sym.direction) {
 		case ast::ArgumentDirection::In:
@@ -1485,31 +1471,97 @@ public:
 		}
 	}
 
+	void handle(const ast::MultiPortSymbol &sym)
+	{
+		if (sym.getParentScope()->getContainingInstance() != &netlist.realm)
+			return;
+
+		unimplemented(sym);
+	}
+
+	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec signal)
+	{
+		require(port, !port.isNullPort);
+		RTLIL::SigSpec internal_signal;
+
+		if (auto expr = port.getInternalExpr())
+			internal_signal = evaluate_lhs(netlist, *expr);
+		else
+			internal_signal = netlist.wire(*port.internalSymbol);
+
+		log_assert(internal_signal.size() == signal.size());
+		require(port, port.direction == ast::ArgumentDirection::Out ||
+					  port.direction == ast::ArgumentDirection::In);
+
+		if (port.direction == ast::ArgumentDirection::Out)
+			netlist.canvas->connect(signal, internal_signal);
+		else
+			netlist.canvas->connect(internal_signal, signal);
+	}
+
 	void handle(const ast::InstanceSymbol &sym)
 	{
-		require(sym, sym.isModule());
-		RTLIL::Cell *cell = mod->addCell(scoped_id(sym), module_type_id(sym));
-		for (auto *conn : sym.getPortConnections()) {
-			if (!conn->getExpression())
-				continue;
-			auto &expr = *conn->getExpression();
-			RTLIL::SigSpec signal;
-			if (expr.kind == ast::ExpressionKind::Assignment) {
-				auto &assign = expr.as<ast::AssignmentExpression>();
-				require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
-				signal = evaluate_lhs(mod, assign.left());
-			} else {
-				signal = evaluate_rhs(mod, expr, NULL);
+		if (/* should dissolve */ true) {
+			sym.body.visit(*this);
+
+			for (auto *conn : sym.getPortConnections()) {
+				if (!conn->getExpression())
+					continue;
+				auto &expr = *conn->getExpression();
+
+				RTLIL::SigSpec signal;
+				if (expr.kind == ast::ExpressionKind::Assignment) {
+					auto &assign = expr.as<ast::AssignmentExpression>();
+					require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument ||
+								(assign.right().kind == ast::ExpressionKind::Conversion &&
+								 assign.right().as<ast::ConversionExpression>().operand().kind == ast::ExpressionKind::EmptyArgument));
+					signal = evaluate_lhs(netlist, assign.left());
+				} else {
+					signal = netlist.eval(expr);
+				}
+
+				if (conn->port.kind == ast::SymbolKind::MultiPort) {
+					int offset = 0;
+					auto &multiport = conn->port.as<ast::MultiPortSymbol>();
+					for (auto component : multiport.ports) {
+						int width = component->getType().getBitstreamWidth();
+						inline_port_connection(*component, signal.extract(offset, width));
+						offset += width;
+					}
+					log_assert(offset == multiport.getType().getBitstreamWidth());
+				} else if (conn->port.kind == ast::SymbolKind::Port) {
+					inline_port_connection(conn->port.as<ast::PortSymbol>(), signal);
+				} else {
+					log_abort();
+				}
 			}
-			cell->setPort(scoped_id(conn->port), signal);
+		} else {
+			require(sym, sym.isModule());
+			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(sym));
+			for (auto *conn : sym.getPortConnections()) {
+				if (!conn->getExpression())
+					continue;
+				auto &expr = *conn->getExpression();
+				RTLIL::SigSpec signal;
+				if (expr.kind == ast::ExpressionKind::Assignment) {
+					auto &assign = expr.as<ast::AssignmentExpression>();
+					require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
+					signal = evaluate_lhs(netlist, assign.left());
+				} else {
+					signal = netlist.eval(expr);
+				}
+				cell->setPort(id(conn->port.name), signal);
+			}
+			transfer_attrs(sym, cell);
+
+			deferred_modules.push_back(&sym);
 		}
-		transfer_attrs(sym, cell);
 	}
 
 	void handle(const ast::ContinuousAssignSymbol &sym)
 	{
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
-		mod->connect(evaluate_lhs(mod, expr.left()), evaluate_rhs(mod, expr.right(), NULL));		
+		netlist.canvas->connect(evaluate_lhs(netlist, expr.left()), netlist.eval(expr.right()));		
 	}
 
 	void handle(const ast::GenerateBlockSymbol &sym)
@@ -1526,9 +1578,13 @@ public:
 
 	void handle(const ast::InstanceBodySymbol &sym)
 	{
+		RTLIL::Module *mod = netlist.canvas;
+
 		auto wadd = ast::makeVisitor([&](auto& visitor, const ast::ValueSymbol &sym) {
 			if (sym.getType().isFixedSize()) {
-				auto w = mod->addWire(scoped_id(sym), sym.getType().getBitstreamWidth());
+				std::string kind{ast::toString(sym.kind)};
+				log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
+				auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
 				transfer_attrs(sym, w);
 
 				if (sym.kind == ast::SymbolKind::Variable &&
@@ -1571,7 +1627,7 @@ public:
 				log_assert(storage);
 				auto const_ = convert_const(*storage);
 				if (!const_.is_fully_undef()) {
-					auto wire = mod->wire(scoped_id(sym));
+					auto wire = netlist.wire(sym);
 					log_assert(wire);
 					wire->attributes[RTLIL::ID::init] = const_;
 				}
@@ -1603,8 +1659,8 @@ public:
 		require(sym, !sym.isChecker());
 		require(sym, sym.paramExpressions.empty());
 
-		RTLIL::Cell *cell = mod->addCell(scoped_id(sym),
-										 id(sym.definitionName));
+		RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym),
+												id(sym.definitionName));
 
 		auto port_names = sym.getPortNames();
 		auto port_conns = sym.getPortConnections();
@@ -1613,8 +1669,7 @@ public:
 		for (int i = 0; i < port_names.size(); i++) {
 			require(sym, !port_names[i].empty());
 			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
-			cell->setPort(RTLIL::escape_id(std::string{port_names[i]}),
-						  evaluate_rhs(mod, expr, NULL));
+			cell->setPort(RTLIL::escape_id(std::string{port_names[i]}), netlist.eval(expr));
 		}
 	}
 
@@ -1646,35 +1701,84 @@ public:
 	}
 };
 
-struct RTLILGenVisitor : public ast::ASTVisitor<RTLILGenVisitor, true, false> {
-public:
-	ast::Compilation &compilation;
-	RTLIL::Design *design;
+static void build_hierpath2(const ast::InstanceBodySymbol &realm,
+							std::ostringstream &s, const ast::Scope *scope)
+{
+	if (!scope ||
+		static_cast<const ast::Scope *>(&realm) == scope)
+		return;
 
-	RTLILGenVisitor(ast::Compilation &compilation, RTLIL::Design *design)
-		: compilation(compilation), design(design) {}
+	const ast::Symbol *symbol = &scope->asSymbol();
 
-	void handle(const ast::InstanceSymbol &symbol)
-	{
-		std::string name{symbol.name};
+	if (symbol->kind == ast::SymbolKind::InstanceBody)
+		symbol = symbol->as<ast::InstanceBodySymbol>().parentInstance;
+	if (symbol->kind == ast::SymbolKind::CheckerInstanceBody)
+		symbol = symbol->as<ast::CheckerInstanceBodySymbol>().parentInstance;
 
-		if (symbol.name.empty()) {
-			// NetlistVisitor.h says we should ignore this
-			return;
+	if (auto parent = symbol->getParentScope())
+		build_hierpath2(realm, s, parent);
+
+	if (symbol->kind == ast::SymbolKind::GenerateBlockArray) {
+		auto &array = symbol->as<ast::GenerateBlockArraySymbol>();
+		s << array.getExternalName();
+	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
+		auto &block = symbol->as<ast::GenerateBlockSymbol>();
+		if (auto index = block.arrayIndex) {
+			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]."; 
+		} else {
+			s << block.getExternalName() << ".";
+		}
+	} else if (symbol->kind == ast::SymbolKind::Instance ||
+			   symbol->kind == ast::SymbolKind::CheckerInstance) {
+		s << symbol->name;
+
+		auto &inst = symbol->as<ast::InstanceSymbolBase>();
+		if (!inst.arrayPath.empty()) {
+            for (size_t i = 0; i < inst.arrayPath.size(); i++)
+            	s << "[" << inst.arrayPath[i] << "]";
 		}
 
-		RTLIL::Module *mod = design->addModule(module_type_id(symbol));
-		transfer_attrs(symbol.body.getDefinition(), mod);
-
-		ModulePopulatingVisitor modpop(mod);
-		symbol.body.visit(modpop);
-
-		mod->fixup_ports();
-		mod->check();
-
-		this->visitDefault(symbol);
+		s << ".";
+	} else if (!symbol->name.empty()) {
+		s << symbol->name << ".";
 	}
-};
+}
+
+RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
+{
+	std::ostringstream path;
+	build_hierpath2(realm, path, symbol.getParentScope());
+	path << symbol.name;
+	return RTLIL::escape_id(path.str());
+}
+
+RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
+{
+	return canvas->wire(id(symbol));
+}
+
+NetlistContext::NetlistContext(
+		RTLIL::Design *design,
+		ast::Compilation &compilation,
+		const ast::InstanceSymbol &instance)
+	: compilation(compilation), eval(*this), realm(instance.body)
+{
+	canvas = design->addModule(module_type_id(instance));
+	transfer_attrs(instance.body.getDefinition(), canvas);
+}
+
+NetlistContext::NetlistContext(
+		NetlistContext &other,
+		const ast::InstanceSymbol &instance)
+	: NetlistContext(other.canvas->design, other.compilation, instance)
+{
+}
+
+NetlistContext::~NetlistContext()
+{
+	canvas->fixup_ports();
+	canvas->check();
+}
 
 USING_YOSYS_NAMESPACE
 
@@ -1739,8 +1843,14 @@ struct SlangFrontend : Frontend {
 			global_diagengine = &driver.diagEngine;
 			global_diagclient = driver.diagClient.get();
 			global_diagclient->clear();
-			RTLILGenVisitor visitor(*compilation, design);
-			compilation->getRoot().visit(visitor);
+
+			{
+				for (auto instance : compilation->getRoot().topInstances) {
+					NetlistContext netlist(design, *compilation, *instance);
+					PopulateNetlist populate(netlist);
+					instance->body.visit(populate);
+				}
+			}
 		} catch (const std::exception& e) {
 			log_error("Exception: %s\n", e.what());
 		}
