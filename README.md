@@ -70,4 +70,4 @@ This is foremost a demonstrator with no fixed plans for its future. Any contribu
 
 ## License
 
-The main glue code (`slang_frontend.cc`) is distributed under the ISC license, see `LICENSE`. The `initial_eval.cc` code contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
+The main glue code (`slang_frontend.cc` `slang_frontend.h` `proc_usage.cc` `addressing.h`) is distributed under the ISC license, see `LICENSE`. The `initial_eval.cc` code contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
