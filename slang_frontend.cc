@@ -454,6 +454,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	require(expr, expr.type->isFixedSize());
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
+	size_t repl_count;
 
 	{
 		auto const_result = expr.eval(this->const_);
@@ -634,6 +635,26 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
 			for (auto op : concat.operands())
 				ret = {ret, (*this)(*op)};
+		}
+		break;
+	case ast::ExpressionKind::SimpleAssignmentPattern:
+	case ast::ExpressionKind::StructuredAssignmentPattern:
+		{
+			repl_count = 1;
+
+			if (0) {
+	case ast::ExpressionKind::ReplicatedAssignmentPattern:
+				repl_count = *expr.as<ast::ReplicatedAssignmentPatternExpression>()
+                            	.count().eval(const_).integer().as<size_t>();
+			}
+
+			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
+			require(expr, expr.type->isIntegral());
+
+			ret = {};
+			for (auto elem : pattern_expr.elements())
+				ret.append((*this)(*elem));
+			ret = ret.repeat(repl_count);				
 		}
 		break;
 	case ast::ExpressionKind::ConditionalOp:
