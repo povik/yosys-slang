@@ -698,7 +698,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		{
 			const auto &call = expr.as<ast::CallExpression>();
 			if (call.isSystemCall()) {
-				require(expr, call.getSubroutineName() == "$signed");
+				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
 				require(expr, call.arguments().size() == 1);
 				ret = (*this)(*call.arguments()[0]);
 			} else {
