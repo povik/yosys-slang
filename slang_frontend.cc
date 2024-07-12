@@ -1130,7 +1130,9 @@ public:
 
 	void handle(const ast::CaseStatement &stmt)
 	{
-		require(stmt, stmt.condition == ast::CaseStatementCondition::Normal);
+		require(stmt, stmt.condition == ast::CaseStatementCondition::Normal ||
+					  stmt.condition == ast::CaseStatementCondition::WildcardJustZ);
+		bool match_z = stmt.condition == ast::CaseStatementCondition::WildcardJustZ;
 		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec dispatch = eval(stmt.expr);
 		SwitchBuilder b(current_case, &eval.rvalue_subs, dispatch);
@@ -1157,6 +1159,9 @@ public:
 				log_assert(expr);
 				RTLIL::SigSpec compare = eval(*expr);
 				log_assert(compare.size() == dispatch.size());
+				require(stmt, !match_z || compare.is_fully_const());
+				if (match_z)
+					compare.replace(RTLIL::Sz, RTLIL::Sa);
 				compares.push_back(compare);
 			}
 			require(stmt, !compares.empty());
