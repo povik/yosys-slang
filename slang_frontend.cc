@@ -1239,7 +1239,7 @@ public:
 		dummy_switch->cases.push_back(current_case);
 	}
 
-	void handle(YS_MAYBE_UNUSED const ast::ForLoopStatement &stmt) {
+	void handle(const ast::ForLoopStatement &stmt) {
 		require(stmt, !stmt.steps.empty() && stmt.stopExpr);
 
 		// TODO: `stmt.loopVars` vs. `stmt.initializers`
@@ -1272,9 +1272,9 @@ public:
 		}
 	}
 
-	void handle(YS_MAYBE_UNUSED const ast::InvalidStatement &stmt) { log_abort(); }
-	void handle(YS_MAYBE_UNUSED const ast::EmptyStatement &stmt) {}
-	void handle(YS_MAYBE_UNUSED const ast::VariableDeclStatement &stmt) {
+	void handle(const ast::InvalidStatement&) { log_abort(); }
+	void handle(const ast::EmptyStatement&) {}
+	void handle(const ast::VariableDeclStatement &stmt) {
 		if (stmt.symbol.lifetime != ast::VariableLifetime::Static) {
 			RTLIL::Wire *target = netlist.wire(stmt.symbol);
 			log_assert(target);
@@ -1740,17 +1740,17 @@ public:
 		}
 	}
 
-	void handle(YS_MAYBE_UNUSED const ast::Type &type) {}
-	void handle(YS_MAYBE_UNUSED const ast::NetType &type) {}
-	void handle(YS_MAYBE_UNUSED const ast::ForwardingTypedefSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::TransparentMemberSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::SubroutineSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::ParameterSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::TypeParameterSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::WildcardImportSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::GenvarSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::VariableSymbol &sym) {}
-	void handle(YS_MAYBE_UNUSED const ast::EmptyMemberSymbol &sym) {}
+	void handle(const ast::Type&) {}
+	void handle(const ast::NetType&) {}
+	void handle(const ast::ForwardingTypedefSymbol&) {}
+	void handle(const ast::TransparentMemberSymbol&) {}
+	void handle(const ast::SubroutineSymbol&) {}
+	void handle(const ast::ParameterSymbol&) {}
+	void handle(const ast::TypeParameterSymbol&) {}
+	void handle(const ast::WildcardImportSymbol&) {}
+	void handle(const ast::GenvarSymbol&) {}
+	void handle(const ast::VariableSymbol&) {}
+	void handle(const ast::EmptyMemberSymbol&) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{
