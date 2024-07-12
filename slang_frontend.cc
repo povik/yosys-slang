@@ -26,6 +26,16 @@
 
 inline namespace slang_frontend {
 
+struct SynthesisSettings {
+	std::optional<bool> dump_ast;
+	std::optional<bool> no_proc;
+
+	void addOptions(slang::CommandLine &cmdLine) {
+		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
+		cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
+	}
+};
+
 using Yosys::log;
 using Yosys::log_error;
 using Yosys::log_warning;
@@ -1858,10 +1868,8 @@ struct SlangFrontend : Frontend {
 	{
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
-		std::optional<bool> dump_ast;
-		std::optional<bool> no_proc;
-		driver.cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
-		driver.cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
+		SynthesisSettings settings;
+		settings.addOptions(driver.cmdLine);
 		log("%s\n", driver.cmdLine.getHelpText("Slang-based SystemVerilog frontend").c_str());
 	}
 
@@ -1873,10 +1881,8 @@ struct SlangFrontend : Frontend {
 
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
-		std::optional<bool> dump_ast;
-		std::optional<bool> no_proc;
-		driver.cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
-		driver.cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
+		SynthesisSettings settings;
+		settings.addOptions(driver.cmdLine);
 		{
 			std::vector<char *> c_args;
 			for (auto arg : args) {
@@ -1899,7 +1905,7 @@ struct SlangFrontend : Frontend {
 			if (!driver.reportCompilation(*compilation, /* quiet */ false))
 				log_error("Compilation failed\n");
 
-			if (dump_ast.has_value() && dump_ast.value()) {
+			if (settings.dump_ast.value_or(false)) {
 				slang::JsonWriter writer;
 				writer.setPrettyPrint(true);
 				ast::ASTSerializer serializer(*compilation, writer);
@@ -1924,7 +1930,7 @@ struct SlangFrontend : Frontend {
 			log_error("Exception: %s\n", e.what());
 		}
 
-		if (!(no_proc.has_value() && no_proc.value())) {
+		if (!settings.no_proc.value_or(false)) {
 			log_push();
 			call(design, "proc_clean");
 			call(design, "proc_rmdead");
