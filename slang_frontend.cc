@@ -304,6 +304,12 @@ struct ProcedureContext
 
 static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call);
 
+RTLIL::SigSpec RTLILBuilder::ReduceBool(RTLIL::SigSpec a) {
+	if (a.is_fully_const())
+		return RTLIL::const_reduce_bool(a.as_const(), RTLIL::Const(), false, false, 1);
+	return canvas->ReduceBool(NEW_ID, a, false);
+}
+
 RTLIL::SigSpec RTLILBuilder::Sub(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
 	if (b.is_fully_ones())
 		return a;
@@ -1013,6 +1019,19 @@ public:
 		}
 
 		impl_assign_simple(lvalue, masked_rvalue, blocking);
+	}
+
+	void handle(const ast::ImmediateAssertionStatement &stmt)
+	{
+		auto cell = mod->addCell(NEW_ID, ID($check));
+		set_cell_trigger(cell);
+		std::string flavor = "assert";
+		cell->setParam(Yosys::ID::FLAVOR, flavor);
+		cell->setParam(Yosys::ID::FORMAT, std::string(""));
+		cell->setParam(Yosys::ID::ARGS_WIDTH, 0);
+		cell->setParam(Yosys::ID::PRIORITY, --print_priority);
+		cell->setPort(Yosys::ID::ARGS, {});
+		cell->setPort(Yosys::ID::A, netlist.ReduceBool(eval(stmt.cond)));
 	}
 
 	// TODO: add other kids of statements

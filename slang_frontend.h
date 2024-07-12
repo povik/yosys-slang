@@ -42,6 +42,8 @@ struct RTLILBuilder {
 
 	RTLIL::Module *canvas;
 
+	SigSpec ReduceBool(SigSpec a);
+
 	SigSpec Sub(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Demux(SigSpec a, SigSpec s);
 	SigSpec Le(SigSpec a, SigSpec b, bool is_signed);
