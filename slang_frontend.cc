@@ -509,6 +509,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			case ast::UnaryOperator::BitwiseAnd: type = ID($reduce_and); break;
 			case ast::UnaryOperator::BitwiseNand: type = ID($reduce_and); invert = true; break;
 			case ast::UnaryOperator::BitwiseNor: type = ID($reduce_or); invert = true; break;
+			case ast::UnaryOperator::BitwiseXor: type = ID($reduce_xor); break;
 			default:
 				unimplemented(unop);
 			}
@@ -550,8 +551,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			case ast::BinaryOperator::BinaryXnor:	type = ID($xnor); break;
 			case ast::BinaryOperator::Equality:		type = ID($eq); break;
 			case ast::BinaryOperator::Inequality:	type = ID($ne); break;
-			//case ast::BinaryOperator::CaseEquality;
-			//case ast::BinaryOperator::CaseInequality;
+			case ast::BinaryOperator::CaseInequality: type = ID($nex); break;
+			case ast::BinaryOperator::CaseEquality: type = ID($eqx); break;
 			case ast::BinaryOperator::GreaterThanEqual:	type = ID($ge); break;
 			case ast::BinaryOperator::GreaterThan:		type = ID($gt); break;
 			case ast::BinaryOperator::LessThanEqual:	type = ID($le); break;
