@@ -28,6 +28,7 @@ struct SignalEvalContext {
 	}
 
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
+	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
 
 	std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(
 		const ast::Expression &expr, slang::ConstantRange range);
@@ -44,10 +45,16 @@ struct RTLILBuilder {
 	SigSpec Demux(SigSpec a, SigSpec s);
 	SigSpec Le(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Ge(SigSpec a, SigSpec b, bool is_signed);
+	SigSpec Lt(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec LogicAnd(SigSpec a, SigSpec b);
 	SigSpec Mux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bwmux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bmux(SigSpec a, SigSpec s);
+
+	SigSpec Shift(SigSpec a, bool a_signed, SigSpec s, bool s_signed, int result_width);
+	SigSpec Shiftx(SigSpec a, SigSpec s, bool s_signed, int result_width);
+	SigSpec Neg(SigSpec a, bool signed_);
+	SigSpec Not(SigSpec a);
 };
 
 struct NetlistContext : RTLILBuilder {

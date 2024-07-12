@@ -91,6 +91,12 @@ void unimplemented_(const T &obj, const char *file, int line, const char *condit
 #define require(obj, property) { if (!(property)) unimplemented_(obj, __FILE__, __LINE__, #property); }
 #define unimplemented(obj) { unimplemented_(obj, __FILE__, __LINE__, NULL); }
 
+};
+
+#include "addressing.h"
+
+inline namespace slang_frontend {
+
 // step outside slang_frontend namespace for a minute, to patch in
 // unimplemented() into the SlangInitial evaluator
 };
@@ -231,18 +237,9 @@ static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Exp
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			require(expr, sel.getSelectionKind() == ast::RangeSelectionKind::Simple);
-			require(expr, sel.left().constant && sel.right().constant);
-			int left = sel.left().constant->integer().as<int>().value();
-			int right = sel.right().constant->integer().as<int>().value();
-			require(expr, sel.value().type->hasFixedRange());
-			auto range = sel.value().type->getFixedRange();
-			int raw_left = range.translateIndex(left);
-			int raw_right = range.translateIndex(right);
-			log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
-			int stride = sel.value().type->getBitstreamWidth() / range.width();
-			ret = evaluate_lhs(netlist, sel.value()).extract(raw_right * stride,
-												stride * (raw_left - raw_right + 1));
+			Addressing addr(netlist.eval, sel);
+			RTLIL::SigSpec inner = evaluate_lhs(netlist, sel.value());
+			ret = addr.extract(inner, sel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
@@ -339,6 +336,12 @@ RTLIL::SigSpec RTLILBuilder::Ge(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_sign
 	return canvas->Ge(NEW_ID, a, b, is_signed);
 }
 
+RTLIL::SigSpec RTLILBuilder::Lt(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+	if (a.is_fully_const() && b.is_fully_const())
+		return RTLIL::const_lt(a.as_const(), b.as_const(), is_signed, is_signed, 1);
+	return canvas->Lt(NEW_ID, a, b, is_signed);
+}
+
 RTLIL::SigSpec RTLILBuilder::LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
 	if (a.is_fully_zero() || b.is_fully_zero())
 		return RTLIL::Const(0, 1);
@@ -375,6 +378,37 @@ RTLIL::SigSpec RTLILBuilder::Bwmux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::Si
 	return canvas->Bwmux(NEW_ID, a, b, s);
 }
 
+RTLIL::SigSpec RTLILBuilder::Shift(RTLIL::SigSpec a, bool a_signed, RTLIL::SigSpec s,
+								   bool s_signed, int result_width)
+{
+	RTLIL::SigSpec y = canvas->addWire(NEW_ID, result_width);
+	RTLIL::Cell *cell = canvas->addCell(NEW_ID, ID($shift));
+	cell->parameters[Yosys::ID::A_SIGNED] = a_signed;
+	cell->parameters[Yosys::ID::B_SIGNED] = s_signed;
+	cell->parameters[Yosys::ID::A_WIDTH] = a.size();
+	cell->parameters[Yosys::ID::B_WIDTH] = s.size();
+	cell->parameters[Yosys::ID::Y_WIDTH] = y.size();
+	cell->setPort(Yosys::ID::A, a);
+	cell->setPort(Yosys::ID::B, s);
+	cell->setPort(Yosys::ID::Y, y);
+	return y;
+}
+
+RTLIL::SigSpec RTLILBuilder::Shiftx(RTLIL::SigSpec a, RTLIL::SigSpec s,
+								 	bool s_signed, int result_width)
+{
+	RTLIL::SigSpec y = canvas->addWire(NEW_ID, result_width);
+	canvas->addShiftx(NEW_ID, a, s, y, s_signed);
+	return y;
+}
+
+RTLIL::SigSpec RTLILBuilder::Neg(RTLIL::SigSpec a, bool signed_)
+{
+	RTLIL::SigSpec y = canvas->addWire(NEW_ID, a.size() + 1);
+	canvas->addNeg(NEW_ID, a, y, signed_);
+	return y;
+}
+
 RTLIL::SigSpec RTLILBuilder::Bmux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
 	log_assert(a.size() % (1 << s.size()) == 0);
 	log_assert(a.size() >= 1 << s.size());
@@ -383,6 +417,11 @@ RTLIL::SigSpec RTLILBuilder::Bmux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
 		return a.extract(s.as_const().as_int() * stride, stride);
 	}
 	return canvas->Bmux(NEW_ID, a, s);
+}
+
+RTLIL::SigSpec RTLILBuilder::Not(RTLIL::SigSpec a)
+{
+	return canvas->Not(NEW_ID, a);
 }
 
 std::pair<RTLIL::SigSpec, RTLIL::SigBit> SignalEvalContext::translate_index(
@@ -578,35 +617,15 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			require(expr, sel.getSelectionKind() == ast::RangeSelectionKind::Simple);
-			require(expr, sel.left().constant && sel.right().constant);
-			int left = sel.left().constant->integer().as<int>().value();
-			int right = sel.right().constant->integer().as<int>().value();
-			require(expr, sel.value().type->hasFixedRange());
-			auto range = sel.value().type->getFixedRange();
-			int raw_left = range.translateIndex(left);
-			int raw_right = range.translateIndex(right);
-			log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
-			int stride = sel.value().type->getBitstreamWidth() / range.width();
-			ret = (*this)(sel.value()).extract(raw_right * stride,
-											 stride * (raw_left - raw_right + 1));
+			Addressing addr(*this, sel);
+			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
-			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
-			int stride = elemsel.type->getBitstreamWidth();
-			RTLIL::SigSpec base_value = (*this)(elemsel.value());
-			log_assert(base_value.size() % stride == 0);
-			auto range = elemsel.value().type->getFixedRange();
-			RTLIL::SigSpec raw_idx;
-			RTLIL::SigBit valid;
-			std::tie(raw_idx, valid) = translate_index(elemsel.selector(), range);
-			log_assert(stride * (1 << raw_idx.size()) >= base_value.size());
-			base_value.append(RTLIL::SigSpec(RTLIL::Sx, stride * (1 << raw_idx.size()) - base_value.size()));
-			// TODO: check what's proper out-of-range handling
-			ret = netlist.Mux(RTLIL::SigSpec(RTLIL::State::Sx, stride), netlist.Bmux(base_value, raw_idx), valid);
+			Addressing addr(*this, elemsel);
+			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
@@ -672,6 +691,16 @@ done:
 	log_assert(expr.type->isFixedSize());
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
+}
+
+RTLIL::SigSpec SignalEvalContext::eval_signed(ast::Expression const &expr)
+{
+	require(expr, expr.type);
+
+	if (expr.type->isNumeric() && !expr.type->isSigned())
+		return {RTLIL::S0, (*this)(expr)};
+	else
+		return (*this)(expr);
 }
 
 SignalEvalContext::SignalEvalContext(NetlistContext &netlist)
@@ -902,38 +931,22 @@ public:
 			switch (raw_lexpr->kind) {
 			case ast::ExpressionKind::RangeSelect:
 				{
-					const ast::RangeSelectExpression &sel = raw_lexpr->as<ast::RangeSelectExpression>();
-					require(assign, sel.getSelectionKind() == ast::RangeSelectionKind::Simple);
-					require(assign, sel.left().constant && sel.right().constant);
-					int left = sel.left().constant->integer().as<int>().value();
-					int right = sel.right().constant->integer().as<int>().value();
-					require(assign, sel.value().type->hasFixedRange());
-					auto range = sel.value().type->getFixedRange();
-					int raw_left = range.translateIndex(left);
-					int raw_right = range.translateIndex(right);
-					log_assert(sel.value().type->getBitstreamWidth() % range.width() == 0);
-					int stride = sel.value().type->getBitstreamWidth() / range.width();
-					RTLIL::SigSpec elem_0(RTLIL::S0, stride);
-					RTLIL::SigSpec elem_x(RTLIL::Sx, stride);
-					raw_mask = {elem_0.repeat(range.width() - raw_left - 1), raw_mask, elem_0.repeat(raw_right)};
-					raw_rvalue = {elem_x.repeat(range.width() - raw_left - 1), raw_rvalue, elem_x.repeat(raw_right)};
+					auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
+					Addressing addr(eval, sel);
+					int stride = sel.value().type->getBitstreamWidth() / addr.range.width();
+					require(*raw_lexpr, stride == 1);
+					raw_mask = addr.shift_up(raw_mask, false, sel.value().type->getBitstreamWidth());
+					raw_rvalue = addr.shift_up(raw_rvalue, true, sel.value().type->getBitstreamWidth());
 					raw_lexpr = &sel.value();
 				}
 				break;
 			case ast::ExpressionKind::ElementSelect:
 				{
-					auto &elemsel = raw_lexpr->as<ast::ElementSelectExpression>();
-					require(assign, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
-					int stride = elemsel.type->getBitstreamWidth();
-					auto range = elemsel.value().type->getFixedRange();
-					RTLIL::SigSpec raw_idx;
-					RTLIL::SigBit valid;
-					std::tie(raw_idx, valid) = eval.translate_index(elemsel.selector(), range);
-					// TODO: use valid
-					raw_mask = netlist.Demux(raw_mask, raw_idx);
-					raw_mask.extend_u0(stride * range.width());
-					raw_rvalue = raw_rvalue.repeat(range.width());
-					raw_lexpr = &elemsel.value();
+					auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
+					Addressing addr(eval, sel);
+					raw_mask = addr.demux(raw_mask, sel.value().type->getBitstreamWidth());
+					raw_rvalue = raw_rvalue.repeat(addr.range.width());
+					raw_lexpr = &sel.value();
 				}
 				break;
 			case ast::ExpressionKind::MemberAccess:
