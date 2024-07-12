@@ -70,7 +70,7 @@ std::string format_src(const T &obj)
 }
 
 template<typename T>
-void unimplemented_(const T &obj, const char *file, int line, const char *condition)
+[[noreturn]] void unimplemented_(const T &obj, const char *file, int line, const char *condition)
 {
 	slang::JsonWriter writer;
 	writer.setPrettyPrint(true);
@@ -197,13 +197,15 @@ static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 			auto piece = convert_const(el);
 			ret.bits.insert(ret.bits.begin(), piece.bits.begin(), piece.bits.end());
 		}
-		log_assert(ret.size() == constval.getBitstreamWidth());
+		log_assert(ret.size() == (int) constval.getBitstreamWidth());
 		return ret;
 	} else if (constval.isString()) {
 		RTLIL::Const ret = convert_svint(constval.convertToInt().integer());
 		ret.flags |= RTLIL::CONST_FLAG_STRING;
 		return ret;
 	}
+
+	log_abort();
 }
 
 template<typename T>
@@ -483,7 +485,6 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			case ast::SymbolKind::Variable:
 			case ast::SymbolKind::FormalArgument:
 				{
-					const auto &valsym = sym.as<ast::ValueSymbol>();
 					RTLIL::Wire *wire = netlist.wire(sym);
 					log_assert(wire);
 					ret = wire;
@@ -998,10 +999,10 @@ public:
 				finished_etching = true;
 				break;
 			}
-			if (raw_mask.size() != raw_lexpr->type->getBitstreamWidth())
+			if (raw_mask.size() != (int) raw_lexpr->type->getBitstreamWidth())
 				unimplemented(assign);
-			log_assert(raw_mask.size() == raw_lexpr->type->getBitstreamWidth());
-			log_assert(raw_rvalue.size() == raw_lexpr->type->getBitstreamWidth());
+			log_assert(raw_mask.size() == (int) raw_lexpr->type->getBitstreamWidth());
+			log_assert(raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
 		}
 
 		RTLIL::SigSpec lvalue = evaluate_lhs(netlist, *raw_lexpr);
@@ -1089,7 +1090,7 @@ public:
 					auto subroutine = std::get<0>(call.subroutine);
 					require(expr, subroutine->subroutineKind == ast::SubroutineKind::Task);
 					log_assert(call.arguments().size() == subroutine->getArguments().size());
-					for (int i = 0; i < subroutine->getArguments().size(); i++) {
+					for (int i = 0; i < (int) subroutine->getArguments().size(); i++) {
 						auto arg = subroutine->getArguments()[i];
 						auto dir = arg->direction;
 						log_assert(dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::Out);
@@ -1100,7 +1101,7 @@ public:
 						}
 					}
 					subroutine->visit(*this);
-					for (int i = 0; i < subroutine->getArguments().size(); i++) {
+					for (int i = 0; i < (int) subroutine->getArguments().size(); i++) {
 						auto arg = subroutine->getArguments()[i];
 						if (arg->direction == ast::ArgumentDirection::Out) {
 							require(expr, call.arguments()[i]->kind == ast::ExpressionKind::Assignment);
@@ -1316,7 +1317,7 @@ static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::Call
 	visitor.subroutine = &subr;
 	log_assert(call.arguments().size() == subr.getArguments().size());
 
-	for (int i = 0; i < call.arguments().size(); i++) {
+	for (int i = 0; i < (int) call.arguments().size(); i++) {
 		RTLIL::Wire *w = mod->wire(scoped_id(*subr.getArguments()[i]));
 		log_assert(w);
 		eval.set(w, eval(*call.arguments()[i]));
@@ -1353,7 +1354,7 @@ public:
 			cell->setPort(Yosys::ID::EN, RTLIL::S1);
 			cell->setPort(Yosys::ID::TRG, {});
 			std::vector<Yosys::VerilogFmtArg> fmt_args;
-			for (int i = 0; i < call.arguments().size(); i++) {
+			for (int i = 0; i < (int) call.arguments().size(); i++) {
 				const ast::Expression *arg_expr = call.arguments()[i];
 				const auto &arg = args[i];
 				Yosys::VerilogFmtArg fmt_arg = {};
@@ -1594,7 +1595,7 @@ public:
 						inline_port_connection(*component, signal.extract(offset, width));
 						offset += width;
 					}
-					log_assert(offset == multiport.getType().getBitstreamWidth());
+					log_assert(offset == (int) multiport.getType().getBitstreamWidth());
 				} else if (conn->port.kind == ast::SymbolKind::Port) {
 					inline_port_connection(conn->port.as<ast::PortSymbol>(), signal);
 				} else {
@@ -1646,7 +1647,7 @@ public:
 	{
 		RTLIL::Module *mod = netlist.canvas;
 
-		auto wadd = ast::makeVisitor([&](auto& visitor, const ast::ValueSymbol &sym) {
+		auto wadd = ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
 			if (sym.getType().isFixedSize()) {
 				std::string kind{ast::toString(sym.kind)};
 				log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
@@ -1657,7 +1658,7 @@ public:
 						sym.as<ast::VariableSymbol>().lifetime != ast::VariableLifetime::Static)
 					w->attributes[id_slang_nonstatic] = true;
 			}
-		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+		}, [&](auto&, const ast::InstanceSymbol&) {
 			/* do not descend into other modules */
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
@@ -1667,14 +1668,14 @@ public:
 		});
 		sym.visit(wadd);
 
-		auto varinit = ast::makeVisitor([&](auto& visitor, const ast::VariableSymbol &sym) {
+		auto varinit = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
 			slang::ConstantValue initval = nullptr;
 			if (sym.getInitializer())
 				initval = sym.getInitializer()->eval(initial_eval.context);
 			initial_eval.context.createLocal(&sym, initval);
-		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+		}, [&](auto&, const ast::InstanceSymbol&) {
 			/* do not descend into other modules */
-		}, [&](auto& visitor, const ast::ProceduralBlockSymbol& sym) {
+		}, [&](auto&, const ast::ProceduralBlockSymbol&) {
 			/* do not descend into procedural blocks */
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
@@ -1687,7 +1688,7 @@ public:
 		visitDefault(sym);
 
 		// now transfer the initializers from variables onto RTLIL wires
-		auto inittransfer = ast::makeVisitor([&](auto& visitor, const ast::VariableSymbol &sym) {
+		auto inittransfer = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
 			if (sym.getType().isFixedSize()) {
 				auto storage = initial_eval.context.findLocal(&sym);
 				log_assert(storage);
@@ -1698,9 +1699,9 @@ public:
 					wire->attributes[RTLIL::ID::init] = const_;
 				}
 			}
-		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+		}, [&](auto&, const ast::InstanceSymbol&) {
 			/* do not descend into other modules */
-		}, [&](auto& visitor, const ast::ProceduralBlockSymbol& sym) {
+		}, [&](auto&, const ast::ProceduralBlockSymbol&) {
 			/* do not descend into procedural blocks */
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
@@ -1732,7 +1733,7 @@ public:
 		auto port_conns = sym.getPortConnections();
 
 		log_assert(port_names.size() == port_conns.size());
-		for (int i = 0; i < port_names.size(); i++) {
+		for (int i = 0; i < (int) port_names.size(); i++) {
 			require(sym, !port_names[i].empty());
 			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
 			cell->setPort(RTLIL::escape_id(std::string{port_names[i]}), netlist.eval(expr));
@@ -1829,7 +1830,7 @@ NetlistContext::NetlistContext(
 		RTLIL::Design *design,
 		ast::Compilation &compilation,
 		const ast::InstanceSymbol &instance)
-	: compilation(compilation), eval(*this), realm(instance.body)
+	: compilation(compilation), realm(instance.body), eval(*this)
 {
 	canvas = design->addModule(module_type_id(instance));
 	transfer_attrs(instance.body.getDefinition(), canvas);

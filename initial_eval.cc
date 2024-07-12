@@ -99,12 +99,12 @@ ER EvalVisitor::visit(const ReturnStatement &stmt)
 	return ER::Return;
 }
 
-ER EvalVisitor::visit(const BreakStatement &stmt)
+ER EvalVisitor::visit(const BreakStatement&)
 {
 	return ER::Break;
 }
 
-ER EvalVisitor::visit(const ContinueStatement &stmt)
+ER EvalVisitor::visit(const ContinueStatement&)
 {
 	return ER::Continue;
 }
@@ -672,7 +672,7 @@ ER EvalVisitor::visit(const ExpressionStatement &stmt)
 	return expr.eval(context) ? ER::Success : ER::Fail;
 }
 
-ER EvalVisitor::visit(const EmptyStatement &stmt)
+ER EvalVisitor::visit(const EmptyStatement&)
 {
 	return ER::Success;
 }
