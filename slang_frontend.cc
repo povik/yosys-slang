@@ -1730,8 +1730,8 @@ public:
 	void handle(YS_MAYBE_UNUSED const ast::TypeParameterSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::WildcardImportSymbol &sym) {}
 	void handle(YS_MAYBE_UNUSED const ast::GenvarSymbol &sym) {}
-
-	void handle(const ast::VariableSymbol &sym) {}
+	void handle(YS_MAYBE_UNUSED const ast::VariableSymbol &sym) {}
+	void handle(YS_MAYBE_UNUSED const ast::EmptyMemberSymbol &sym) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{
