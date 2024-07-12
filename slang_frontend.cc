@@ -451,6 +451,9 @@ std::pair<RTLIL::SigSpec, RTLIL::SigBit> SignalEvalContext::translate_index(
 
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
+	if (expr.type->isVoid())
+		return {};
+
 	require(expr, expr.type->isFixedSize());
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
