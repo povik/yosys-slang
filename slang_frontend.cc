@@ -705,6 +705,9 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			}
 		}
 		break;
+	case ast::ExpressionKind::LValueReference:
+		ret = lvalue;
+		break;
 	default:
 		unimplemented(expr);
 	}
@@ -1097,7 +1100,9 @@ public:
 		case ast::ExpressionKind::Assignment:
 			{
 				const auto &assign = expr.expr.as<ast::AssignmentExpression>();
+				eval.lvalue = eval(assign.left());
 				impl_assign(assign, eval(assign.right()));
+				eval.lvalue = {};
 			}
 			break;
 		default:

@@ -19,6 +19,7 @@ struct SignalEvalContext {
 
 	ast::EvalContext const_;
 	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs;
+	RTLIL::SigSpec lvalue;
 
 	void set(RTLIL::SigSpec lhs, RTLIL::SigSpec value)
 	{
