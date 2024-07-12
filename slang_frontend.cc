@@ -12,6 +12,7 @@
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
+#include "slang/syntax/AllSyntax.h"
 #include "slang/text/Json.h"
 #include "slang/util/Util.h"
 
@@ -29,10 +30,13 @@ inline namespace slang_frontend {
 struct SynthesisSettings {
 	std::optional<bool> dump_ast;
 	std::optional<bool> no_proc;
+	std::optional<bool> translate_on_off_compat;
 
 	void addOptions(slang::CommandLine &cmdLine) {
 		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
 		cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
+		cmdLine.add("--translate-on-off-compat", translate_on_off_compat,
+					"Interpret translate_on/translate_off comment pragmas for compatiblity with other tools");
 	}
 };
 
@@ -46,6 +50,8 @@ using Yosys::ceil_log2;
 
 namespace RTLIL = Yosys::RTLIL;
 namespace ast = slang::ast;
+namespace syntax = slang::syntax;
+namespace parsing = slang::parsing;
 
 ast::Compilation *global_compilation;
 const slang::SourceManager *global_sourcemgr;
@@ -1346,6 +1352,7 @@ static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::Call
 struct PopulateNetlist : public ast::ASTVisitor<PopulateNetlist, true, false> {
 public:
 	NetlistContext &netlist;
+	SynthesisSettings &settings;
 	std::vector<const ast::InstanceSymbol *> deferred_modules;
 
 	struct InitialEvalVisitor : SlangInitial::EvalVisitor {
@@ -1396,8 +1403,8 @@ public:
 		}
 	} initial_eval;
 
-	PopulateNetlist(NetlistContext &netlist)
-		: netlist(netlist), initial_eval(&netlist.compilation, netlist.canvas) {}
+	PopulateNetlist(NetlistContext &netlist, SynthesisSettings &settings)
+		: netlist(netlist), settings(settings), initial_eval(&netlist.compilation, netlist.canvas) {}
 
 	bool populate_sync(RTLIL::Process *proc, const ast::TimingControl &timing)
 	{
@@ -1653,6 +1660,86 @@ public:
 		visitDefault(sym);
 	}
 
+	void collect_flattened_trivia(std::vector<parsing::Trivia> &collect, parsing::Token token)
+	{
+		for (auto trivia : token.trivia()) {
+			if (trivia.syntax())
+				collect_flattened_trivia(collect, trivia.syntax()->getFirstToken());
+			else
+				collect.push_back(trivia);
+		}
+	}
+
+	std::set<const syntax::SyntaxNode *> find_compat_pragma_masked_syntax(
+			const ast::Symbol &symbol, const syntax::SyntaxListBase &list, syntax::ConstTokenOrSyntax final)
+	{
+		bool translating = true;
+		std::set<const syntax::SyntaxNode *> disabled_set;
+
+		for (size_t i = 0; i < list.getChildCount() + 1; i++) {
+			parsing::Token token;
+			const syntax::SyntaxNode *syntax;
+			if (i < list.getChildCount()) {
+				syntax = list.getChild(i).node();
+				token = syntax->getFirstToken();
+			} else {
+				syntax = nullptr;
+				token = final.isToken() ? final.token() : final.node()->getFirstToken();
+			}
+
+			std::vector<parsing::Trivia> flattened_trivia;
+			collect_flattened_trivia(flattened_trivia, token);
+
+			for (auto trivia : flattened_trivia) {
+				if (trivia.kind == parsing::TriviaKind::LineComment) {
+					std::string_view text = trivia.getRawText();
+					log_assert(text.size() >= 2 && text[0] == '/' && text[1] == '/');
+					text.remove_prefix(2);
+
+					const char* whitespace = " \t";
+
+					// trim start
+					size_t p = text.find_first_not_of(whitespace);
+					if (p == std::string_view::npos)
+						continue;
+					text.remove_prefix(p);
+
+					std::string vendor_text = "synopsys";
+					if (!text.starts_with(vendor_text))
+						continue;
+					text.remove_prefix(vendor_text.size());
+
+					p = text.find_first_not_of(" \t");
+					if (p == 0 || p == std::string_view::npos)
+						continue;
+					text.remove_prefix(p);
+
+					// trim back
+					p = text.find_last_not_of(" \t");
+					if (p != std::string_view::npos)
+						text.remove_suffix(text.size() - p - 1);
+
+					if (text == "translate_off") {
+						require(symbol, translating && "duplicate translate_off");
+						translating = false;
+					} else if (text == "translate_on") {
+						require(symbol, !translating && "duplicate translate_on");
+						translating = true;
+					} else {
+						std::string str{text};
+						log_warning("Unknown vendor command: %s\n", str.c_str());
+					}
+				}
+			}
+
+			if (!translating && syntax)
+				disabled_set.insert(syntax);
+		}
+
+		require(symbol, translating && "translating disabled at end of scope");
+		return disabled_set;
+	}
+
 	void handle(const ast::InstanceBodySymbol &sym)
 	{
 		RTLIL::Module *mod = netlist.canvas;
@@ -1695,7 +1782,19 @@ public:
 		});
 		sym.visit(varinit);
 
-		visitDefault(sym);
+		if (!settings.translate_on_off_compat.value_or(false)) {
+			visitDefault(sym);
+		} else {
+			auto &syntax = sym.getSyntax()->as<syntax::ModuleDeclarationSyntax>();
+			auto compad_disabled = find_compat_pragma_masked_syntax(
+												sym, syntax.members, syntax.endmodule);
+
+			for (auto& member : sym.members()) {
+				if (compad_disabled.count(member.getSyntax()))
+					continue;
+				member.visit(*this);
+			}
+		}
 
 		// now transfer the initializers from variables onto RTLIL wires
 		auto inittransfer = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
@@ -1922,7 +2021,7 @@ struct SlangFrontend : Frontend {
 			{
 				for (auto instance : compilation->getRoot().topInstances) {
 					NetlistContext netlist(design, *compilation, *instance);
-					PopulateNetlist populate(netlist);
+					PopulateNetlist populate(netlist, settings);
 					instance->body.visit(populate);
 				}
 			}
