@@ -608,7 +608,6 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			const ast::Type &to = conv.type->getCanonicalType();
 			require(expr, from.isIntegral() /* && from.isScalar() */);
 			require(expr, to.isIntegral() /* && to.isScalar() */);
-			require(conv, from.isSigned() == to.isSigned() || to.getBitWidth() <= from.getBitWidth());
 			ret = (*this)(conv.operand());
 			ret.extend_u0((int) to.getBitWidth(), to.isSigned());
 		}
