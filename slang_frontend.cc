@@ -366,6 +366,28 @@ RTLIL::SigSpec RTLILBuilder::Lt(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_sign
 	return canvas->Lt(NEW_ID, a, b, is_signed);
 }
 
+RTLIL::SigSpec RTLILBuilder::Eq(RTLIL::SigSpec a, RTLIL::SigSpec b) {
+	if (a.is_fully_const() && b.is_fully_const())
+		return RTLIL::const_eq(a.as_const(), b.as_const(), false, false, 1);
+	return canvas->Eq(NEW_ID, a, b);
+}
+
+RTLIL::SigSpec RTLILBuilder::EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b) {
+	log_assert(a.size() == b.size());
+	log_assert(b.is_fully_const());
+
+	for (int i = a.size() - 1; i >= 0; i--) {
+		if (b[i] == RTLIL::Sx || b[i] == RTLIL::Sz) {
+			a.remove(i);
+			b.remove(i);
+		}
+	}
+	log_assert(a.size() == b.size());
+	if (a.is_fully_const() && b.is_fully_const())
+		return RTLIL::const_eq(a.as_const(), b.as_const(), false, false, 1);
+	return canvas->Eq(NEW_ID, a, b);
+}
+
 RTLIL::SigSpec RTLILBuilder::LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
 	if (a.is_fully_zero() || b.is_fully_zero())
 		return RTLIL::Const(0, 1);
@@ -492,6 +514,26 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	}
 
 	switch (expr.kind) {
+	case ast::ExpressionKind::Inside:
+		{
+			auto &inside_expr = expr.as<ast::InsideExpression>();
+			RTLIL::SigSpec left = (*this)(inside_expr.left());
+			RTLIL::SigSpec hits;
+
+			for (auto elem : inside_expr.rangeList()) {
+				require(*elem, elem->kind != ast::ExpressionKind::ValueRange);
+				require(*elem, !elem->type->isUnpackedArray());
+				RTLIL::SigSpec elem_signal = (*this)(*elem);
+				require(*elem, elem_signal.size() == left.size());
+				require(*elem, elem_signal.is_fully_const());
+				require(*elem, elem->type->isIntegral() && inside_expr.left().type->isIntegral());
+				hits.append(netlist.EqWildcard(left, elem_signal));
+			}
+
+			ret = netlist.ReduceBool(hits);
+			ret.extend_u0(expr.type->getBitstreamWidth());
+			break;
+		}
 	case ast::ExpressionKind::NamedValue:
 		{
 			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;

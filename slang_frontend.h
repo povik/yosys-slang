@@ -49,6 +49,8 @@ struct RTLILBuilder {
 	SigSpec Le(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Ge(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Lt(SigSpec a, SigSpec b, bool is_signed);
+	SigSpec EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b);
+	SigSpec Eq(SigSpec a, SigSpec b);
 	SigSpec LogicAnd(SigSpec a, SigSpec b);
 	SigSpec Mux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bwmux(SigSpec a, SigSpec b, SigSpec s);
