@@ -1133,7 +1133,7 @@ public:
 								fmt_arg.realtime = true;
 								break;
 							} else {
-								/* fallthrough */
+								[[fallthrough]];
 							}
 						default:
 							fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
