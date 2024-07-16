@@ -3,6 +3,6 @@ updates:
 - package-ecosystem: gitsubmodule
   directory: "/"
   schedule:
-    interval: daily
+    interval: weekly
     # UTC
-    time: "16:00"
+    time: "8:00"
