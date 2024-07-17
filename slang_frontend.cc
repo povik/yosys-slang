@@ -2464,13 +2464,8 @@ struct SlangFrontend : Frontend {
 			call(design, "proc_rmdead");
 			call(design, "proc_prune");
 			call(design, "proc_init");
-			call(design, "proc_arst");
 			call(design, "proc_rom");
 			call(design, "proc_mux");
-			call(design, "proc_clean");
-			call(design, "proc_usage");
-			call(design, "proc_dlatch");
-			call(design, "proc_dff");
 			call(design, "proc_clean");
 			call(design, "opt_expr -keepdc");
 			log_pop();

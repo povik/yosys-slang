@@ -46,7 +46,7 @@ First build slang and install it into `build/slang_install`:
 
 Then build the `build/slang.so` plugin for Yosys:
 
-    yosys-config --build build/slang.so slang_frontend.cc initial_eval.cc proc_usage.cc -Ibuild/slang_install/include -std=c++20 -DSLANG_BOOST_SINGLE_HEADER -Lbuild/slang_install/lib -lsvlang -lfmt
+    yosys-config --build build/slang.so slang_frontend.cc initial_eval.cc -Ibuild/slang_install/include -std=c++20 -DSLANG_BOOST_SINGLE_HEADER -Lbuild/slang_install/lib -lsvlang -lfmt
 
 ## Usage
 

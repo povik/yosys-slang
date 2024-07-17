@@ -7,7 +7,7 @@ make -C build/slang -j$(nproc)
 make -C build/slang install
 mkdir -p $(dirname "$TARGET")
 ${YOSYS_PREFIX}yosys-config --build "$TARGET" \
-				slang_frontend.cc initial_eval.cc proc_usage.cc \
+				slang_frontend.cc initial_eval.cc \
 				-Ibuild/slang_install/include -std=c++20 \
 				-DSLANG_BOOST_SINGLE_HEADER -Lbuild/slang_install/lib \
 				-lsvlang -lfmt
