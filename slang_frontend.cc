@@ -16,6 +16,7 @@
 #include "slang/text/Json.h"
 #include "slang/util/Util.h"
 
+#include "bitpattern.h"
 #include "kernel/fmt.h"
 #include "kernel/register.h"
 #include "kernel/rtlil.h"
@@ -49,6 +50,7 @@ using Yosys::ys_debug;
 using Yosys::ceil_log2;
 
 namespace RTLIL = Yosys::RTLIL;
+namespace ID = Yosys::RTLIL::ID;
 namespace ast = slang::ast;
 namespace syntax = slang::syntax;
 namespace parsing = slang::parsing;
@@ -398,6 +400,10 @@ RTLIL::SigSpec RTLILBuilder::LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
 	return canvas->LogicAnd(NEW_ID, a, b);
 }
 
+RTLIL::SigSpec RTLILBuilder::LogicNot(RTLIL::SigSpec a) {
+	return canvas->LogicNot(NEW_ID, a);
+}
+
 RTLIL::SigSpec RTLILBuilder::Mux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
 	log_assert(a.size() == b.size());
 	log_assert(s.size() == 1);
@@ -495,6 +501,12 @@ std::pair<RTLIL::SigSpec, RTLIL::SigBit> SignalEvalContext::translate_index(
 	return std::make_pair(raw_idx, valid);
 }
 
+void assert_nonstatic_free(RTLIL::SigSpec signal)
+{
+	for (auto bit : signal)
+		log_assert(!(bit.wire && bit.wire->get_bool_attribute(ID($nonstatic))));
+}
+
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
 	if (expr.type->isVoid())
@@ -547,6 +559,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 					log_assert(wire);
 					ret = wire;
 					ret.replace(rvalue_subs);
+					assert_nonstatic_free(ret);
 				}
 				break;
 			case ast::SymbolKind::Parameter:
@@ -768,7 +781,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
 				require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
-				return evaluate_function(*this, call);
+				log_abort();
+				//return evaluate_function(*this, call);
 			}
 		}
 		break;
@@ -879,120 +893,219 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
 	}
 }
 
-Yosys::IdString id_slang_nonstatic("\\slang_nonstatic");
+static bool detect_full_case(RTLIL::SwitchRule *switch_)
+{
+	Yosys::BitPatternPool pool(switch_->signal);
+
+	for (auto case_ : switch_->cases) {
+		if (case_->compare.empty()) {
+			// we have reached a default, by now we know this case is full
+			pool.take_all();
+			break; 
+		} else {
+			for (auto compare : case_->compare)
+			if (compare.is_fully_const())
+				pool.take(compare);
+		}
+	}
+
+	return pool.empty();
+}
+
+static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<RTLIL::SigBit> &signals, RTLIL::CaseRule *rule)
+{
+	Yosys::pool<RTLIL::SigBit> remaining = signals;
+
+	for (auto &action : rule->actions)
+	for (auto bit : action.first)
+		remaining.erase(bit);
+
+	for (auto switch_ : rule->switches) {
+		if (remaining.empty())
+			break;
+
+		if (switch_->get_bool_attribute(ID::full_case) || detect_full_case(switch_)) {
+			Yosys::pool<RTLIL::SigBit> new_remaining;
+			for (auto case_ : switch_->cases)
+			for (auto bit : detect_possibly_unassigned_subset(remaining, case_))
+				new_remaining.insert(bit);
+			remaining.swap(new_remaining);
+		}
+	}
+
+	return remaining;
+}
+
+static void insert_assign_enables(Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> map, RTLIL::CaseRule *rule)
+{
+	RTLIL::SigSpec to_enable;
+
+	for (auto &action : rule->actions)
+	for (auto bit : action.first)
+	if (map.count(bit))
+		to_enable.append(map.at(bit));
+
+	to_enable.sort_and_unify();
+	if (!to_enable.empty())
+		rule->actions.push_back({to_enable, RTLIL::SigSpec(RTLIL::S1, to_enable.size())});
+
+	for (auto switch_ : rule->switches)
+	for (auto case_ : switch_->cases)
+		insert_assign_enables(map, case_);
+}
+
+struct UpdateTiming {
+	RTLIL::SigBit background_enable;
+
+	struct Sensitivity {
+		RTLIL::SigBit signal;
+		bool edge_polarity;
+		const ast::TimingControl *ast_node;
+	};
+	std::vector<Sensitivity> triggers;
+
+	bool implicit() const
+	{
+		return triggers.empty();
+	}
+
+	// extract trigger for side-effect cells like $print, $check
+	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
+	{
+		auto &params = cell->parameters;
+
+		cell->setPort(ID::EN, netlist.LogicAnd(background_enable, enable));
+
+		if (implicit()) {
+			params[ID::TRG_ENABLE] = false;
+			params[ID::TRG_WIDTH] = 0;
+			params[ID::TRG_POLARITY] = {};
+			cell->setPort(ID::TRG, {});
+		} else {
+			params[ID::TRG_ENABLE] = true;
+			params[ID::TRG_WIDTH] = triggers.size();
+			RTLIL::Const pol;
+			RTLIL::SigSpec trg_signals;
+			for (auto trigger : triggers) {
+				pol.bits.push_back(trigger.edge_polarity ? RTLIL::S1 : RTLIL::S0);
+				trg_signals.append(trigger.signal);
+			}
+			params[ID::TRG_POLARITY] = pol;
+			cell->setPort(ID::TRG, trg_signals);
+		}
+	}
+};
 
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
 	NetlistContext &netlist;
-	RTLIL::Module *mod;
-	RTLIL::Process *proc;
-	RTLIL::CaseRule *current_case;
-
 	SignalEvalContext eval;
-
-	const ast::SubroutineSymbol *subroutine;
+	UpdateTiming &timing;	
 
 	Yosys::SigPool assigned_blocking;
 	Yosys::SigPool assigned_nonblocking;
 
-	// TODO: static
-	int print_priority = 0;
+	RTLIL::CaseRule *root_case;
+	RTLIL::CaseRule *current_case;
 
 	enum Mode { ALWAYS, FUNCTION } mode;
 
-	ProceduralVisitor(NetlistContext &netlist, RTLIL::Process *proc, Mode mode)
-			: netlist(netlist), mod(netlist.canvas), proc(proc), eval(netlist), mode(mode) {
+	// set if mode==FUNCTION
+	const ast::SubroutineSymbol *subroutine;
+
+	int effects_priority = 0;
+
+	ProceduralVisitor(NetlistContext &netlist, UpdateTiming &timing, Mode mode)
+			: netlist(netlist), eval(netlist), timing(timing), mode(mode) {
 		eval.const_.pushEmptyFrame();
-		RTLIL::SwitchRule *top_switch = new RTLIL::SwitchRule;
-		proc->root_case.switches.push_back(top_switch);
+		
+		root_case = new RTLIL::CaseRule;
+		auto top_switch = new RTLIL::SwitchRule;
+		root_case->switches.push_back(top_switch);
 		current_case = new RTLIL::CaseRule;
 		top_switch->cases.push_back(current_case);
 	}
 
-	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> staging;
-	RTLIL::SigSpec staging_signal(RTLIL::SigSpec lvalue)
+	~ProceduralVisitor()
 	{
-		RTLIL::SigSpec to_create;
-		for (auto bit : lvalue) {
-			log_assert(bit.wire);
-			if (!staging.count(bit))
-				to_create.append(bit);
-		}
-
-		to_create.sort_and_unify();
-		for (auto chunk : to_create.chunks()) {
-			RTLIL::SigSpec w = mod->addWire(NEW_ID_SUFFIX("staging"), chunk.size());
-			for (int i = 0; i < chunk.size(); i++)
-				staging[RTLIL::SigSpec(chunk)[i]] = w[i];
-		}
-
-		lvalue.replace(staging);
-		return lvalue;
+		delete root_case;
 	}
 
-	void staging_done()
+	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> staging;
+
+	void copy_case_tree_into(RTLIL::CaseRule &rule)
+	{
+		rule.actions.insert(rule.actions.end(),
+							root_case->actions.begin(), root_case->actions.end());
+		root_case->actions.clear();
+		rule.switches.insert(rule.switches.end(),
+							 root_case->switches.begin(), root_case->switches.end());
+		root_case->switches.clear();
+	}
+
+	RTLIL::SigSpec all_driven()
 	{
 		RTLIL::SigSpec all_driven;
 		for (auto pair : staging)
 			all_driven.append(pair.first);
 		all_driven.sort_and_unify();
 
-		RTLIL::CaseRule *root_case = &proc->root_case;
 		for (auto chunk : all_driven.chunks()) {
-			if (chunk.wire && chunk.wire->get_bool_attribute(id_slang_nonstatic))
-				continue;
-
-			RTLIL::SigSpec mapped = chunk;
-			mapped.replace(staging);
-			for (auto sync : proc->syncs)
-				sync->actions.push_back(RTLIL::SigSig(chunk, mapped));
-			root_case->actions.push_back(RTLIL::SigSig(mapped, chunk));
+			log_assert(chunk.wire && !chunk.wire->get_bool_attribute(ID($nonstatic)));
 		}
+
+		return all_driven;		
 	}
 
-	// Return an enable signal for the current context
-	RTLIL::SigBit context_enable()
+	void stage(RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue)
 	{
-		RTLIL::SigBit ret = mod->addWire(NEW_ID, 1);
-		proc->root_case.actions.emplace_back(ret, RTLIL::State::S0);
+		log_assert(lvalue.size() == rvalue.size());
+		RTLIL::SigSpec to_create, lfiltered, rfiltered;
+
+		for (int i = 0; i < lvalue.size(); i++) {
+			RTLIL::SigBit lbit = lvalue[i];
+			log_assert(lbit.wire);
+
+			if (lbit.wire->get_bool_attribute(ID($nonstatic)))
+				continue;
+
+			if (!staging.count(lbit))
+				to_create.append(lbit);
+
+			lfiltered.append(lbit);
+			rfiltered.append(rvalue[i]);
+		}
+
+		to_create.sort_and_unify();
+		for (auto chunk : to_create.chunks()) {
+			RTLIL::SigSpec w = netlist.canvas->addWire(NEW_ID_SUFFIX("staging"), chunk.size());
+			for (int i = 0; i < chunk.size(); i++)
+				staging[RTLIL::SigSpec(chunk)[i]] = w[i];
+		}
+
+		lfiltered.replace(staging);
+		current_case->actions.push_back(RTLIL::SigSig(
+			lfiltered,
+			rfiltered
+		));
+	}
+
+	// Return an enable signal for the current case node
+	RTLIL::SigBit case_enable()
+	{
+		RTLIL::SigBit ret = netlist.canvas->addWire(NEW_ID, 1);
+		root_case->actions.emplace_back(ret, RTLIL::State::S0);
 		current_case->actions.emplace_back(ret, RTLIL::State::S1);
 		return ret;
 	}
 
 	// For $check, $print cells
-	void set_cell_trigger(RTLIL::Cell *cell)
+	void set_effects_trigger(RTLIL::Cell *cell)
 	{
-		bool implicit = false;
-		RTLIL::SigSpec triggers;
-		RTLIL::Const polarity;
-
-		for (auto sync : proc->syncs)
-		switch(sync->type) {
-		case RTLIL::STn:
-		case RTLIL::STp:
-			log_assert(sync->signal.size() == 1);
-			triggers.append(sync->signal);
-			polarity.bits.push_back(sync->type == RTLIL::STp ? RTLIL::S1 : RTLIL::S0);
-			break;
-
-		case RTLIL::STa:
-			implicit = true;
-			break;
-
-		default:
-			log_abort();
-		}
-
-		log_assert(!triggers.empty() || implicit);
-		log_assert(!(!triggers.empty() && implicit));
-		cell->parameters[Yosys::ID::TRG_ENABLE] = !implicit;
-		cell->parameters[Yosys::ID::TRG_WIDTH] = triggers.size();
-		cell->parameters[Yosys::ID::TRG_POLARITY] = polarity;
-		cell->setPort(Yosys::ID::TRG, triggers);
-		cell->setPort(Yosys::ID::EN, context_enable());
+		timing.extract_trigger(netlist, cell, case_enable());
 	}
 
-	void impl_assign_simple(RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue, bool blocking)
+	void do_simple_assign(RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue, bool blocking)
 	{
 		log_assert(lvalue.size() == rvalue.size());
 		if (blocking) {
@@ -1006,13 +1119,10 @@ public:
 			assigned_nonblocking.add(lvalue);
 		}
 
-		current_case->actions.push_back(RTLIL::SigSig(
-			staging_signal(lvalue),
-			rvalue
-		));
+		stage(lvalue, rvalue);
 	}
 
-	void impl_assign(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
+	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
 	{
 		bool blocking = !assign.isNonBlocking();
 		const ast::Expression *raw_lexpr = &assign.left();
@@ -1082,23 +1192,20 @@ public:
 			masked_rvalue = netlist.Bwmux(raw_lvalue_sampled, raw_rvalue, raw_mask);
 		}
 
-		impl_assign_simple(lvalue, masked_rvalue, blocking);
+		do_simple_assign(lvalue, masked_rvalue, blocking);
 	}
 
 	void handle(const ast::ImmediateAssertionStatement &stmt)
 	{
-		auto cell = mod->addCell(NEW_ID, ID($check));
-		set_cell_trigger(cell);
-		std::string flavor = "assert";
-		cell->setParam(Yosys::ID::FLAVOR, flavor);
-		cell->setParam(Yosys::ID::FORMAT, std::string(""));
-		cell->setParam(Yosys::ID::ARGS_WIDTH, 0);
-		cell->setParam(Yosys::ID::PRIORITY, --print_priority);
-		cell->setPort(Yosys::ID::ARGS, {});
-		cell->setPort(Yosys::ID::A, netlist.ReduceBool(eval(stmt.cond)));
+		auto cell = netlist.canvas->addCell(NEW_ID, ID($check));
+		set_effects_trigger(cell);
+		cell->setParam(ID::FLAVOR, std::string("assert"));
+		cell->setParam(ID::FORMAT, std::string(""));
+		cell->setParam(ID::ARGS_WIDTH, 0);
+		cell->setParam(ID::PRIORITY, --effects_priority);
+		cell->setPort(ID::ARGS, {});
+		cell->setPort(ID::A, netlist.ReduceBool(eval(stmt.cond)));
 	}
-
-	// TODO: add other kids of statements
 
 	void handle(const ast::ExpressionStatement &expr)
 	{
@@ -1106,13 +1213,11 @@ public:
 		case ast::ExpressionKind::Call:
 			{
 				auto &call = expr.expr.as<ast::CallExpression>();
-				if (call.getSubroutineName() == "empty_statement") {
-					return; // TODO: workaround for picorv32, do better
-				} else if (call.getSubroutineName() == "$display") {
-					auto cell = mod->addCell(NEW_ID, ID($print));
+				if (call.getSubroutineName() == "$display") {
+					auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
 					transfer_attrs(expr, cell);
-					set_cell_trigger(cell);
-					cell->parameters[Yosys::ID::PRIORITY] = --print_priority;
+					set_effects_trigger(cell);
+					cell->parameters[ID::PRIORITY] = --effects_priority;
 					std::vector<Yosys::VerilogFmtArg> fmt_args;
 					for (auto arg : call.arguments()) {
 						log_assert(arg);
@@ -1145,8 +1250,9 @@ public:
 						
 					}
 					Yosys::Fmt fmt = {};
+					// TODO: insert the actual module name
 					fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
-									  std::string{call.getSubroutineName()}, mod->name);
+									  std::string{call.getSubroutineName()}, netlist.canvas->name);
 					fmt.append_literal("\n");
 					fmt.emit_rtlil(cell);
 				} else if (!call.isSystemCall()) {
@@ -1158,7 +1264,7 @@ public:
 						auto dir = arg->direction;
 						log_assert(dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::Out);
 						if (dir == ast::ArgumentDirection::In) {
-							RTLIL::Wire *w = mod->wire(scoped_id(*arg));
+							RTLIL::Wire *w = netlist.canvas->wire(scoped_id(*arg));
 							log_assert(w);
 							eval.set(w, eval(*call.arguments()[i]));
 						}
@@ -1174,7 +1280,8 @@ public:
 							log_assert(w);
 							RTLIL::SigSpec rvalue = w;
 							rvalue.replace(eval.rvalue_subs);
-							impl_assign(assign, rvalue);
+							assert_nonstatic_free(rvalue);
+							assign_rvalue(assign, rvalue);
 						}
 					}
 				} else {
@@ -1186,7 +1293,7 @@ public:
 			{
 				const auto &assign = expr.expr.as<ast::AssignmentExpression>();
 				eval.lvalue = eval(assign.left());
-				impl_assign(assign, eval(assign.right()));
+				assign_rvalue(assign, eval(assign.right()));
 				eval.lvalue = {};
 			}
 			break;
@@ -1211,7 +1318,7 @@ public:
 		require(cond, cond.conditions[0].pattern == NULL);
 
 		RTLIL::CaseRule *case_save = current_case;
-		RTLIL::SigSpec condition = mod->ReduceBool(NEW_ID,
+		RTLIL::SigSpec condition = netlist.ReduceBool(
 			eval(*cond.conditions[0].expr)
 		);
 		SwitchBuilder b(current_case, &eval.rvalue_subs, condition);
@@ -1230,7 +1337,7 @@ public:
 				cond.ifFalse->visit(*this);
 			});	
 		}
-		b.finish(mod);
+		b.finish(netlist.canvas);
 
 		current_case = case_save;
 		// descend into an empty switch so we force action priority for follow up statements
@@ -1292,7 +1399,7 @@ public:
 			});
 		}
 
-		b.finish(mod);
+		b.finish(netlist.canvas);
 
 		current_case = case_save;
 		// descend into an empty switch so we force action priority for follow up statements
@@ -1348,7 +1455,7 @@ public:
 			else
 				initval = convert_const(stmt.symbol.getType().getDefaultValue());
 
-			impl_assign_simple(
+			do_simple_assign(
 				target,
 				initval,
 				true
@@ -1365,11 +1472,12 @@ public:
 	{
 		require(stmt, mode == FUNCTION);
 		log_assert(subroutine);
-		impl_assign_simple(mod->wire(scoped_id(*subroutine->returnValVar)),
+		do_simple_assign(netlist.canvas->wire(scoped_id(*subroutine->returnValVar)),
 						   eval(*stmt.expr), true);
 	}
 };
 
+#if 0
 static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call)
 {
 	const auto &subr = *std::get<0>(call.subroutine);
@@ -1395,6 +1503,60 @@ static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::Call
 	ret.replace(visitor.staging);
 	return ret;
 }
+#endif
+
+namespace diag {
+	slang::DiagCode IffUnsupported(slang::DiagSubsystem::Netlist, 1000);
+	slang::DiagCode SignalSensitivityAmbiguous(slang::DiagSubsystem::Netlist, 1001);
+	slang::DiagCode EdgeImplicitMixing(slang::DiagSubsystem::Netlist, 1002);
+	slang::DiagCode GenericTimingUnsyn(slang::DiagSubsystem::Netlist, 1003);
+	slang::DiagCode BothEdgesUnsupported(slang::DiagSubsystem::Netlist, 1004);
+	slang::DiagCode NoteSignalEvent(slang::DiagSubsystem::Netlist, 1005);
+	slang::DiagCode ExpectingIfElseAload(slang::DiagSubsystem::Netlist, 1006);
+	slang::DiagCode NoteDuplicateEdgeSense(slang::DiagSubsystem::Netlist, 1007);
+	slang::DiagCode IfElseAloadPolarity(slang::DiagSubsystem::Netlist, 1008);
+	slang::DiagCode IfElseAloadMismatch(slang::DiagSubsystem::Netlist, 1009);
+	slang::DiagCode LatchNotInferred(slang::DiagSubsystem::Netlist, 1010);
+	slang::DiagCode LatchInferred(slang::DiagSubsystem::Netlist, 1011);
+	slang::DiagCode MissingAload(slang::DiagSubsystem::Netlist, 1012);
+	slang::DiagCode NoteProcessDriver(slang::DiagSubsystem::Netlist, 1013);
+
+	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
+														 IfElseAloadPolarity, IfElseAloadMismatch});
+	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
+
+	void setup_messages(slang::DiagnosticEngine &engine)
+	{
+		engine.setMessage(IffUnsupported, "iff qualifier will not be synthesized");
+		engine.setMessage(SignalSensitivityAmbiguous, "non-edge sensitivity on a signal will be synthesized as @* sensitivity");
+		engine.setMessage(EdgeImplicitMixing, "mixing of implicit and edge sensitivity");
+		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control");
+		engine.setMessage(BothEdgesUnsupported, "'edge' sensitivity will not be synthesized");
+		engine.setMessage(NoteSignalEvent, "signal event specified here");
+		engine.setSeverity(NoteSignalEvent, slang::DiagnosticSeverity::Note);
+
+		engine.setMessage(ExpectingIfElseAload, "a simple if-else pattern is expected in modeling an asynchronous load on a flip-flop");
+		engine.setMessage(NoteDuplicateEdgeSense, "asynchronous load pattern implied by edge sensitivity on multiple signals");
+		engine.setSeverity(NoteDuplicateEdgeSense, slang::DiagnosticSeverity::Note);
+
+		engine.setMessage(IfElseAloadPolarity, "polarity of the condition doesn't match the edge sensitivity");
+		engine.setMessage(IfElseAloadMismatch, "condition cannot be matched to any signal from the event list");
+		engine.setSeverity(LatchInferred, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(LatchNotInferred, "latch not inferred for signal '{}' driven from an always_latch process");
+		engine.setSeverity(LatchNotInferred, slang::DiagnosticSeverity::Error);
+		engine.setMessage(LatchInferred, "latch inferred for signal '{}' driven from an always_comb process");
+		engine.setSeverity(LatchInferred, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(MissingAload, "asynchronous load value missing for driven signal '{}'");
+		engine.setSeverity(MissingAload, slang::DiagnosticSeverity::Error);
+		engine.setMessage(NoteProcessDriver, "signal driven from this process");
+		engine.setSeverity(NoteProcessDriver, slang::DiagnosticSeverity::Note);
+
+		engine.setSeverity(unsynthesizable, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(sanity, slang::DiagnosticSeverity::Error);
+	}
+};
 
 struct PopulateNetlist : public ast::ASTVisitor<PopulateNetlist, true, false> {
 public:
@@ -1453,107 +1615,227 @@ public:
 	PopulateNetlist(NetlistContext &netlist, SynthesisSettings &settings)
 		: netlist(netlist), settings(settings), initial_eval(&netlist.compilation, netlist.canvas) {}
 
-	bool populate_sync(RTLIL::Process *proc, const ast::TimingControl &timing)
+	void synthesize_procedure_with_implicit_timing(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
-		switch (timing.kind) {
-		case ast::TimingControlKind::SignalEvent:
-			{
-				const auto &sigevent = timing.as<ast::SignalEventControl>();
-				RTLIL::SyncRule *sync = new RTLIL::SyncRule();
-				proc->syncs.push_back(sync);
-				RTLIL::SigSpec sig = netlist.eval(sigevent.expr);
-				require(sigevent, sigevent.iffCondition == NULL);
-				sync->signal = sig;
-				switch (sigevent.edge) {
-				case ast::EdgeKind::None:
-					{
-						auto src = format_src(timing);
-						log_warning("%s: Turning non-edge sensitivity on %s to implicit sensitivity\n",
-									src.c_str(), log_signal(sig));
-						sync->type = RTLIL::SyncType::STa;
-						sync->signal = {};
+		const ast::Scope *scope = symbol.getParentScope();
+
+		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
+		transfer_attrs(body, proc);
+
+		UpdateTiming implicit_timing;
+		ProceduralVisitor visitor(netlist, implicit_timing, ProceduralVisitor::ALWAYS);
+		body.visit(visitor);
+		visitor.copy_case_tree_into(proc->root_case);
+
+		Yosys::pool<RTLIL::SigBit> all_staging_signals;
+		for (auto pair : visitor.staging)
+			all_staging_signals.insert(pair.second);
+
+		Yosys::pool<RTLIL::SigBit> dangling =
+				detect_possibly_unassigned_subset(all_staging_signals, &proc->root_case);
+
+		// left-hand side and right-hand side of the connections to be made
+		RTLIL::SigSpec cl, cr;
+
+		// map from a driven signal to the corresponding latch enable
+		Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> latch_enables;
+		RTLIL::SigSpec latch_driven;
+
+		for (auto driven_bit : visitor.all_driven()) {
+			RTLIL::SigBit staged_bit = visitor.staging.at(driven_bit);
+
+			if (!dangling.count(staged_bit)) {
+				// No latch inferred
+				cl.append(driven_bit);
+				cr.append(staged_bit);
+			} else {
+				// TODO: create latches in groups
+				RTLIL::SigBit en = netlist.canvas->addWire(NEW_ID, 1);
+				RTLIL::Cell *cell = netlist.canvas->addDlatchGate(NEW_ID, en,
+														staged_bit, driven_bit, true);
+				transfer_attrs(symbol, cell);
+				latch_enables[staged_bit] = en;
+				latch_driven.append(driven_bit);
+				proc->root_case.actions.push_back({en, RTLIL::S0});
+			}
+		}
+
+		if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysLatch && !cl.empty()) {
+			for (auto chunk : cl.chunks()) {
+				auto &diag = scope->addDiag(diag::LatchNotInferred, symbol.location);
+				diag << std::string(log_signal(chunk));
+			}
+		}
+
+		if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysComb && !latch_driven.empty()) {
+			for (auto chunk : latch_driven.chunks()) {
+				auto &diag = scope->addDiag(diag::LatchInferred, symbol.location);
+				diag << std::string(log_signal(chunk));
+			}
+		}
+
+		insert_assign_enables(latch_enables, &proc->root_case);
+		netlist.GroupConnect(cl, cr);
+	}
+
+	void synthesize_procedure_with_edge_timing(const ast::ProceduralBlockSymbol &symbol, UpdateTiming &timing)
+	{
+		log_assert(symbol.getBody().kind == ast::StatementKind::Timed);
+		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
+		const ast::Statement *stmt = &timed.stmt;
+		const ast::Scope *scope = symbol.getParentScope();
+
+		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
+		transfer_attrs(timed.stmt, proc);
+
+		struct Aload {
+			RTLIL::SigBit trigger;
+			bool trigger_polarity;
+			Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> values;
+			const ast::Statement *ast_node;
+		};
+		std::vector<Aload> aloads;
+		RTLIL::SigSpec previous_async;
+
+		// Keep inferring asynchronous loads until we get to a single remaining edge trigger
+		while (timing.triggers.size() > 1) {
+			while (stmt->kind == ast::StatementKind::Block
+					&& stmt->as<ast::BlockStatement>().blockKind == ast::StatementBlockKind::Sequential)
+				stmt = &stmt->as<ast::BlockStatement>().body;
+
+			if (stmt->kind != ast::StatementKind::Conditional
+					|| stmt->as<ast::ConditionalStatement>().check != ast::UniquePriorityCheck::None
+					|| stmt->as<ast::ConditionalStatement>().conditions.size() != 1
+					|| stmt->as<ast::ConditionalStatement>().conditions[0].pattern
+					|| !stmt->as<ast::ConditionalStatement>().ifFalse) {
+				auto &diag = symbol.getParentScope()->addDiag(diag::ExpectingIfElseAload, stmt->sourceRange);
+				diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+				break;
+			}
+
+			auto &cond_stmt = stmt->as<ast::ConditionalStatement>();
+			const ast::Expression *condition = cond_stmt.conditions[0].expr;
+
+			bool polarity = true;
+			if (condition->kind == ast::ExpressionKind::UnaryOp
+					&& (condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::LogicalNot
+						|| condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::BitwiseNot)) {
+				polarity = false;
+				condition = &condition->as<ast::UnaryExpression>().operand();
+			}
+
+			if (condition->kind == ast::ExpressionKind::NamedValue) {
+				RTLIL::SigSpec cond_signal = netlist.eval(*condition);
+
+				auto found = std::find_if(timing.triggers.begin(), timing.triggers.end(),
+									   [=](const UpdateTiming::Sensitivity &sense) {
+					return sense.signal == cond_signal;
+				});
+
+				if (found != timing.triggers.end()) {
+					if (found->edge_polarity != polarity) {
+						auto &diag = symbol.getParentScope()->addDiag(diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
+						diag.addNote(diag::NoteSignalEvent, found->ast_node->sourceRange);
+						diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+						// We raised an error. Do infer the async load anyway
 					}
-					break;
-				case ast::EdgeKind::PosEdge:
-					require(sigevent, sig.size() == 1);
-					sync->type = RTLIL::SyncType::STp;
-					break;
-				case ast::EdgeKind::NegEdge:
-					require(sigevent, sig.size() == 1);
-					sync->type = RTLIL::SyncType::STn;
-					break;
-				case ast::EdgeKind::BothEdges:
-					require(sigevent, sig.size() == 1);
-					sync->type = RTLIL::SyncType::STe;
-					break;
+
+					UpdateTiming branch_timing;
+					// copy in the single trigger for this branch
+					branch_timing.triggers = {*found};
+					// disable the effects if some of the priority async signals are raised
+					branch_timing.background_enable = netlist.LogicNot(previous_async);
+
+					ProceduralVisitor visitor(netlist, branch_timing, ProceduralVisitor::ALWAYS);
+					cond_stmt.ifTrue.visit(visitor);
+
+					visitor.copy_case_tree_into(proc->root_case);
+					aloads.push_back({
+						found->signal,
+						found->edge_polarity,
+						visitor.staging,
+						&cond_stmt.ifTrue
+					});
+
+					// TODO: check for non-constant load values and warn about sim/synth mismatch
+
+					// Prepare the stage for the inference of the next async load,
+					// or for the final synchronous part.
+					previous_async.append(polarity ? found->signal : RTLIL::SigBit(netlist.Not(found->signal)));
+					timing.triggers.erase(found);
+					stmt = cond_stmt.ifFalse;
+					continue;
 				}
 			}
-			return true;
-		case ast::TimingControlKind::ImplicitEvent:
-			{
-				RTLIL::SyncRule *sync = new RTLIL::SyncRule();
-				proc->syncs.push_back(sync);
-				sync->type = RTLIL::SyncType::STa;
-			}
-			return true;
-		case ast::TimingControlKind::EventList:
-			{
-				const auto &evlist = timing.as<ast::EventListControl>();
-				for (auto ev : evlist.events) {
-					log_assert(ev);
-					if (!populate_sync(proc, *ev))
-						return false;
+
+			auto &diag = scope->addDiag(diag::IfElseAloadMismatch, stmt->sourceRange);
+			diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+			break;
+		}
+
+		require(symbol, aloads.size() <= 1);
+		{
+			timing.background_enable = netlist.LogicNot(previous_async);
+			ProceduralVisitor visitor(netlist, timing, ProceduralVisitor::ALWAYS);
+			stmt->visit(visitor);
+			visitor.copy_case_tree_into(proc->root_case);
+
+			RTLIL::SigSpec driven = visitor.all_driven();
+			for (auto driven_chunk : driven.chunks()) {
+				RTLIL::SigSpec staging_chunk = driven_chunk;
+				staging_chunk.replace(visitor.staging);
+
+				proc->root_case.actions.push_back({staging_chunk, driven_chunk});
+
+				RTLIL::Cell *cell;
+
+				if (aloads.empty()) {
+					cell = netlist.canvas->addDff(NEW_ID,
+											timing.triggers[0].signal, staging_chunk, driven_chunk,
+											timing.triggers[0].edge_polarity);
+				} else if (aloads.size() == 1) {
+					RTLIL::SigSpec aload_chunk = driven_chunk;
+					aload_chunk.replace(aloads[0].values);
+
+					for (int i = 0; i < aload_chunk.size(); i++) {
+						if (aload_chunk[i] == RTLIL::SigSpec(driven_chunk)[i]) {
+							auto &diag = scope->addDiag(diag::MissingAload, aloads[0].ast_node->sourceRange);
+							diag << std::string(log_signal(RTLIL::SigSpec(driven_chunk)[i]));
+							diag.addNote(diag::NoteProcessDriver, symbol.location);
+							diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+							aload_chunk[i] = RTLIL::Sx;
+						}
+					}
+
+					cell = netlist.canvas->addAldff(NEW_ID,
+											timing.triggers[0].signal, aloads[0].trigger,
+											staging_chunk, driven_chunk, aload_chunk,
+											timing.triggers[0].edge_polarity, aloads[0].trigger_polarity);
+				} else {
+					log_abort();
 				}
+				transfer_attrs(symbol, cell);
 			}
-			return true;
-		default:
-			return false;
 		}
 	}
 
-	void handle(const ast::ProceduralBlockSymbol &sym)
+	void handle(const ast::ProceduralBlockSymbol &symbol)
 	{
-		auto kind = sym.procedureKind;
+		auto kind = symbol.procedureKind;
 		switch (kind) {
 		case ast::ProceduralBlockKind::Always:
 		case ast::ProceduralBlockKind::AlwaysFF:
-			{
-				RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
-				if (kind == ast::ProceduralBlockKind::AlwaysFF)
-					proc->attributes[Yosys::ID::always_ff] = true;
-				require(sym, sym.getBody().kind == ast::StatementKind::Timed);
-
-				const auto &timed = sym.getBody().as<ast::TimedStatement>();
-				if (!populate_sync(proc, timed.timing))
-					unimplemented(timed)
-
-				ProceduralVisitor visitor(netlist, proc, ProceduralVisitor::ALWAYS);
-				timed.stmt.visit(visitor);
-				visitor.staging_done();
-			}
+			handle_always(symbol);
 			break;
 
 		case ast::ProceduralBlockKind::AlwaysComb:
 		case ast::ProceduralBlockKind::AlwaysLatch:
-			{
-				RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
-				if (kind == ast::ProceduralBlockKind::AlwaysComb)
-					proc->attributes[Yosys::ID::always_comb] = true;
-				if (kind == ast::ProceduralBlockKind::AlwaysLatch)
-					proc->attributes[Yosys::ID::always_latch] = true;
-				RTLIL::SyncRule *sync = new RTLIL::SyncRule;
-				proc->syncs.push_back(sync);
-				sync->type = RTLIL::SyncType::STa;
-
-				ProceduralVisitor visitor(netlist, proc, ProceduralVisitor::ALWAYS);
-				sym.getBody().visit(visitor);
-				visitor.staging_done();
-			}
+			synthesize_procedure_with_implicit_timing(symbol, symbol.getBody());
 			break;
 
 		case ast::ProceduralBlockKind::Initial:
 			{
-				auto result = sym.getBody().visit(initial_eval);
+				auto result = symbol.getBody().visit(initial_eval);
 				if (result != ast::Statement::EvalResult::Success) {
 					for (auto& diag : initial_eval.context.getAllDiagnostics())
         				global_diagengine->issue(diag);
@@ -1569,8 +1851,98 @@ public:
 			}
 			break;
 		default:
-			unimplemented(sym);
-		}		
+			unimplemented(symbol);
+		}	
+	}
+
+	void handle_always(const ast::ProceduralBlockSymbol &symbol)
+	{
+		const ast::Scope *scope = symbol.getParentScope();
+		log_assert(symbol.procedureKind == ast::ProceduralBlockKind::Always
+				|| symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
+
+		if (symbol.getBody().kind == ast::StatementKind::Invalid)
+			return;
+
+		require(symbol, symbol.getBody().kind == ast::StatementKind::Timed);
+		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
+		const auto *top_ast_timing = &timed.timing;
+
+		using TCKind = ast::TimingControlKind;
+		std::span<const ast::TimingControl* const> events;
+		const ast::TimingControl* const top_events[1] = {top_ast_timing};
+
+		events = (top_ast_timing->kind == TCKind::EventList) ?
+				top_ast_timing->as<ast::EventListControl>().events
+				: std::span<const ast::TimingControl* const>(top_events);
+
+		bool implicit = false;
+		UpdateTiming timing;
+
+		for (auto ev : events)
+		switch (ev->kind) {
+		case ast::TimingControlKind::SignalEvent:
+			{
+				const auto &sigev = ev->as<ast::SignalEventControl>();
+
+				if (sigev.iffCondition)
+					scope->addDiag(diag::IffUnsupported, sigev.iffCondition->sourceRange);
+
+				switch (sigev.edge) {
+				case ast::EdgeKind::None:
+					{
+						// Report on the top timing node as that makes for nicer reports in case there
+						// are many signals in the sensitivity list
+						auto &diag = symbol.getParentScope()->addDiag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
+						diag.addNote(diag::NoteSignalEvent, sigev.sourceRange);
+						implicit = true;
+					}
+					break;
+
+				case ast::EdgeKind::PosEdge:
+				case ast::EdgeKind::NegEdge:
+					{
+						RTLIL::SigSpec sig = netlist.eval(sigev.expr);
+						require(symbol, !sig.empty());
+
+						// The LSB is the trigger; slang raises the 'multibit-edge' warning
+						// to point this out to users
+						timing.triggers.push_back(UpdateTiming::Sensitivity{
+							sig.lsb(),
+							(sigev.edge == ast::EdgeKind::PosEdge),
+							&sigev
+						});
+					}
+					break;
+
+				case ast::EdgeKind::BothEdges:
+					scope->addDiag(diag::BothEdgesUnsupported, sigev.sourceRange);
+					break;
+				}
+			}
+			break;
+
+		case ast::TimingControlKind::ImplicitEvent:
+			{
+				implicit = true;
+			}
+			break;
+
+		case ast::TimingControlKind::EventList:
+			log_abort();
+
+		default:
+			scope->addDiag(diag::GenericTimingUnsyn, ev->sourceRange);
+			break;
+		}
+
+		if (implicit && !timing.triggers.empty())
+			scope->addDiag(diag::EdgeImplicitMixing, top_ast_timing->sourceRange);
+
+		if (implicit)
+			synthesize_procedure_with_implicit_timing(symbol, timed.stmt);
+		else
+			synthesize_procedure_with_edge_timing(symbol, timing);
 	}
 
 	void handle(const ast::NetSymbol &sym)
@@ -1615,12 +1987,14 @@ public:
 		require(port, !port.isNullPort);
 		RTLIL::SigSpec internal_signal;
 
-		if (auto expr = port.getInternalExpr())
+		if (auto expr = port.getInternalExpr()) 
 			internal_signal = evaluate_lhs(netlist, *expr);
 		else
 			internal_signal = netlist.wire(*port.internalSymbol);
 
 		log_assert(internal_signal.size() == signal.size());
+		assert_nonstatic_free(internal_signal);
+
 		require(port, port.direction == ast::ArgumentDirection::Out ||
 					  port.direction == ast::ArgumentDirection::In);
 
@@ -1647,6 +2021,7 @@ public:
 								(assign.right().kind == ast::ExpressionKind::Conversion &&
 								 assign.right().as<ast::ConversionExpression>().operand().kind == ast::ExpressionKind::EmptyArgument));
 					signal = evaluate_lhs(netlist, assign.left());
+					assert_nonstatic_free(signal);
 				} else {
 					signal = netlist.eval(expr);
 				}
@@ -1678,6 +2053,7 @@ public:
 					auto &assign = expr.as<ast::AssignmentExpression>();
 					require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
 					signal = evaluate_lhs(netlist, assign.left());
+					assert_nonstatic_free(signal);
 				} else {
 					signal = netlist.eval(expr);
 				}
@@ -1692,7 +2068,9 @@ public:
 	void handle(const ast::ContinuousAssignSymbol &sym)
 	{
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
-		netlist.canvas->connect(evaluate_lhs(netlist, expr.left()), netlist.eval(expr.right()));		
+		RTLIL::SigSpec lhs = evaluate_lhs(netlist, expr.left());
+		assert_nonstatic_free(lhs);
+		netlist.canvas->connect(lhs, netlist.eval(expr.right()));		
 	}
 
 	void handle(const ast::GenerateBlockSymbol &sym)
@@ -1793,14 +2171,17 @@ public:
 
 		auto wadd = ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
 			if (sym.getType().isFixedSize()) {
-				std::string kind{ast::toString(sym.kind)};
-				log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
-				auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
-				transfer_attrs(sym, w);
+				if (sym.kind == ast::SymbolKind::Variable
+						|| sym.kind == ast::SymbolKind::Net) {
+					std::string kind{ast::toString(sym.kind)};
+					auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
+					transfer_attrs(sym, w);
+					log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
 
-				if (sym.kind == ast::SymbolKind::Variable &&
-						sym.as<ast::VariableSymbol>().lifetime != ast::VariableLifetime::Static)
-					w->attributes[id_slang_nonstatic] = true;
+					if (sym.kind == ast::SymbolKind::Variable
+							&& sym.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic)
+						w->attributes[ID($nonstatic)] = true;
+				}
 			}
 		}, [&](auto&, const ast::InstanceSymbol&) {
 			/* do not descend into other modules */
@@ -1845,7 +2226,7 @@ public:
 
 		// now transfer the initializers from variables onto RTLIL wires
 		auto inittransfer = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
-			if (sym.getType().isFixedSize()) {
+			if (sym.getType().isFixedSize() && sym.lifetime == ast::VariableLifetime::Static) {
 				auto storage = initial_eval.context.findLocal(&sym);
 				log_assert(storage);
 				auto const_ = convert_const(*storage);
@@ -2029,6 +2410,7 @@ struct SlangFrontend : Frontend {
 		driver.addStandardArgs();
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
+		diag::setup_messages(driver.diagEngine);
 		{
 			std::vector<char *> c_args;
 			for (auto arg : args) {
@@ -2047,9 +2429,6 @@ struct SlangFrontend : Frontend {
 				log_error("Parsing failed\n");
 
 			auto compilation = driver.createCompilation();
-
-			if (!driver.reportCompilation(*compilation, /* quiet */ false))
-				log_error("Compilation failed\n");
 
 			if (settings.dump_ast.value_or(false)) {
 				slang::JsonWriter writer;
@@ -2072,6 +2451,9 @@ struct SlangFrontend : Frontend {
 					instance->body.visit(populate);
 				}
 			}
+
+			if (!driver.reportCompilation(*compilation, /* quiet */ false))
+				log_error("Compilation failed\n");
 		} catch (const std::exception& e) {
 			log_error("Exception: %s\n", e.what());
 		}

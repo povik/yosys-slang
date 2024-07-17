@@ -52,6 +52,7 @@ struct RTLILBuilder {
 	SigSpec EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b);
 	SigSpec Eq(SigSpec a, SigSpec b);
 	SigSpec LogicAnd(SigSpec a, SigSpec b);
+	SigSpec LogicNot(SigSpec a);
 	SigSpec Mux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bwmux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bmux(SigSpec a, SigSpec s);
@@ -60,6 +61,15 @@ struct RTLILBuilder {
 	SigSpec Shiftx(SigSpec a, SigSpec s, bool s_signed, int result_width);
 	SigSpec Neg(SigSpec a, bool signed_);
 	SigSpec Not(SigSpec a);
+
+	void GroupConnect(SigSpec lhs, SigSpec rhs)
+	{
+		int done = 0;
+		for (auto chunk : lhs.chunks()) {
+			canvas->connect(chunk, rhs.extract(done, chunk.size()));
+			done += chunk.size();
+		}
+	}
 };
 
 struct NetlistContext : RTLILBuilder {
