@@ -1520,6 +1520,7 @@ namespace diag {
 	slang::DiagCode LatchInferred(slang::DiagSubsystem::Netlist, 1011);
 	slang::DiagCode MissingAload(slang::DiagSubsystem::Netlist, 1012);
 	slang::DiagCode NoteProcessDriver(slang::DiagSubsystem::Netlist, 1013);
+	slang::DiagCode AlwaysFFBadTiming(slang::DiagSubsystem::Netlist, 1014);
 
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
@@ -1552,6 +1553,9 @@ namespace diag {
 		engine.setSeverity(MissingAload, slang::DiagnosticSeverity::Error);
 		engine.setMessage(NoteProcessDriver, "signal driven from this process");
 		engine.setSeverity(NoteProcessDriver, slang::DiagnosticSeverity::Note);
+
+		engine.setMessage(AlwaysFFBadTiming, "timing control does not model a flip-flop");
+		engine.setSeverity(AlwaysFFBadTiming, slang::DiagnosticSeverity::Error);
 
 		engine.setSeverity(unsynthesizable, slang::DiagnosticSeverity::Error);
 		engine.setSeverity(sanity, slang::DiagnosticSeverity::Error);
@@ -1891,6 +1895,11 @@ public:
 				switch (sigev.edge) {
 				case ast::EdgeKind::None:
 					{
+						if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
+							scope->addDiag(diag::AlwaysFFBadTiming, ev->sourceRange);
+							break;
+						}
+
 						// Report on the top timing node as that makes for nicer reports in case there
 						// are many signals in the sensitivity list
 						auto &diag = symbol.getParentScope()->addDiag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
@@ -1924,6 +1933,11 @@ public:
 
 		case ast::TimingControlKind::ImplicitEvent:
 			{
+				if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
+					scope->addDiag(diag::AlwaysFFBadTiming, ev->sourceRange);
+					break;
+				}
+
 				implicit = true;
 			}
 			break;
@@ -1941,7 +1955,7 @@ public:
 
 		if (implicit)
 			synthesize_procedure_with_implicit_timing(symbol, timed.stmt);
-		else
+		else if (!timing.triggers.empty())
 			synthesize_procedure_with_edge_timing(symbol, timing);
 	}
 
