@@ -672,6 +672,18 @@ ER EvalVisitor::visit(const ExpressionStatement &stmt)
 	return expr.eval(context) ? ER::Success : ER::Fail;
 }
 
+ER EvalVisitor::visit(const ImmediateAssertionStatement &stmt)
+{
+	auto cv = stmt.cond.eval(context);
+	if (cv.bad())
+		return ER::Fail;
+	if (!cv.isTrue()) {
+		// TODO: raise a diagnostic here
+		return ER::Fail;
+	}
+	return ER::Success;
+}
+
 ER EvalVisitor::visit(const EmptyStatement&)
 {
 	return ER::Success;

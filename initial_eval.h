@@ -32,6 +32,7 @@ public:
 	ER visit(const slang::ast::DoWhileLoopStatement &stmt);
 	ER visit(const slang::ast::ForeverLoopStatement &stmt);
 	ER visit(const slang::ast::ExpressionStatement &stmt);
+	ER visit(const slang::ast::ImmediateAssertionStatement &stmt);
 	ER visit(const slang::ast::EmptyStatement &stmt);
 	ER visit(const slang::ast::Statement &);
 
