@@ -16,7 +16,7 @@
 #include "slang/text/Json.h"
 #include "slang/util/Util.h"
 
-#include "bitpattern.h"
+#include "kernel/bitpattern.h"
 #include "kernel/fmt.h"
 #include "kernel/register.h"
 #include "kernel/rtlil.h"
