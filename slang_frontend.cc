@@ -1996,6 +1996,17 @@ public:
 		unimplemented(sym);
 	}
 
+	void handle(const ast::InterfacePortSymbol &sym)
+	{
+		if (sym.getParentScope()->getContainingInstance() != &netlist.realm) {
+			// If the port is on a module boundary which we are flattening within the
+			// front end, then it doesn't need any special handling.
+			return;
+		}
+
+		unimplemented(sym);
+	}
+
 	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec signal)
 	{
 		require(port, !port.isNullPort);
