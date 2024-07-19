@@ -1733,7 +1733,7 @@ public:
 
 				auto found = std::find_if(timing.triggers.begin(), timing.triggers.end(),
 									   [=](const UpdateTiming::Sensitivity &sense) {
-					return sense.signal == cond_signal;
+					return RTLIL::SigSpec(sense.signal) == cond_signal;
 				});
 
 				if (found != timing.triggers.end()) {
