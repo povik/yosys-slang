@@ -476,31 +476,6 @@ RTLIL::SigSpec RTLILBuilder::Not(RTLIL::SigSpec a)
 	return canvas->Not(NEW_ID, a);
 }
 
-std::pair<RTLIL::SigSpec, RTLIL::SigBit> SignalEvalContext::translate_index(
-		const ast::Expression &expr, slang::ConstantRange range)
-{
-	RTLIL::SigSpec idx = (*this)(expr);
-	bool idx_signed = expr.type->isSigned();
-
-	if (!idx_signed) {
-		idx.append(RTLIL::S0);
-		idx_signed = true;
-	}
-
-	RTLIL::SigBit valid = netlist.LogicAnd(
-		netlist.Le(idx, RTLIL::Const(range.upper()), /* is_signed */ true),
-		netlist.Ge(idx, RTLIL::Const(range.lower()), /* is_signed */ true)
-	);
-
-	RTLIL::SigSpec raw_idx;
-	if (range.left > range.right)
-		raw_idx = netlist.Sub(idx, RTLIL::Const(range.right), /* is_signed */ true);
-	else
-		raw_idx = netlist.Sub(RTLIL::Const(range.right), idx, /* is_signed */ true);
-	raw_idx.extend_u0(ceil_log2(range.width()));
-	return std::make_pair(raw_idx, valid);
-}
-
 void assert_nonstatic_free(RTLIL::SigSpec signal)
 {
 	for (auto bit : signal)
