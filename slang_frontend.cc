@@ -300,28 +300,6 @@ static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Exp
 	return ret;
 }
 
-struct ProcedureContext
-{
-	// rvalue substitutions from blocking assignments
-	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs;
-
-	void set(RTLIL::SigSpec lhs, RTLIL::SigSpec value)
-	{
-		log_assert(lhs.size() == value.size());
-		for (int i = 0; i < lhs.size(); i++)
-			rvalue_subs[lhs[i]] = value[i];
-	}
-
-	ast::EvalContext eval;
-
-	// TODO: avoid using global
-	ProcedureContext()
-			: eval(ast::ASTContext(global_compilation->getRoot(),
-								   ast::LookupLocation::max)) {
-		eval.pushEmptyFrame();
-	}
-};
-
 static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call);
 
 void assert_nonstatic_free(RTLIL::SigSpec signal)
