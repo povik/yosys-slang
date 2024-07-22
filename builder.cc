@@ -8,13 +8,17 @@
 
 inline namespace slang_frontend {
 
-RTLIL::SigSpec RTLILBuilder::ReduceBool(RTLIL::SigSpec a) {
+using RTLIL::Cell;
+using RTLIL::IdString;
+using RTLIL::SigSpec;
+
+SigSpec RTLILBuilder::ReduceBool(SigSpec a) {
 	if (a.is_fully_const())
 		return RTLIL::const_reduce_bool(a.as_const(), RTLIL::Const(), false, false, 1);
 	return canvas->ReduceBool(NEW_ID, a, false);
 }
 
-RTLIL::SigSpec RTLILBuilder::Sub(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+SigSpec RTLILBuilder::Sub(SigSpec a, SigSpec b, bool is_signed) {
 	if (b.is_fully_ones())
 		return a;
 	if (a.is_fully_const() && b.is_fully_const())
@@ -23,9 +27,9 @@ RTLIL::SigSpec RTLILBuilder::Sub(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_sig
 	return canvas->Sub(NEW_ID, a, b, is_signed);
 }
 
-RTLIL::SigSpec RTLILBuilder::Demux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
+SigSpec RTLILBuilder::Demux(SigSpec a, SigSpec s) {
 	log_assert(s.size() < 24);
-	RTLIL::SigSpec zeropad(RTLIL::S0, a.size());
+	SigSpec zeropad(RTLIL::S0, a.size());
 	if (s.is_fully_const()) {
 		int idx_const = s.as_const().as_int();
 		return {zeropad.repeat((1 << s.size()) - 1 - idx_const),
@@ -34,31 +38,31 @@ RTLIL::SigSpec RTLILBuilder::Demux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
 	return canvas->Demux(NEW_ID, a, s);
 }
 
-RTLIL::SigSpec RTLILBuilder::Le(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+SigSpec RTLILBuilder::Le(SigSpec a, SigSpec b, bool is_signed) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_le(a.as_const(), b.as_const(), is_signed, is_signed, 1);
 	return canvas->Le(NEW_ID, a, b, is_signed);
 }
 
-RTLIL::SigSpec RTLILBuilder::Ge(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+SigSpec RTLILBuilder::Ge(SigSpec a, SigSpec b, bool is_signed) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_ge(a.as_const(), b.as_const(), is_signed, is_signed, 1);
 	return canvas->Ge(NEW_ID, a, b, is_signed);
 }
 
-RTLIL::SigSpec RTLILBuilder::Lt(RTLIL::SigSpec a, RTLIL::SigSpec b, bool is_signed) {
+SigSpec RTLILBuilder::Lt(SigSpec a, SigSpec b, bool is_signed) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_lt(a.as_const(), b.as_const(), is_signed, is_signed, 1);
 	return canvas->Lt(NEW_ID, a, b, is_signed);
 }
 
-RTLIL::SigSpec RTLILBuilder::Eq(RTLIL::SigSpec a, RTLIL::SigSpec b) {
+SigSpec RTLILBuilder::Eq(SigSpec a, SigSpec b) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_eq(a.as_const(), b.as_const(), false, false, 1);
 	return canvas->Eq(NEW_ID, a, b);
 }
 
-RTLIL::SigSpec RTLILBuilder::EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b) {
+SigSpec RTLILBuilder::EqWildcard(SigSpec a, SigSpec b) {
 	log_assert(a.size() == b.size());
 	log_assert(b.is_fully_const());
 
@@ -74,7 +78,7 @@ RTLIL::SigSpec RTLILBuilder::EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b) {
 	return canvas->Eq(NEW_ID, a, b);
 }
 
-RTLIL::SigSpec RTLILBuilder::LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
+SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b) {
 	if (a.is_fully_zero() || b.is_fully_zero())
 		return RTLIL::Const(0, 1);
 	if (a.is_fully_def() && b.size() == 1)
@@ -84,11 +88,11 @@ RTLIL::SigSpec RTLILBuilder::LogicAnd(RTLIL::SigSpec a, RTLIL::SigSpec b) {
 	return canvas->LogicAnd(NEW_ID, a, b);
 }
 
-RTLIL::SigSpec RTLILBuilder::LogicNot(RTLIL::SigSpec a) {
+SigSpec RTLILBuilder::LogicNot(SigSpec a) {
 	return canvas->LogicNot(NEW_ID, a);
 }
 
-RTLIL::SigSpec RTLILBuilder::Mux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
+SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s) {
 	log_assert(a.size() == b.size());
 	log_assert(s.size() == 1);
 	if (s[0] == RTLIL::S0)
@@ -98,11 +102,11 @@ RTLIL::SigSpec RTLILBuilder::Mux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigS
 	return canvas->Mux(NEW_ID, a, b, s);
 }
 
-RTLIL::SigSpec RTLILBuilder::Bwmux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::SigSpec s) {
+SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s) {
 	log_assert(a.size() == b.size());
 	log_assert(a.size() == s.size());
 	if (s.is_fully_const()) {
-		RTLIL::SigSpec result(RTLIL::Sx, a.size());
+		SigSpec result(RTLIL::Sx, a.size());
 		for (int i = 0; i < a.size(); i++) {
 			if (s[i] == RTLIL::S0)
 				result[i] = a[i];
@@ -114,11 +118,11 @@ RTLIL::SigSpec RTLILBuilder::Bwmux(RTLIL::SigSpec a, RTLIL::SigSpec b, RTLIL::Si
 	return canvas->Bwmux(NEW_ID, a, b, s);
 }
 
-RTLIL::SigSpec RTLILBuilder::Shift(RTLIL::SigSpec a, bool a_signed, RTLIL::SigSpec s,
-								   bool s_signed, int result_width)
+SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec s,
+							bool s_signed, int result_width)
 {
-	RTLIL::SigSpec y = canvas->addWire(NEW_ID, result_width);
-	RTLIL::Cell *cell = canvas->addCell(NEW_ID, ID($shift));
+	SigSpec y = canvas->addWire(NEW_ID, result_width);
+	Cell *cell = canvas->addCell(NEW_ID, ID($shift));
 	cell->parameters[Yosys::ID::A_SIGNED] = a_signed;
 	cell->parameters[Yosys::ID::B_SIGNED] = s_signed;
 	cell->parameters[Yosys::ID::A_WIDTH] = a.size();
@@ -130,22 +134,22 @@ RTLIL::SigSpec RTLILBuilder::Shift(RTLIL::SigSpec a, bool a_signed, RTLIL::SigSp
 	return y;
 }
 
-RTLIL::SigSpec RTLILBuilder::Shiftx(RTLIL::SigSpec a, RTLIL::SigSpec s,
-								 	bool s_signed, int result_width)
+SigSpec RTLILBuilder::Shiftx(SigSpec a, SigSpec s,
+							 bool s_signed, int result_width)
 {
-	RTLIL::SigSpec y = canvas->addWire(NEW_ID, result_width);
+	SigSpec y = canvas->addWire(NEW_ID, result_width);
 	canvas->addShiftx(NEW_ID, a, s, y, s_signed);
 	return y;
 }
 
-RTLIL::SigSpec RTLILBuilder::Neg(RTLIL::SigSpec a, bool signed_)
+SigSpec RTLILBuilder::Neg(SigSpec a, bool signed_)
 {
-	RTLIL::SigSpec y = canvas->addWire(NEW_ID, a.size() + 1);
+	SigSpec y = canvas->addWire(NEW_ID, a.size() + 1);
 	canvas->addNeg(NEW_ID, a, y, signed_);
 	return y;
 }
 
-RTLIL::SigSpec RTLILBuilder::Bmux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
+SigSpec RTLILBuilder::Bmux(SigSpec a, SigSpec s) {
 	log_assert(a.size() % (1 << s.size()) == 0);
 	log_assert(a.size() >= 1 << s.size());
 	int stride = a.size() >> s.size();
@@ -155,7 +159,7 @@ RTLIL::SigSpec RTLILBuilder::Bmux(RTLIL::SigSpec a, RTLIL::SigSpec s) {
 	return canvas->Bmux(NEW_ID, a, s);
 }
 
-RTLIL::SigSpec RTLILBuilder::Not(RTLIL::SigSpec a)
+SigSpec RTLILBuilder::Not(SigSpec a)
 {
 	return canvas->Not(NEW_ID, a);
 }
