@@ -164,4 +164,49 @@ SigSpec RTLILBuilder::Not(SigSpec a)
 	return canvas->Not(NEW_ID, a);
 }
 
+SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
+						   bool a_signed, bool b_signed, int y_width)
+{
+	if (a.is_fully_const() && b.is_fully_const()) {
+#define OP(type) if (op == ID($##type)) return RTLIL::const_##type(a.as_const(), b.as_const(), a_signed, b_signed, y_width);
+		OP(add)
+		OP(sub)
+		OP(mul)
+		OP(divfloor)
+		OP(mod)
+		OP(and)
+		OP(or)
+		OP(xor)
+		OP(xnor)
+		OP(eq)
+		OP(ne)
+		OP(nex)
+		OP(eqx)
+		OP(ge)
+		OP(gt)
+		OP(le)
+		OP(lt)
+		OP(logic_and)
+		OP(logic_or)
+		OP(sshl)
+		OP(sshr)
+		OP(shl)
+		OP(shr)
+		OP(pow)
+#undef OP
+	}
+
+	Cell *cell = canvas->addCell(NEW_ID, op);
+	cell->setPort(RTLIL::ID::A, a);
+	cell->setPort(RTLIL::ID::B, b);
+	cell->setParam(RTLIL::ID::A_WIDTH, a.size());
+	cell->setParam(RTLIL::ID::B_WIDTH, b.size());
+	cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
+	cell->setParam(RTLIL::ID::B_SIGNED, b_signed);
+	cell->setParam(RTLIL::ID::Y_WIDTH, y_width);
+	SigSpec ret = canvas->addWire(NEW_ID, y_width);
+	cell->setPort(RTLIL::ID::Y, ret);
+	return ret;
+}
+
 };

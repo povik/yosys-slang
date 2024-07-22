@@ -64,6 +64,9 @@ struct RTLILBuilder {
 	SigSpec Neg(SigSpec a, bool signed_);
 	SigSpec Not(SigSpec a);
 
+	SigSpec Biop(RTLIL::IdString op, SigSpec a, SigSpec b,
+				 bool a_signed, bool b_signed, int y_width);
+
 	void GroupConnect(SigSpec lhs, SigSpec rhs)
 	{
 		int done = 0;
