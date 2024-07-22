@@ -5,6 +5,8 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #include "slang/ast/Compilation.h"
+#include "slang/ast/EvalContext.h"
+#include "slang/ast/symbols/InstanceSymbols.h"
 #include "kernel/rtlil.h"
 
 inline namespace slang_frontend {

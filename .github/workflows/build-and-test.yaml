@@ -79,7 +79,7 @@ jobs:
       - name: Build yosys-slang
         run: |
           yosys-config --build build/slang.so \
-            slang_frontend.cc initial_eval.cc \
+            slang_frontend.cc initial_eval.cc builder.cc \
             -Ibuild/slang_install/include -std=c++20 \
             -DSLANG_BOOST_SINGLE_HEADER -Lbuild/slang_install/lib \
             -lsvlang -lfmt
