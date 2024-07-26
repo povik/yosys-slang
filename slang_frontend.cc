@@ -135,40 +135,6 @@ const RTLIL::IdString id(const std::string_view &view)
 	return RTLIL::escape_id(std::string(view));
 }
 
-static void build_hierpath(std::ostringstream &s, const ast::Scope *scope)
-{
-	if (!scope ||
-		// stop at the containing instance
-		scope->asSymbol().kind == ast::SymbolKind::InstanceBody)
-		return;
-
-	if (auto parent = scope->asSymbol().getHierarchicalParent())
-		build_hierpath(s, parent);
-
-	auto symbol = &scope->asSymbol();
-
-	if (symbol->kind == ast::SymbolKind::GenerateBlockArray) {
-		auto &array = symbol->as<ast::GenerateBlockArraySymbol>();
-		s << array.getExternalName();
-	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
-		auto &block = symbol->as<ast::GenerateBlockSymbol>();
-		if (auto index = block.arrayIndex) {
-			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]."; 
-		} else {
-			s << block.getExternalName() << ".";
-		}
-	} else if (symbol->kind == ast::SymbolKind::Instance ||
-			   symbol->kind == ast::SymbolKind::CheckerInstance) {
-		auto &inst = symbol->as<ast::InstanceSymbolBase>();
-		if (!inst.arrayPath.empty()) {
-            for (size_t i = 0; i < inst.arrayPath.size(); i++)
-            	s << "[" << inst.arrayPath[i] << "]";
-		}
-	} else if (!symbol->name.empty()) {
-		s << symbol->name << ".";
-	}
-}
-
 static const RTLIL::IdString module_type_id(const ast::InstanceSymbol &sym)
 {
 	require(sym, sym.isModule());
