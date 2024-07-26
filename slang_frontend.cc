@@ -1061,7 +1061,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
-	if (expr.type->isVoid())
+	if (expr.type->isVoid() || expr.kind == ast::ExpressionKind::Invalid)
 		return {};
 
 	require(expr, expr.type->isFixedSize());
@@ -1891,6 +1891,9 @@ public:
 
 	void handle(const ast::ContinuousAssignSymbol &sym)
 	{
+		if (sym.getAssignment().kind == ast::ExpressionKind::Invalid)
+			return;
+
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
 		RTLIL::SigSpec lhs = netlist.eval.lhs(expr.left());
 		assert_nonstatic_free(lhs);
