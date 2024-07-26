@@ -32,12 +32,15 @@ struct SynthesisSettings {
 	std::optional<bool> dump_ast;
 	std::optional<bool> no_proc;
 	std::optional<bool> translate_on_off_compat;
+	std::optional<bool> compat_mode;
 
 	void addOptions(slang::CommandLine &cmdLine) {
 		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
 		cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
 		cmdLine.add("--translate-on-off-compat", translate_on_off_compat,
 					"Interpret translate_on/translate_off comment pragmas for compatiblity with other tools");
+		cmdLine.add("--compat-mode", compat_mode,
+					"Be relaxed about the synthesis semantics of some language constructs");
 	}
 };
 
@@ -2194,6 +2197,11 @@ struct SlangFrontend : Frontend {
 		}
 		if (!driver.processOptions())
 			log_cmd_error("Bad command\n");
+
+		if (settings.compat_mode.value_or(false)) {
+			driver.diagEngine.setSeverity(diag::SignalSensitivityAmbiguous,
+										  slang::DiagnosticSeverity::Warning);
+		}
 
 		try {
 			if (!driver.parseAllSources())
