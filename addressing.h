@@ -26,6 +26,8 @@ struct Addressing {
 	Signal raw_signal;
 	int base_offset;
 
+	int stride = 1;
+
 	void interpret_index(Signal signal, int width_down=1, int width_up=1)
 	{
 		if (range.isLittleEndian()) {
@@ -47,6 +49,8 @@ struct Addressing {
 		require(sel, sel.value().type->hasFixedRange());
 		range = sel.value().type->getFixedRange();
 		interpret_index(eval.eval_signed(sel.selector()));
+
+		stride = sel.type->getBitstreamWidth();
 	}
 
 	Addressing(SignalEvalContext &eval, const ast::RangeSelectExpression &sel)
@@ -86,6 +90,11 @@ struct Addressing {
 			}
 			break;
 		}
+
+		if (sel.type->isArray())
+			stride = sel.value().type->getArrayElementType()->getBitstreamWidth();
+		else
+			stride = 1;
 	}
 
 	Signal shift_up(Signal val, bool oor_undef, int output_len)
@@ -247,8 +256,8 @@ struct Addressing {
 	{
 		require(expr, raw_signal.is_fully_def());
 		int offset = raw_signal.as_const().as_int() + base_offset;
-		require(expr, offset >= 0 && offset + width <= val.size());
-		return val.extract(offset, width);
+		require(expr, offset >= 0 && offset * stride + width <= val.size());
+		return val.extract(offset * stride, width);
 	}
 
 	Signal embed(Signal val, int output_len, int stride, RTLIL::State padding)
