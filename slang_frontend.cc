@@ -425,6 +425,32 @@ struct UpdateTiming {
 	}
 };
 
+RTLIL::SigBit inside_comparison(SignalEvalContext &eval, RTLIL::SigSpec left,
+								const ast::Expression &expr)
+{
+	require(expr, !expr.type->isUnpackedArray());
+
+	if (expr.kind == ast::ExpressionKind::ValueRange) {
+		const auto& vexpr = expr.as<ast::ValueRangeExpression>();
+		require(expr, vexpr.rangeKind == ast::ValueRangeKind::Simple);
+		require(expr, vexpr.left().type == vexpr.right().type);
+		return eval.netlist.LogicAnd(
+			eval.netlist.Ge(left, eval(vexpr.left()), vexpr.left().type->isSigned()),
+			eval.netlist.Le(left, eval(vexpr.right()), vexpr.right().type->isSigned())
+		);
+	} else {
+		RTLIL::SigSpec expr_signal = eval(expr);
+		require(expr, expr_signal.size() == left.size());
+
+		if (expr.type->isIntegral()) {
+			require(expr, expr_signal.is_fully_const());
+			return eval.netlist.EqWildcard(left, expr_signal);
+		} else {
+			return eval.netlist.Eq(left, expr_signal);
+		}
+	}
+}
+
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
 	const ast::Scope *diag_scope;
@@ -797,11 +823,15 @@ public:
 	void handle(const ast::CaseStatement &stmt)
 	{
 		require(stmt, stmt.condition == ast::CaseStatementCondition::Normal ||
-					  stmt.condition == ast::CaseStatementCondition::WildcardJustZ);
+					  stmt.condition == ast::CaseStatementCondition::WildcardJustZ ||
+					  stmt.condition == ast::CaseStatementCondition::Inside);
 		bool match_z = stmt.condition == ast::CaseStatementCondition::WildcardJustZ;
 		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec dispatch = eval(stmt.expr);
-		SwitchBuilder b(current_case, &eval.rvalue_subs, dispatch);
+
+		SwitchBuilder b(current_case, &eval.rvalue_subs,
+						stmt.condition == ast::CaseStatementCondition::Inside ?
+						RTLIL::SigSpec(RTLIL::S1) : dispatch);
 
 		switch (stmt.check) {
 		case ast::UniquePriorityCheck::Priority: 
@@ -823,6 +853,13 @@ public:
 			std::vector<RTLIL::SigSpec> compares;
 			for (auto expr : item.expressions) {
 				log_assert(expr);
+
+				if (stmt.condition == ast::CaseStatementCondition::Inside) {
+					require(stmt, stmt.expr.type->isIntegral());
+					compares.push_back(inside_comparison(eval, dispatch, *expr));
+					continue;
+				}
+
 				RTLIL::SigSpec compare = eval(*expr);
 				log_assert(compare.size() == dispatch.size());
 				require(stmt, !match_z || compare.is_fully_const());
@@ -1094,16 +1131,10 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			auto &inside_expr = expr.as<ast::InsideExpression>();
 			RTLIL::SigSpec left = (*this)(inside_expr.left());
 			RTLIL::SigSpec hits;
+			require(inside_expr, inside_expr.left().type->isIntegral());
 
-			for (auto elem : inside_expr.rangeList()) {
-				require(*elem, elem->kind != ast::ExpressionKind::ValueRange);
-				require(*elem, !elem->type->isUnpackedArray());
-				RTLIL::SigSpec elem_signal = (*this)(*elem);
-				require(*elem, elem_signal.size() == left.size());
-				require(*elem, elem_signal.is_fully_const());
-				require(*elem, elem->type->isIntegral() && inside_expr.left().type->isIntegral());
-				hits.append(netlist.EqWildcard(left, elem_signal));
-			}
+			for (auto elem : inside_expr.rangeList())
+				hits.append(inside_comparison(*this, left, *elem));
 
 			ret = netlist.ReduceBool(hits);
 			ret.extend_u0(expr.type->getBitstreamWidth());
