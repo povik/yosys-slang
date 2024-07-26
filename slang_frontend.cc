@@ -247,11 +247,9 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 
 static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call);
 
-void assert_nonstatic_free(RTLIL::SigSpec signal)
-{
-	for (auto bit : signal)
+#define assert_nonstatic_free(signal) \
+	for (auto bit : (signal)) \
 		log_assert(!(bit.wire && bit.wire->get_bool_attribute(ID($nonstatic))));
-}
 
 struct SwitchBuilder {
 	RTLIL::CaseRule *parent;
