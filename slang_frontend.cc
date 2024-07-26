@@ -239,8 +239,7 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 	}
 }
 
-
-static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Expression &expr)
+RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 {
 	require(expr, expr.type->isFixedSize());
 	RTLIL::SigSpec ret;
@@ -258,7 +257,7 @@ static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Exp
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
 			Addressing addr(netlist.eval, sel);
-			RTLIL::SigSpec inner = evaluate_lhs(netlist, sel.value());
+			RTLIL::SigSpec inner = lhs(sel.value());
 			ret = addr.extract(inner, sel.type->getBitstreamWidth());
 		}
 		break;
@@ -266,7 +265,7 @@ static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Exp
 		{
 			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
 			for (auto op : concat.operands())
-				ret = {ret, evaluate_lhs(netlist, *op)};
+				ret = {ret, lhs(*op)};
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
@@ -277,7 +276,7 @@ static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Exp
 			int idx = elemsel.selector().constant->integer().as<int>().value();
 			int stride = elemsel.type->getBitstreamWidth();
 			uint32_t raw_idx = elemsel.value().type->getFixedRange().translateIndex(idx);
-			ret = evaluate_lhs(netlist, elemsel.value()).extract(stride * raw_idx, stride);
+			ret = lhs(elemsel.value()).extract(stride * raw_idx, stride);
 		}
 		break;
 	case ast::ExpressionKind::MemberAccess:
@@ -286,8 +285,8 @@ static const RTLIL::SigSpec evaluate_lhs(NetlistContext &netlist, const ast::Exp
 			require(expr, acc.member.kind == ast::SymbolKind::Field);
 			const auto &member = acc.member.as<ast::FieldSymbol>();
 			require(acc, member.randMode == ast::RandMode::None);
-			return evaluate_lhs(netlist, acc.value()).extract(member.bitOffset,
-								expr.type->getBitstreamWidth());
+			return lhs(acc.value()).extract(member.bitOffset,
+											expr.type->getBitstreamWidth());
 		}
 		break;
 	default:
@@ -979,7 +978,7 @@ public:
 			log_assert(raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
 		}
 
-		RTLIL::SigSpec lvalue = evaluate_lhs(netlist, *raw_lexpr);
+		RTLIL::SigSpec lvalue = eval.lhs(*raw_lexpr);
 		crop_zero_mask(raw_mask, lvalue);
 		crop_zero_mask(raw_mask, raw_rvalue);
 		crop_zero_mask(raw_mask, raw_mask);
@@ -1759,7 +1758,7 @@ public:
 		RTLIL::SigSpec internal_signal;
 
 		if (auto expr = port.getInternalExpr()) 
-			internal_signal = evaluate_lhs(netlist, *expr);
+			internal_signal = netlist.eval.lhs(*expr);
 		else
 			internal_signal = netlist.wire(*port.internalSymbol);
 
@@ -1791,7 +1790,7 @@ public:
 					require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument ||
 								(assign.right().kind == ast::ExpressionKind::Conversion &&
 								 assign.right().as<ast::ConversionExpression>().operand().kind == ast::ExpressionKind::EmptyArgument));
-					signal = evaluate_lhs(netlist, assign.left());
+					signal = netlist.eval.lhs(assign.left());
 					assert_nonstatic_free(signal);
 				} else {
 					signal = netlist.eval(expr);
@@ -1823,7 +1822,7 @@ public:
 				if (expr.kind == ast::ExpressionKind::Assignment) {
 					auto &assign = expr.as<ast::AssignmentExpression>();
 					require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
-					signal = evaluate_lhs(netlist, assign.left());
+					signal = netlist.eval.lhs(assign.left());
 					assert_nonstatic_free(signal);
 				} else {
 					signal = netlist.eval(expr);
@@ -1839,7 +1838,7 @@ public:
 	void handle(const ast::ContinuousAssignSymbol &sym)
 	{
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
-		RTLIL::SigSpec lhs = evaluate_lhs(netlist, expr.left());
+		RTLIL::SigSpec lhs = netlist.eval.lhs(expr.left());
 		assert_nonstatic_free(lhs);
 		netlist.canvas->connect(lhs, netlist.eval(expr.right()));		
 	}
