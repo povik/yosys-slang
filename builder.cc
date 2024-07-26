@@ -89,6 +89,8 @@ SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b) {
 }
 
 SigSpec RTLILBuilder::LogicNot(SigSpec a) {
+	if (a.is_fully_const())
+		return RTLIL::const_logic_not(a.as_const(), RTLIL::Const(), false, false, -1);
 	return canvas->LogicNot(NEW_ID, a);
 }
 
@@ -118,18 +120,34 @@ SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s) {
 	return canvas->Bwmux(NEW_ID, a, b, s);
 }
 
-SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec s,
-							bool s_signed, int result_width)
+SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b,
+							bool b_signed, int result_width)
 {
+	if (b.is_fully_const() && b.size() < 24) {
+		log_assert(!a.empty());
+		int shift_amount = b.as_int(b_signed);
+		RTLIL::SigSpec ret;
+		int i, j;
+		for (i = shift_amount, j = 0; j < result_width; i++, j++) {
+			if (a_signed && i >= a.size())
+				ret.append(a.msb());
+			else if (i >= a.size() || i < 0)
+				ret.append(RTLIL::S0);
+			else
+				ret.append(a[i]);
+		}
+		return ret;
+	}
+
 	SigSpec y = canvas->addWire(NEW_ID, result_width);
 	Cell *cell = canvas->addCell(NEW_ID, ID($shift));
 	cell->parameters[Yosys::ID::A_SIGNED] = a_signed;
-	cell->parameters[Yosys::ID::B_SIGNED] = s_signed;
+	cell->parameters[Yosys::ID::B_SIGNED] = b_signed;
 	cell->parameters[Yosys::ID::A_WIDTH] = a.size();
-	cell->parameters[Yosys::ID::B_WIDTH] = s.size();
+	cell->parameters[Yosys::ID::B_WIDTH] = b.size();
 	cell->parameters[Yosys::ID::Y_WIDTH] = y.size();
 	cell->setPort(Yosys::ID::A, a);
-	cell->setPort(Yosys::ID::B, s);
+	cell->setPort(Yosys::ID::B, b);
 	cell->setPort(Yosys::ID::Y, y);
 	return y;
 }
@@ -144,6 +162,9 @@ SigSpec RTLILBuilder::Shiftx(SigSpec a, SigSpec s,
 
 SigSpec RTLILBuilder::Neg(SigSpec a, bool signed_)
 {
+	if (a.is_fully_const())
+		return RTLIL::const_neg(a.as_const(), RTLIL::Const(),
+								signed_, false, a.size() + 1);
 	SigSpec y = canvas->addWire(NEW_ID, a.size() + 1);
 	canvas->addNeg(NEW_ID, a, y, signed_);
 	return y;
@@ -161,6 +182,8 @@ SigSpec RTLILBuilder::Bmux(SigSpec a, SigSpec s) {
 
 SigSpec RTLILBuilder::Not(SigSpec a)
 {
+	if (a.is_fully_const())
+		return RTLIL::const_not(a.as_const(), RTLIL::Const(), false, false, -1);
 	return canvas->Not(NEW_ID, a);
 }
 
