@@ -559,6 +559,7 @@ public:
 				{
 					auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
 					Addressing addr(eval, sel);
+					log_assert(addr.stride == (int) (sel.value().type->getBitstreamWidth() / addr.range.width()));
 					int stride = sel.value().type->getBitstreamWidth() / addr.range.width();
 					int wider_size = sel.value().type->getBitstreamWidth();
 					if (stride == 1) {
@@ -1238,7 +1239,10 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
 			Addressing addr(*this, sel);
-			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
+			if (addr.stride == 1)		
+				ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
+			else
+				ret = addr.extract((*this)(sel.value()), sel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:

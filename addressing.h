@@ -91,7 +91,7 @@ struct Addressing {
 			break;
 		}
 
-		if (sel.type->isArray())
+		if (sel.value().type->isArray())
 			stride = sel.value().type->getArrayElementType()->getBitstreamWidth();
 		else
 			stride = 1;
@@ -99,6 +99,7 @@ struct Addressing {
 
 	Signal shift_up(Signal val, bool oor_undef, int output_len)
 	{
+		log_assert(stride == 1);
 		int shifted_len = output_len;
 		Signal val2 = val, shifted;
 
@@ -122,7 +123,7 @@ struct Addressing {
 
 	Signal raw_demux(Signal val, int from, int to)
 	{
-		int stride = val.size();
+		log_assert(val.size() == stride);
 		Signal negative, positive;
 
 		if (from < 0) {
@@ -176,7 +177,7 @@ struct Addressing {
 
 	Signal demux(Signal val, int output_len)
 	{
-		int stride = val.size();
+		log_assert(val.size() == stride);
 		log_assert(output_len % stride == 0);
 		Signal demuxed = raw_demux(val,
 										-std::max(0, base_offset),
@@ -224,7 +225,7 @@ struct Addressing {
 
 	Signal mux(Signal val, int output_len)
 	{
-		int stride = output_len;
+		log_assert(output_len == stride);
 		log_assert(val.size() % stride == 0);
 		return raw_mux(
 			{Signal(Sx, std::max(0, base_offset * stride - val.size())),
@@ -236,6 +237,7 @@ struct Addressing {
 
 	Signal shift_down(Signal val, int output_len)
 	{
+		log_assert(stride == 1);
 		int shifted_len = output_len;
 		Signal val2 = val, shifted;
 
