@@ -973,12 +973,9 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	case ast::ExpressionKind::ElementSelect:
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
-			require(expr, elemsel.selector().constant);
 			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
-			int idx = elemsel.selector().constant->integer().as<int>().value();
-			int stride = elemsel.type->getBitstreamWidth();
-			uint32_t raw_idx = elemsel.value().type->getFixedRange().translateIndex(idx);
-			ret = lhs(elemsel.value()).extract(stride * raw_idx, stride);
+			Addressing addr(*this, elemsel);
+			ret = addr.extract(lhs(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::MemberAccess:
