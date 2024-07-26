@@ -239,380 +239,12 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 	}
 }
 
-RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
-{
-	require(expr, expr.type->isFixedSize());
-	RTLIL::SigSpec ret;
-
-	switch (expr.kind) {
-	case ast::ExpressionKind::NamedValue:
-		{
-			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
-			RTLIL::Wire *wire = netlist.wire(sym);
-			log_assert(wire);
-			ret = wire;
-		}
-		break;
-	case ast::ExpressionKind::RangeSelect:
-		{
-			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(netlist.eval, sel);
-			RTLIL::SigSpec inner = lhs(sel.value());
-			ret = addr.extract(inner, sel.type->getBitstreamWidth());
-		}
-		break;
-	case ast::ExpressionKind::Concatenation:
-		{
-			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
-			for (auto op : concat.operands())
-				ret = {ret, lhs(*op)};
-		}
-		break;
-	case ast::ExpressionKind::ElementSelect:
-		{
-			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
-			require(expr, elemsel.selector().constant);
-			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
-			int idx = elemsel.selector().constant->integer().as<int>().value();
-			int stride = elemsel.type->getBitstreamWidth();
-			uint32_t raw_idx = elemsel.value().type->getFixedRange().translateIndex(idx);
-			ret = lhs(elemsel.value()).extract(stride * raw_idx, stride);
-		}
-		break;
-	case ast::ExpressionKind::MemberAccess:
-		{
-			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			require(expr, acc.member.kind == ast::SymbolKind::Field);
-			const auto &member = acc.member.as<ast::FieldSymbol>();
-			require(acc, member.randMode == ast::RandMode::None);
-			return lhs(acc.value()).extract(member.bitOffset,
-											expr.type->getBitstreamWidth());
-		}
-		break;
-	default:
-		unimplemented(expr);
-		break;
-	}
-
-	log_assert(expr.type->isFixedSize());
-	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
-	return ret;
-}
-
 static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call);
 
 void assert_nonstatic_free(RTLIL::SigSpec signal)
 {
 	for (auto bit : signal)
 		log_assert(!(bit.wire && bit.wire->get_bool_attribute(ID($nonstatic))));
-}
-
-RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
-{
-	if (expr.type->isVoid())
-		return {};
-
-	require(expr, expr.type->isFixedSize());
-	RTLIL::Module *mod = netlist.canvas;
-	RTLIL::SigSpec ret;
-	size_t repl_count;
-
-	{
-		auto const_result = expr.eval(this->const_);
-		if (const_result) {
-			ret = convert_const(const_result);
-			goto done;
-		}
-	}
-
-	switch (expr.kind) {
-	case ast::ExpressionKind::Inside:
-		{
-			auto &inside_expr = expr.as<ast::InsideExpression>();
-			RTLIL::SigSpec left = (*this)(inside_expr.left());
-			RTLIL::SigSpec hits;
-
-			for (auto elem : inside_expr.rangeList()) {
-				require(*elem, elem->kind != ast::ExpressionKind::ValueRange);
-				require(*elem, !elem->type->isUnpackedArray());
-				RTLIL::SigSpec elem_signal = (*this)(*elem);
-				require(*elem, elem_signal.size() == left.size());
-				require(*elem, elem_signal.is_fully_const());
-				require(*elem, elem->type->isIntegral() && inside_expr.left().type->isIntegral());
-				hits.append(netlist.EqWildcard(left, elem_signal));
-			}
-
-			ret = netlist.ReduceBool(hits);
-			ret.extend_u0(expr.type->getBitstreamWidth());
-			break;
-		}
-	case ast::ExpressionKind::NamedValue:
-		{
-			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
-
-			switch (sym.kind) {
-			case ast::SymbolKind::Net:
-			case ast::SymbolKind::Variable:
-			case ast::SymbolKind::FormalArgument:
-				{
-					RTLIL::Wire *wire = netlist.wire(sym);
-					log_assert(wire);
-					ret = wire;
-					ret.replace(rvalue_subs);
-					assert_nonstatic_free(ret);
-				}
-				break;
-			case ast::SymbolKind::Parameter:
-				{
-					auto &valsym = sym.as<ast::ValueSymbol>();
-					require(valsym, valsym.getInitializer());
-					auto exprconst = valsym.getInitializer()->constant;
-					require(valsym, exprconst && exprconst->isInteger());
-					ret = convert_svint(exprconst->integer());
-				}
-				break;
-			default:
-				unimplemented(sym);
-			}
-		}
-		break;
-	case ast::ExpressionKind::UnaryOp:
-		{
-			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
-			RTLIL::SigSpec left = (*this)(unop.operand());
-			bool invert = false;
-
-			RTLIL::IdString type;
-			switch (unop.op) {
-			case ast::UnaryOperator::Minus: type = ID($neg); break;
-			case ast::UnaryOperator::LogicalNot: type = ID($logic_not); break;
-			case ast::UnaryOperator::BitwiseNot: type = ID($not); break;
-			case ast::UnaryOperator::BitwiseOr: type = ID($reduce_or); break;
-			case ast::UnaryOperator::BitwiseAnd: type = ID($reduce_and); break;
-			case ast::UnaryOperator::BitwiseNand: type = ID($reduce_and); invert = true; break;
-			case ast::UnaryOperator::BitwiseNor: type = ID($reduce_or); invert = true; break;
-			case ast::UnaryOperator::BitwiseXor: type = ID($reduce_xor); break;
-			default:
-				unimplemented(unop);
-			}
-
-			RTLIL::Cell *cell = mod->addCell(NEW_ID, type);
-			cell->setPort(RTLIL::ID::A, left);
-			cell->setParam(RTLIL::ID::A_WIDTH, left.size());
-			cell->setParam(RTLIL::ID::A_SIGNED, unop.operand().type->isSigned());
-			cell->setParam(RTLIL::ID::Y_WIDTH, expr.type->getBitstreamWidth());
-			ret = mod->addWire(NEW_ID, expr.type->getBitstreamWidth());
-			cell->setPort(RTLIL::ID::Y, ret);
-			transfer_attrs(unop, cell);
-
-			if (invert) {
-				RTLIL::SigSpec new_ret = mod->addWire(NEW_ID, 1);
-				transfer_attrs(unop, mod->addLogicNot(NEW_ID, ret, new_ret));
-			}
-		}
-		break;
-	case ast::ExpressionKind::BinaryOp:
-		{
-			const ast::BinaryExpression &biop = expr.as<ast::BinaryExpression>();
-			RTLIL::SigSpec left = (*this)(biop.left());
-			RTLIL::SigSpec right = (*this)(biop.right());
-
-			bool a_signed = biop.left().type->isSigned();
-			bool b_signed = biop.right().type->isSigned();
-
-			RTLIL::IdString type;
-			switch (biop.op) {
-			case ast::BinaryOperator::Add:      type = ID($add); break;
-			case ast::BinaryOperator::Subtract: type = ID($sub); break;
-			case ast::BinaryOperator::Multiply:	type = ID($mul); break;
-			case ast::BinaryOperator::Divide:	type = ID($divfloor); break; // TODO: check
-			case ast::BinaryOperator::Mod:		type = ID($mod); break; // TODO: check
-			case ast::BinaryOperator::BinaryAnd: type = ID($and); break;
-			case ast::BinaryOperator::BinaryOr:	type = ID($or); break;
-			case ast::BinaryOperator::BinaryXor:	type = ID($xor); break;
-			case ast::BinaryOperator::BinaryXnor:	type = ID($xnor); break;
-			case ast::BinaryOperator::Equality:		type = ID($eq); break;
-			case ast::BinaryOperator::Inequality:	type = ID($ne); break;
-			case ast::BinaryOperator::CaseInequality: type = ID($nex); break;
-			case ast::BinaryOperator::CaseEquality: type = ID($eqx); break;
-			case ast::BinaryOperator::GreaterThanEqual:	type = ID($ge); break;
-			case ast::BinaryOperator::GreaterThan:		type = ID($gt); break;
-			case ast::BinaryOperator::LessThanEqual:	type = ID($le); break;
-			case ast::BinaryOperator::LessThan:			type = ID($lt); break;
-			//case ast::BinaryOperator::WildcardEquality;
-			//case ast::BinaryOperator::WildcardInequality;
-			case ast::BinaryOperator::LogicalAnd:	type = ID($logic_and); break;
-			case ast::BinaryOperator::LogicalOr:	type = ID($logic_or); break;
-			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = mod->LogicNot(NEW_ID, left); a_signed = false; break;
-			case ast::BinaryOperator::LogicalEquivalence: type = ID($eq); left = mod->ReduceBool(NEW_ID, left); right = mod->ReduceBool(NEW_ID, right); a_signed = b_signed = false; break;
-			case ast::BinaryOperator::LogicalShiftLeft:	type = ID($sshl); break;
-			case ast::BinaryOperator::LogicalShiftRight:	type = ID($sshr); break;
-			case ast::BinaryOperator::ArithmeticShiftLeft:	type = ID($shl); break; // TODO: check shl vs sshl
-			case ast::BinaryOperator::ArithmeticShiftRight:	type = ID($shr); break;
-			case ast::BinaryOperator::Power:	type = ID($pow); break;
-			default:
-				unimplemented(biop);
-			}
-
-			RTLIL::Cell *cell = mod->addCell(NEW_ID, type);
-			cell->setPort(RTLIL::ID::A, left);
-			cell->setPort(RTLIL::ID::B, right);
-			cell->setParam(RTLIL::ID::A_WIDTH, left.size());
-			cell->setParam(RTLIL::ID::B_WIDTH, right.size());
-			cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
-			cell->setParam(RTLIL::ID::B_SIGNED, b_signed);
-			cell->setParam(RTLIL::ID::Y_WIDTH, expr.type->getBitWidth());
-			ret = mod->addWire(NEW_ID, expr.type->getBitstreamWidth());
-			cell->setPort(RTLIL::ID::Y, ret);
-			transfer_attrs(biop, cell);
-
-			// fixups
-			if (cell->type == ID($shr)) {
-				// TODO: is this kosher?
-				cell->setParam(RTLIL::ID::B_SIGNED, false);
-			}
-
-			if (cell->type.in(ID($sshr), ID($sshl))) {
-				// TODO: is this kosher?
-				cell->setParam(RTLIL::ID::A_SIGNED, false);
-				cell->setParam(RTLIL::ID::B_SIGNED, false);
-			}
-		}
-		break;
-	case ast::ExpressionKind::Conversion:
-		{
-			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
-			const ast::Type &from = conv.operand().type->getCanonicalType();
-			const ast::Type &to = conv.type->getCanonicalType();
-			require(expr, from.isIntegral() /* && from.isScalar() */);
-			require(expr, to.isIntegral() /* && to.isScalar() */);
-			ret = (*this)(conv.operand());
-			ret.extend_u0((int) to.getBitWidth(), to.isSigned());
-		}
-		break;
-	case ast::ExpressionKind::IntegerLiteral:
-		{
-			const ast::IntegerLiteral &lit = expr.as<ast::IntegerLiteral>();
-			ret = convert_svint(lit.getValue());
-		}
-		break;
-	case ast::ExpressionKind::RangeSelect:
-		{
-			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(*this, sel);
-			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
-		}
-		break;
-	case ast::ExpressionKind::ElementSelect:
-		{
-			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
-			Addressing addr(*this, elemsel);
-			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
-		}
-		break;
-	case ast::ExpressionKind::Concatenation:
-		{
-			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
-			for (auto op : concat.operands())
-				ret = {ret, (*this)(*op)};
-		}
-		break;
-	case ast::ExpressionKind::SimpleAssignmentPattern:
-	case ast::ExpressionKind::StructuredAssignmentPattern:
-		{
-			repl_count = 1;
-
-			if (0) {
-	case ast::ExpressionKind::ReplicatedAssignmentPattern:
-				repl_count = *expr.as<ast::ReplicatedAssignmentPatternExpression>()
-                            	.count().eval(const_).integer().as<size_t>();
-			}
-
-			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
-			require(expr, expr.type->isIntegral());
-
-			ret = {};
-			for (auto elem : pattern_expr.elements())
-				ret.append((*this)(*elem));
-			ret = ret.repeat(repl_count);				
-		}
-		break;
-	case ast::ExpressionKind::ConditionalOp:
-		{
-			const auto &ternary = expr.as<ast::ConditionalExpression>();
-
-			require(expr, ternary.conditions.size() == 1);
-			require(expr, !ternary.conditions[0].pattern);
-
-			ret = mod->Mux(NEW_ID,
-				(*this)(ternary.right()),
-				(*this)(ternary.left()),
-				mod->ReduceBool(NEW_ID, (*this)(*(ternary.conditions[0].expr)))
-			);
-		}
-		break;
-	case ast::ExpressionKind::Replication:
-		{
-			const auto &repl = expr.as<ast::ReplicationExpression>();
-			require(expr, repl.count().constant); // TODO: message
-			int reps = repl.count().constant->integer().as<int>().value(); // TODO: checking
-			RTLIL::SigSpec concat = (*this)(repl.concat());
-			for (int i = 0; i < reps; i++)
-				ret.append(concat);
-		}
-		break;
-	case ast::ExpressionKind::MemberAccess:
-		{
-			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			require(expr, acc.member.kind == ast::SymbolKind::Field);
-			const auto &member = acc.member.as<ast::FieldSymbol>();
-			require(acc, member.randMode == ast::RandMode::None);
-			return (*this)(acc.value()).extract(member.bitOffset,
-								expr.type->getBitstreamWidth());
-		}
-		break;
-	case ast::ExpressionKind::Call:
-		{
-			const auto &call = expr.as<ast::CallExpression>();
-			if (call.isSystemCall()) {
-				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
-				require(expr, call.arguments().size() == 1);
-				ret = (*this)(*call.arguments()[0]);
-			} else {
-				const auto &subr = *std::get<0>(call.subroutine);
-				require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
-				log_abort();
-				//return evaluate_function(*this, call);
-			}
-		}
-		break;
-	case ast::ExpressionKind::LValueReference:
-		ret = lvalue;
-		break;
-	default:
-		unimplemented(expr);
-	}
-
-done:
-	log_assert(expr.type->isFixedSize());
-	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
-	return ret;
-}
-
-RTLIL::SigSpec SignalEvalContext::eval_signed(ast::Expression const &expr)
-{
-	require(expr, expr.type);
-
-	if (expr.type->isNumeric() && !expr.type->isSigned())
-		return {RTLIL::S0, (*this)(expr)};
-	else
-		return (*this)(expr);
-}
-
-SignalEvalContext::SignalEvalContext(NetlistContext &netlist)
-	: netlist(netlist), const_(ast::ASTContext(netlist.compilation.getRoot(),
-											   ast::LookupLocation::max))
-{
 }
 
 struct SwitchBuilder {
@@ -1304,6 +936,375 @@ static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::Call
 	return ret;
 }
 #endif
+
+RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
+{
+	require(expr, expr.type->isFixedSize());
+	RTLIL::SigSpec ret;
+
+	switch (expr.kind) {
+	case ast::ExpressionKind::NamedValue:
+		{
+			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
+			RTLIL::Wire *wire = netlist.wire(sym);
+			log_assert(wire);
+			ret = wire;
+		}
+		break;
+	case ast::ExpressionKind::RangeSelect:
+		{
+			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
+			Addressing addr(netlist.eval, sel);
+			RTLIL::SigSpec inner = lhs(sel.value());
+			ret = addr.extract(inner, sel.type->getBitstreamWidth());
+		}
+		break;
+	case ast::ExpressionKind::Concatenation:
+		{
+			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
+			for (auto op : concat.operands())
+				ret = {ret, lhs(*op)};
+		}
+		break;
+	case ast::ExpressionKind::ElementSelect:
+		{
+			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
+			require(expr, elemsel.selector().constant);
+			require(expr, elemsel.value().type->isArray() && elemsel.value().type->hasFixedRange());
+			int idx = elemsel.selector().constant->integer().as<int>().value();
+			int stride = elemsel.type->getBitstreamWidth();
+			uint32_t raw_idx = elemsel.value().type->getFixedRange().translateIndex(idx);
+			ret = lhs(elemsel.value()).extract(stride * raw_idx, stride);
+		}
+		break;
+	case ast::ExpressionKind::MemberAccess:
+		{
+			const auto &acc = expr.as<ast::MemberAccessExpression>();
+			require(expr, acc.member.kind == ast::SymbolKind::Field);
+			const auto &member = acc.member.as<ast::FieldSymbol>();
+			require(acc, member.randMode == ast::RandMode::None);
+			return lhs(acc.value()).extract(member.bitOffset,
+											expr.type->getBitstreamWidth());
+		}
+		break;
+	default:
+		unimplemented(expr);
+		break;
+	}
+
+	log_assert(expr.type->isFixedSize());
+	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
+	return ret;
+}
+
+
+RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
+{
+	if (expr.type->isVoid())
+		return {};
+
+	require(expr, expr.type->isFixedSize());
+	RTLIL::Module *mod = netlist.canvas;
+	RTLIL::SigSpec ret;
+	size_t repl_count;
+
+	{
+		auto const_result = expr.eval(this->const_);
+		if (const_result) {
+			ret = convert_const(const_result);
+			goto done;
+		}
+	}
+
+	switch (expr.kind) {
+	case ast::ExpressionKind::Inside:
+		{
+			auto &inside_expr = expr.as<ast::InsideExpression>();
+			RTLIL::SigSpec left = (*this)(inside_expr.left());
+			RTLIL::SigSpec hits;
+
+			for (auto elem : inside_expr.rangeList()) {
+				require(*elem, elem->kind != ast::ExpressionKind::ValueRange);
+				require(*elem, !elem->type->isUnpackedArray());
+				RTLIL::SigSpec elem_signal = (*this)(*elem);
+				require(*elem, elem_signal.size() == left.size());
+				require(*elem, elem_signal.is_fully_const());
+				require(*elem, elem->type->isIntegral() && inside_expr.left().type->isIntegral());
+				hits.append(netlist.EqWildcard(left, elem_signal));
+			}
+
+			ret = netlist.ReduceBool(hits);
+			ret.extend_u0(expr.type->getBitstreamWidth());
+			break;
+		}
+	case ast::ExpressionKind::NamedValue:
+		{
+			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
+
+			switch (sym.kind) {
+			case ast::SymbolKind::Net:
+			case ast::SymbolKind::Variable:
+			case ast::SymbolKind::FormalArgument:
+				{
+					RTLIL::Wire *wire = netlist.wire(sym);
+					log_assert(wire);
+					ret = wire;
+					ret.replace(rvalue_subs);
+					assert_nonstatic_free(ret);
+				}
+				break;
+			case ast::SymbolKind::Parameter:
+				{
+					auto &valsym = sym.as<ast::ValueSymbol>();
+					require(valsym, valsym.getInitializer());
+					auto exprconst = valsym.getInitializer()->constant;
+					require(valsym, exprconst && exprconst->isInteger());
+					ret = convert_svint(exprconst->integer());
+				}
+				break;
+			default:
+				unimplemented(sym);
+			}
+		}
+		break;
+	case ast::ExpressionKind::UnaryOp:
+		{
+			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
+			RTLIL::SigSpec left = (*this)(unop.operand());
+			bool invert = false;
+
+			RTLIL::IdString type;
+			switch (unop.op) {
+			case ast::UnaryOperator::Minus: type = ID($neg); break;
+			case ast::UnaryOperator::LogicalNot: type = ID($logic_not); break;
+			case ast::UnaryOperator::BitwiseNot: type = ID($not); break;
+			case ast::UnaryOperator::BitwiseOr: type = ID($reduce_or); break;
+			case ast::UnaryOperator::BitwiseAnd: type = ID($reduce_and); break;
+			case ast::UnaryOperator::BitwiseNand: type = ID($reduce_and); invert = true; break;
+			case ast::UnaryOperator::BitwiseNor: type = ID($reduce_or); invert = true; break;
+			case ast::UnaryOperator::BitwiseXor: type = ID($reduce_xor); break;
+			default:
+				unimplemented(unop);
+			}
+
+			RTLIL::Cell *cell = mod->addCell(NEW_ID, type);
+			cell->setPort(RTLIL::ID::A, left);
+			cell->setParam(RTLIL::ID::A_WIDTH, left.size());
+			cell->setParam(RTLIL::ID::A_SIGNED, unop.operand().type->isSigned());
+			cell->setParam(RTLIL::ID::Y_WIDTH, expr.type->getBitstreamWidth());
+			ret = mod->addWire(NEW_ID, expr.type->getBitstreamWidth());
+			cell->setPort(RTLIL::ID::Y, ret);
+			transfer_attrs(unop, cell);
+
+			if (invert) {
+				RTLIL::SigSpec new_ret = mod->addWire(NEW_ID, 1);
+				transfer_attrs(unop, mod->addLogicNot(NEW_ID, ret, new_ret));
+			}
+		}
+		break;
+	case ast::ExpressionKind::BinaryOp:
+		{
+			const ast::BinaryExpression &biop = expr.as<ast::BinaryExpression>();
+			RTLIL::SigSpec left = (*this)(biop.left());
+			RTLIL::SigSpec right = (*this)(biop.right());
+
+			bool a_signed = biop.left().type->isSigned();
+			bool b_signed = biop.right().type->isSigned();
+
+			RTLIL::IdString type;
+			switch (biop.op) {
+			case ast::BinaryOperator::Add:      type = ID($add); break;
+			case ast::BinaryOperator::Subtract: type = ID($sub); break;
+			case ast::BinaryOperator::Multiply:	type = ID($mul); break;
+			case ast::BinaryOperator::Divide:	type = ID($divfloor); break; // TODO: check
+			case ast::BinaryOperator::Mod:		type = ID($mod); break; // TODO: check
+			case ast::BinaryOperator::BinaryAnd: type = ID($and); break;
+			case ast::BinaryOperator::BinaryOr:	type = ID($or); break;
+			case ast::BinaryOperator::BinaryXor:	type = ID($xor); break;
+			case ast::BinaryOperator::BinaryXnor:	type = ID($xnor); break;
+			case ast::BinaryOperator::Equality:		type = ID($eq); break;
+			case ast::BinaryOperator::Inequality:	type = ID($ne); break;
+			case ast::BinaryOperator::CaseInequality: type = ID($nex); break;
+			case ast::BinaryOperator::CaseEquality: type = ID($eqx); break;
+			case ast::BinaryOperator::GreaterThanEqual:	type = ID($ge); break;
+			case ast::BinaryOperator::GreaterThan:		type = ID($gt); break;
+			case ast::BinaryOperator::LessThanEqual:	type = ID($le); break;
+			case ast::BinaryOperator::LessThan:			type = ID($lt); break;
+			//case ast::BinaryOperator::WildcardEquality;
+			//case ast::BinaryOperator::WildcardInequality;
+			case ast::BinaryOperator::LogicalAnd:	type = ID($logic_and); break;
+			case ast::BinaryOperator::LogicalOr:	type = ID($logic_or); break;
+			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = mod->LogicNot(NEW_ID, left); a_signed = false; break;
+			case ast::BinaryOperator::LogicalEquivalence: type = ID($eq); left = mod->ReduceBool(NEW_ID, left); right = mod->ReduceBool(NEW_ID, right); a_signed = b_signed = false; break;
+			case ast::BinaryOperator::LogicalShiftLeft:	type = ID($sshl); break;
+			case ast::BinaryOperator::LogicalShiftRight:	type = ID($sshr); break;
+			case ast::BinaryOperator::ArithmeticShiftLeft:	type = ID($shl); break; // TODO: check shl vs sshl
+			case ast::BinaryOperator::ArithmeticShiftRight:	type = ID($shr); break;
+			case ast::BinaryOperator::Power:	type = ID($pow); break;
+			default:
+				unimplemented(biop);
+			}
+
+			RTLIL::Cell *cell = mod->addCell(NEW_ID, type);
+			cell->setPort(RTLIL::ID::A, left);
+			cell->setPort(RTLIL::ID::B, right);
+			cell->setParam(RTLIL::ID::A_WIDTH, left.size());
+			cell->setParam(RTLIL::ID::B_WIDTH, right.size());
+			cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
+			cell->setParam(RTLIL::ID::B_SIGNED, b_signed);
+			cell->setParam(RTLIL::ID::Y_WIDTH, expr.type->getBitWidth());
+			ret = mod->addWire(NEW_ID, expr.type->getBitstreamWidth());
+			cell->setPort(RTLIL::ID::Y, ret);
+			transfer_attrs(biop, cell);
+
+			// fixups
+			if (cell->type == ID($shr)) {
+				// TODO: is this kosher?
+				cell->setParam(RTLIL::ID::B_SIGNED, false);
+			}
+
+			if (cell->type.in(ID($sshr), ID($sshl))) {
+				// TODO: is this kosher?
+				cell->setParam(RTLIL::ID::A_SIGNED, false);
+				cell->setParam(RTLIL::ID::B_SIGNED, false);
+			}
+		}
+		break;
+	case ast::ExpressionKind::Conversion:
+		{
+			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
+			const ast::Type &from = conv.operand().type->getCanonicalType();
+			const ast::Type &to = conv.type->getCanonicalType();
+			require(expr, from.isIntegral() /* && from.isScalar() */);
+			require(expr, to.isIntegral() /* && to.isScalar() */);
+			ret = (*this)(conv.operand());
+			ret.extend_u0((int) to.getBitWidth(), to.isSigned());
+		}
+		break;
+	case ast::ExpressionKind::IntegerLiteral:
+		{
+			const ast::IntegerLiteral &lit = expr.as<ast::IntegerLiteral>();
+			ret = convert_svint(lit.getValue());
+		}
+		break;
+	case ast::ExpressionKind::RangeSelect:
+		{
+			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
+			Addressing addr(*this, sel);
+			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
+		}
+		break;
+	case ast::ExpressionKind::ElementSelect:
+		{
+			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
+			Addressing addr(*this, elemsel);
+			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
+		}
+		break;
+	case ast::ExpressionKind::Concatenation:
+		{
+			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
+			for (auto op : concat.operands())
+				ret = {ret, (*this)(*op)};
+		}
+		break;
+	case ast::ExpressionKind::SimpleAssignmentPattern:
+	case ast::ExpressionKind::StructuredAssignmentPattern:
+		{
+			repl_count = 1;
+
+			if (0) {
+	case ast::ExpressionKind::ReplicatedAssignmentPattern:
+				repl_count = *expr.as<ast::ReplicatedAssignmentPatternExpression>()
+                            	.count().eval(const_).integer().as<size_t>();
+			}
+
+			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
+			require(expr, expr.type->isIntegral());
+
+			ret = {};
+			for (auto elem : pattern_expr.elements())
+				ret.append((*this)(*elem));
+			ret = ret.repeat(repl_count);				
+		}
+		break;
+	case ast::ExpressionKind::ConditionalOp:
+		{
+			const auto &ternary = expr.as<ast::ConditionalExpression>();
+
+			require(expr, ternary.conditions.size() == 1);
+			require(expr, !ternary.conditions[0].pattern);
+
+			ret = mod->Mux(NEW_ID,
+				(*this)(ternary.right()),
+				(*this)(ternary.left()),
+				mod->ReduceBool(NEW_ID, (*this)(*(ternary.conditions[0].expr)))
+			);
+		}
+		break;
+	case ast::ExpressionKind::Replication:
+		{
+			const auto &repl = expr.as<ast::ReplicationExpression>();
+			require(expr, repl.count().constant); // TODO: message
+			int reps = repl.count().constant->integer().as<int>().value(); // TODO: checking
+			RTLIL::SigSpec concat = (*this)(repl.concat());
+			for (int i = 0; i < reps; i++)
+				ret.append(concat);
+		}
+		break;
+	case ast::ExpressionKind::MemberAccess:
+		{
+			const auto &acc = expr.as<ast::MemberAccessExpression>();
+			require(expr, acc.member.kind == ast::SymbolKind::Field);
+			const auto &member = acc.member.as<ast::FieldSymbol>();
+			require(acc, member.randMode == ast::RandMode::None);
+			return (*this)(acc.value()).extract(member.bitOffset,
+								expr.type->getBitstreamWidth());
+		}
+		break;
+	case ast::ExpressionKind::Call:
+		{
+			const auto &call = expr.as<ast::CallExpression>();
+			if (call.isSystemCall()) {
+				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
+				require(expr, call.arguments().size() == 1);
+				ret = (*this)(*call.arguments()[0]);
+			} else {
+				const auto &subr = *std::get<0>(call.subroutine);
+				require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
+				log_abort();
+				//return evaluate_function(*this, call);
+			}
+		}
+		break;
+	case ast::ExpressionKind::LValueReference:
+		ret = lvalue;
+		break;
+	default:
+		unimplemented(expr);
+	}
+
+done:
+	log_assert(expr.type->isFixedSize());
+	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
+	return ret;
+}
+
+RTLIL::SigSpec SignalEvalContext::eval_signed(ast::Expression const &expr)
+{
+	require(expr, expr.type);
+
+	if (expr.type->isNumeric() && !expr.type->isSigned())
+		return {RTLIL::S0, (*this)(expr)};
+	else
+		return (*this)(expr);
+}
+
+SignalEvalContext::SignalEvalContext(NetlistContext &netlist)
+	: netlist(netlist), const_(ast::ASTContext(netlist.compilation.getRoot(),
+											   ast::LookupLocation::max))
+{
+}
 
 #include "diag.h"
 
