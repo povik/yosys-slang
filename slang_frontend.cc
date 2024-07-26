@@ -621,6 +621,7 @@ public:
 		} else {
 			RTLIL::SigSpec raw_lvalue_sampled = lvalue;
 			raw_lvalue_sampled.replace(eval.rvalue_subs);
+			assert_nonstatic_free(raw_lvalue_sampled);
 			masked_rvalue = netlist.Bwmux(raw_lvalue_sampled, raw_rvalue, raw_mask);
 		}
 
@@ -2195,7 +2196,9 @@ RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 
 RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
 {
-	return canvas->wire(id(symbol));
+	RTLIL::Wire *wire = canvas->wire(id(symbol));
+	log_assert(wire);
+	return wire;
 }
 
 NetlistContext::NetlistContext(
