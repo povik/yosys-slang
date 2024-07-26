@@ -1398,6 +1398,7 @@ public:
 		RTLIL::SigSpec latch_driven;
 
 		for (auto driven_bit : visitor.all_driven()) {
+			netlist.driven_variable_bits.insert(driven_bit);
 			RTLIL::SigBit staged_bit = visitor.staging.at(driven_bit);
 
 			if (!dangling.count(staged_bit)) {
@@ -1572,6 +1573,9 @@ public:
 				}
 				transfer_attrs(symbol, cell);
 			}
+
+			for (auto bit : driven)
+				netlist.driven_variable_bits.insert(bit);
 		}
 	}
 
@@ -2007,11 +2011,17 @@ public:
 				auto storage = initial_eval.context.findLocal(&sym);
 				log_assert(storage);
 				auto const_ = convert_const(*storage);
-				if (!const_.is_fully_undef()) {
-					auto wire = netlist.wire(sym);
-					log_assert(wire);
-					wire->attributes[RTLIL::ID::init] = const_;
+				RTLIL::Wire *wire = netlist.wire(sym);
+				log_assert(const_.size() == wire->width);
+
+				for (int i = 0; i < const_.size(); i++)
+				if (!netlist.driven_variable_bits.count(RTLIL::SigBit(wire, i))) {
+					netlist.canvas->connect(RTLIL::SigBit(wire, i), const_.bits[i]);
+					const_.bits[i] = RTLIL::Sx;
 				}
+
+				if (!const_.is_fully_undef())
+					wire->attributes[RTLIL::ID::init] = const_;
 			}
 		}, [&](auto&, const ast::InstanceSymbol&) {
 			/* do not descend into other modules */
