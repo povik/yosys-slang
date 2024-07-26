@@ -33,6 +33,7 @@ struct SynthesisSettings {
 	std::optional<bool> no_proc;
 	std::optional<bool> translate_on_off_compat;
 	std::optional<bool> compat_mode;
+	std::optional<bool> keep_hierarchy;
 
 	void addOptions(slang::CommandLine &cmdLine) {
 		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
@@ -41,6 +42,8 @@ struct SynthesisSettings {
 					"Interpret translate_on/translate_off comment pragmas for compatiblity with other tools");
 		cmdLine.add("--compat-mode", compat_mode,
 					"Be relaxed about the synthesis semantics of some language constructs");
+		cmdLine.add("--keep-hierarchy", keep_hierarchy,
+					"Keep hierarchy (experimental; may crash)");
 	}
 };
 
@@ -1780,7 +1783,7 @@ public:
 
 	void handle(const ast::InstanceSymbol &sym)
 	{
-		if (/* should dissolve */ true) {
+		if (/* should dissolve */ !settings.keep_hierarchy.value_or(false)) {
 			sym.body.visit(*this);
 
 			for (auto *conn : sym.getPortConnections()) {
@@ -2224,10 +2227,17 @@ struct SlangFrontend : Frontend {
 			global_diagclient->clear();
 
 			{
-				for (auto instance : compilation->getRoot().topInstances) {
+				std::vector<const ast::InstanceSymbol *> queue;
+				for (auto instance : compilation->getRoot().topInstances)
+					queue.push_back(instance);
+
+				for (int i = 0; i < (int) queue.size(); i++) {
+					const ast::InstanceSymbol *instance = queue[i];
 					NetlistContext netlist(design, *compilation, *instance);
 					PopulateNetlist populate(netlist, settings);
 					instance->body.visit(populate);
+					queue.insert(queue.end(), populate.deferred_modules.begin(),
+								 populate.deferred_modules.end());
 				}
 			}
 
