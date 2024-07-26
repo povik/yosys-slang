@@ -123,8 +123,6 @@ struct NetlistContext : RTLILBuilder {
 		const ast::InstanceSymbol &instance);
 
 	~NetlistContext();
-
-	Yosys::pool<RTLIL::SigBit> driven_variable_bits;
 };
 
 };
