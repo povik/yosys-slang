@@ -1149,6 +1149,16 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
 			RTLIL::SigSpec left = (*this)(unop.operand());
+
+			if (unop.op == ast::UnaryOperator::Postincrement) {
+				require(expr, procedural != nullptr);
+				procedural->do_simple_assign(lhs(unop.operand()),
+					ret = netlist.Biop(ID($add), left, {RTLIL::S0, RTLIL::S1},
+							 unop.operand().type->isSigned(), unop.operand().type->isSigned(),
+							 left.size()), true);
+				break;
+			}
+
 			bool invert = false;
 
 			RTLIL::IdString type;
