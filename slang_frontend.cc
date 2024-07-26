@@ -169,14 +169,6 @@ static void build_hierpath(std::ostringstream &s, const ast::Scope *scope)
 	}
 }
 
-static const RTLIL::IdString scoped_id(const ast::Symbol &symbol)
-{
-	std::ostringstream path;
-	build_hierpath(path, symbol.getParentScope());
-	path << symbol.name;
-	return RTLIL::escape_id(path.str());
-}
-
 static const RTLIL::IdString module_type_id(const ast::InstanceSymbol &sym)
 {
 	require(sym, sym.isModule());
