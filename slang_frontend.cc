@@ -1146,29 +1146,22 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				unimplemented(biop);
 			}
 
-			RTLIL::Cell *cell = mod->addCell(NEW_ID, type);
-			cell->setPort(RTLIL::ID::A, left);
-			cell->setPort(RTLIL::ID::B, right);
-			cell->setParam(RTLIL::ID::A_WIDTH, left.size());
-			cell->setParam(RTLIL::ID::B_WIDTH, right.size());
-			cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
-			cell->setParam(RTLIL::ID::B_SIGNED, b_signed);
-			cell->setParam(RTLIL::ID::Y_WIDTH, expr.type->getBitWidth());
-			ret = mod->addWire(NEW_ID, expr.type->getBitstreamWidth());
-			cell->setPort(RTLIL::ID::Y, ret);
-			transfer_attrs(biop, cell);
-
 			// fixups
-			if (cell->type == ID($shr)) {
+			if (type == ID($shr)) {
 				// TODO: is this kosher?
-				cell->setParam(RTLIL::ID::B_SIGNED, false);
+				b_signed = false;
 			}
 
-			if (cell->type.in(ID($sshr), ID($sshl))) {
+			if (type.in(ID($sshr), ID($sshl))) {
 				// TODO: is this kosher?
-				cell->setParam(RTLIL::ID::A_SIGNED, false);
-				cell->setParam(RTLIL::ID::B_SIGNED, false);
+				a_signed = false;
+				b_signed = false;
 			}
+
+			ret = netlist.Biop(
+				type, left, right,
+				a_signed, b_signed, expr.type->getBitstreamWidth()
+			);
 		}
 		break;
 	case ast::ExpressionKind::Conversion:
