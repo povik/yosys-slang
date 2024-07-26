@@ -9,7 +9,7 @@
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "kernel/rtlil.h"
 
-template<> struct ::Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : ::Yosys::hashlib::hash_ptr_ops {};
+template<> struct Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : Yosys::hashlib::hash_ptr_ops {};
 
 inline namespace slang_frontend {
 
