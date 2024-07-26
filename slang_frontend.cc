@@ -384,7 +384,7 @@ static void insert_assign_enables(Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> map,
 #include "diag.h"
 
 struct UpdateTiming {
-	RTLIL::SigBit background_enable;
+	RTLIL::SigBit background_enable = RTLIL::S1;
 
 	struct Sensitivity {
 		RTLIL::SigBit signal;
