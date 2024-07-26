@@ -9,19 +9,34 @@
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "kernel/rtlil.h"
 
+template<> struct ::Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : ::Yosys::hashlib::hash_ptr_ops {};
+
 inline namespace slang_frontend {
 
 namespace RTLIL = Yosys::RTLIL;
 namespace ast = slang::ast;
 
 struct NetlistContext;
+struct ProceduralVisitor;
 
 struct SignalEvalContext {
 	NetlistContext &netlist;
+	ProceduralVisitor *procedural;
 
 	ast::EvalContext const_;
 	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs;
 	RTLIL::SigSpec lvalue;
+
+	struct Frame {
+		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
+	};
+
+	std::vector<Frame> frames;
+
+	void push_frame();
+	void create_local(const ast::Symbol *symbol);
+	void pop_frame();
+	RTLIL::Wire *wire(const ast::Symbol &symbol);
 
 	void set(RTLIL::SigSpec lhs, RTLIL::SigSpec value)
 	{
@@ -31,13 +46,15 @@ struct SignalEvalContext {
 	}
 
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
-	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
+	RTLIL::SigSpec operator()(ast::Symbol const &symbol);
 	RTLIL::SigSpec lhs(ast::Expression const &expr);
+	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
 
 	std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(
 		const ast::Expression &expr, slang::ConstantRange range);
 
 	SignalEvalContext(NetlistContext &netlist);
+	SignalEvalContext(NetlistContext &netlist, ProceduralVisitor &procedural);
 };
 
 struct RTLILBuilder {

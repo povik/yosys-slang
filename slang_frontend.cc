@@ -245,7 +245,6 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 	}
 }
 
-static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call);
 
 #define assert_nonstatic_free(signal) \
 	for (auto bit : (signal)) \
@@ -390,6 +389,8 @@ static void insert_assign_enables(Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> map,
 		insert_assign_enables(map, case_);
 }
 
+#include "diag.h"
+
 struct UpdateTiming {
 	RTLIL::SigBit background_enable;
 
@@ -434,6 +435,8 @@ struct UpdateTiming {
 
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
+	const ast::Scope *diag_scope;
+
 	NetlistContext &netlist;
 	SignalEvalContext eval;
 	UpdateTiming &timing;	
@@ -444,16 +447,17 @@ public:
 	RTLIL::CaseRule *root_case;
 	RTLIL::CaseRule *current_case;
 
-	enum Mode { ALWAYS, FUNCTION } mode;
-
-	// set if mode==FUNCTION
-	const ast::SubroutineSymbol *subroutine;
+	enum Mode {
+		AlwaysProcedure,
+		ContinuousAssign
+	} mode;
 
 	int effects_priority = 0;
 
-	ProceduralVisitor(NetlistContext &netlist, UpdateTiming &timing, Mode mode)
-			: netlist(netlist), eval(netlist), timing(timing), mode(mode) {
-		eval.const_.pushEmptyFrame();
+	// TODO: revisit diag_scope
+	ProceduralVisitor(NetlistContext &netlist, const ast::Scope *diag_scope, UpdateTiming &timing, Mode mode)
+			: diag_scope(diag_scope), netlist(netlist), eval(netlist, *this), timing(timing), mode(mode) {
+		eval.push_frame();
 		
 		root_case = new RTLIL::CaseRule;
 		auto top_switch = new RTLIL::SwitchRule;
@@ -490,7 +494,7 @@ public:
 			log_assert(chunk.wire && !chunk.wire->get_bool_attribute(ID($nonstatic)));
 		}
 
-		return all_driven;		
+		return all_driven;
 	}
 
 	void stage(RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue)
@@ -643,99 +647,113 @@ public:
 		cell->setPort(ID::A, netlist.ReduceBool(eval(stmt.cond)));
 	}
 
-	void handle(const ast::ExpressionStatement &expr)
+	RTLIL::SigSpec handle_call(const ast::CallExpression &call)
 	{
-		switch (expr.expr.kind) {
-		case ast::ExpressionKind::Call:
-			{
-				auto &call = expr.expr.as<ast::CallExpression>();
-				if (call.getSubroutineName() == "$display") {
-					auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
-					transfer_attrs(expr, cell);
-					set_effects_trigger(cell);
-					cell->parameters[ID::PRIORITY] = --effects_priority;
-					std::vector<Yosys::VerilogFmtArg> fmt_args;
-					for (auto arg : call.arguments()) {
-						log_assert(arg);
-						Yosys::VerilogFmtArg fmt_arg = {};
-						// TODO: location info in fmt_arg
-						switch (arg->kind) {
-						case ast::ExpressionKind::StringLiteral:
-							fmt_arg.type = Yosys::VerilogFmtArg::STRING;
-							fmt_arg.str = std::string{arg->as<ast::StringLiteral>().getValue()};
-							fmt_arg.sig = {};
-							break;
-						case ast::ExpressionKind::Call:
-							if (arg->as<ast::CallExpression>().getSubroutineName() == "$time") {
-								fmt_arg.type = Yosys::VerilogFmtArg::TIME;
-								break;
-							} else if (arg->as<ast::CallExpression>().getSubroutineName() == "$realtime") {
-								fmt_arg.type = Yosys::VerilogFmtArg::TIME;
-								fmt_arg.realtime = true;
-								break;
-							} else {
-								[[fallthrough]];
-							}
-						default:
-							fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
-							fmt_arg.sig = eval(*arg);
-							fmt_arg.signed_ = arg->type->isSigned();
-							break;
-						}
-						fmt_args.push_back(fmt_arg);						
-						
-					}
-					Yosys::Fmt fmt = {};
-					// TODO: insert the actual module name
-					fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
-									  std::string{call.getSubroutineName()}, netlist.canvas->name);
-					fmt.append_literal("\n");
-					fmt.emit_rtlil(cell);
-				} else if (!call.isSystemCall()) {
-					auto subroutine = std::get<0>(call.subroutine);
-					require(expr, subroutine->subroutineKind == ast::SubroutineKind::Task);
-					log_assert(call.arguments().size() == subroutine->getArguments().size());
-					for (int i = 0; i < (int) subroutine->getArguments().size(); i++) {
-						auto arg = subroutine->getArguments()[i];
-						auto dir = arg->direction;
-						log_assert(dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::Out);
-						if (dir == ast::ArgumentDirection::In) {
-							RTLIL::Wire *w = netlist.canvas->wire(scoped_id(*arg));
-							log_assert(w);
-							eval.set(w, eval(*call.arguments()[i]));
-						}
-					}
-					subroutine->visit(*this);
-					for (int i = 0; i < (int) subroutine->getArguments().size(); i++) {
-						auto arg = subroutine->getArguments()[i];
-						if (arg->direction == ast::ArgumentDirection::Out) {
-							require(expr, call.arguments()[i]->kind == ast::ExpressionKind::Assignment);
-							auto &assign = call.arguments()[i]->as<ast::AssignmentExpression>();
-							require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
-							RTLIL::Wire *w = netlist.wire(*arg);
-							log_assert(w);
-							RTLIL::SigSpec rvalue = w;
-							rvalue.replace(eval.rvalue_subs);
-							assert_nonstatic_free(rvalue);
-							assign_rvalue(assign, rvalue);
-						}
-					}
-				} else {
-					unimplemented(expr);
-				}
+		RTLIL::SigSpec ret;
+
+		require(call, !call.isSystemCall());
+		auto subroutine = std::get<0>(call.subroutine);
+		auto arg_symbols = subroutine->getArguments();
+
+		std::vector<RTLIL::SigSpec> arg_in, arg_out;
+
+		for (int i = 0; i < (int) arg_symbols.size(); i++) {
+			const ast::Expression *arg = call.arguments()[i];
+			auto dir = arg_symbols[i]->direction;
+
+			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut) {
+				arg = &arg->as<ast::AssignmentExpression>().left();
+				arg_out.push_back(eval.lhs(*arg));
+			} else {
+				arg_out.push_back({});
 			}
-			return;
-		case ast::ExpressionKind::Assignment:
-			{
-				const auto &assign = expr.expr.as<ast::AssignmentExpression>();
-				eval.lvalue = eval(assign.left());
-				assign_rvalue(assign, eval(assign.right()));
-				eval.lvalue = {};
-			}
-			break;
-		default:
-			unimplemented(expr);
+
+			if (dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::InOut)
+				arg_in.push_back(eval(*arg));
+			else
+				arg_in.push_back({});
 		}
+
+		eval.push_frame();
+		for (auto& member : subroutine->members())
+			member.visit(*this);
+
+		for (int i = 0; i < (int) arg_symbols.size(); i++) {
+			auto dir = arg_symbols[i]->direction;
+			if (dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::InOut)
+				do_simple_assign(eval.wire(*arg_symbols[i]), arg_in[i], true);
+		}
+
+		subroutine->getBody().visit(*this);
+
+		for (int i = 0; i < (int) arg_symbols.size(); i++) {
+			auto dir = arg_symbols[i]->direction;
+			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
+				do_simple_assign(arg_out[i], eval(*arg_symbols[i]), true);
+		}
+
+		if (subroutine->returnValVar)
+			ret = eval(*subroutine->returnValVar);
+
+		eval.pop_frame();
+
+		return ret;
+	}
+
+	void handle(const ast::CallExpression &call)
+	{
+		if (call.getSubroutineName() == "$display") {
+			auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
+			transfer_attrs(call, cell);
+			set_effects_trigger(cell);
+			cell->parameters[ID::PRIORITY] = --effects_priority;
+			std::vector<Yosys::VerilogFmtArg> fmt_args;
+			for (auto arg : call.arguments()) {
+				log_assert(arg);
+				Yosys::VerilogFmtArg fmt_arg = {};
+				// TODO: location info in fmt_arg
+				switch (arg->kind) {
+				case ast::ExpressionKind::StringLiteral:
+					fmt_arg.type = Yosys::VerilogFmtArg::STRING;
+					fmt_arg.str = std::string{arg->as<ast::StringLiteral>().getValue()};
+					fmt_arg.sig = {};
+					break;
+				case ast::ExpressionKind::Call:
+					if (arg->as<ast::CallExpression>().getSubroutineName() == "$time") {
+						fmt_arg.type = Yosys::VerilogFmtArg::TIME;
+						break;
+					} else if (arg->as<ast::CallExpression>().getSubroutineName() == "$realtime") {
+						fmt_arg.type = Yosys::VerilogFmtArg::TIME;
+						fmt_arg.realtime = true;
+						break;
+					} else {
+						[[fallthrough]];
+					}
+				default:
+					fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
+					fmt_arg.sig = eval(*arg);
+					fmt_arg.signed_ = arg->type->isSigned();
+					break;
+				}
+				fmt_args.push_back(fmt_arg);						
+				
+			}
+			Yosys::Fmt fmt = {};
+			// TODO: insert the actual module name
+			fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
+							  std::string{call.getSubroutineName()}, netlist.canvas->name);
+			fmt.append_literal("\n");
+			fmt.emit_rtlil(cell);
+		} else if (!call.isSystemCall()) {
+			handle_call(call);
+		} else {
+			unimplemented(call);
+		}
+	}
+
+	void handle(const ast::ExpressionStatement &stmt)
+	{
+		eval(stmt.expr);
 	}
 
 	void handle(const ast::BlockStatement &blk) {
@@ -846,57 +864,68 @@ public:
 	}
 
 	void handle(const ast::ForLoopStatement &stmt) {
-		require(stmt, !stmt.steps.empty() && stmt.stopExpr);
+		for (auto init : stmt.initializers)
+			eval(*init);
 
-		// TODO: `stmt.loopVars` vs. `stmt.initializers`
-		// What do these two do, *exactly*? Which one should we handle first?
-		for (auto var : stmt.loopVars) {
-			require(stmt, var->getInitializer());
-			auto initval = var->getInitializer()->eval(eval.const_);
-			require(stmt, !initval.bad());
-			eval.const_.createLocal(var, initval);
-		}
+		int ncycles = 0;
 
-		for (auto init : stmt.initializers) {
-			require(*init, init->kind == ast::ExpressionKind::Assignment);
-			const auto &assign = init->as<ast::AssignmentExpression>();
-			require(*init, assign.left().kind == ast::ExpressionKind::NamedValue);
-			const auto &lhs = assign.left().as<ast::NamedValueExpression>();
-			auto initval = assign.right().eval(eval.const_);
-			require(*init, !initval.bad());
-			eval.const_.createLocal(&lhs.symbol, initval);
+		if (!stmt.stopExpr) {
+			diag_scope->addDiag(diag::MissingStopCondition, stmt.sourceRange.start());
+			return;
 		}
 
 		while (true) {
-			auto cv = stmt.stopExpr->eval(eval.const_);
-			require(stmt, (bool) cv);
-			if (!cv.isTrue())
+			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
+			if (!cv.is_fully_const()) {
+				auto& diag = diag_scope->addDiag(diag::ForLoopIndeterminate, stmt.sourceRange);
+				if (ncycles)
+					diag.addNote(diag::NoteUnrollCycles, slang::SourceLocation::NoLocation) << ncycles;
 				break;
+			}
+
+			if (!cv.as_const().as_bool())
+				break;
+
+			eval.push_frame();
 			stmt.body.visit(*this);
+			eval.pop_frame();
+
 			for (auto step : stmt.steps)
-				require(stmt, (bool) step->eval(eval.const_));
+				eval(*step);
+
+			ncycles++;
 		}
 	}
 
 	void handle(const ast::InvalidStatement&) { log_abort(); }
 	void handle(const ast::EmptyStatement&) {}
-	void handle(const ast::VariableDeclStatement &stmt) {
-		if (stmt.symbol.lifetime != ast::VariableLifetime::Static) {
-			RTLIL::Wire *target = netlist.wire(stmt.symbol);
-			log_assert(target);
-			RTLIL::SigSpec initval;
 
-			if (stmt.symbol.getInitializer())
-				initval = eval(*stmt.symbol.getInitializer());
-			else
-				initval = convert_const(stmt.symbol.getType().getDefaultValue());
+	void init_nonstatic_variable(const ast::ValueSymbol &symbol) {
+		RTLIL::Wire *target = eval.wire(symbol);
+		log_assert(target);
+		RTLIL::SigSpec initval;
 
-			do_simple_assign(
-				target,
-				initval,
-				true
-			);
+		if (symbol.getInitializer())
+			initval = eval(*symbol.getInitializer());
+		else
+			initval = convert_const(symbol.getType().getDefaultValue());
+
+		do_simple_assign(
+			target,
+			initval,
+			true
+		);
+	}
+
+	void handle(const ast::VariableSymbol &symbol) {
+		if (symbol.lifetime != ast::VariableLifetime::Static) {
+			eval.create_local(&symbol);
+			init_nonstatic_variable(symbol);
 		}
+	}
+
+	void handle(const ast::VariableDeclStatement &stmt) {
+		stmt.symbol.visit(*this);
 	}
 
 	void handle(const ast::Statement &stmt)
@@ -906,40 +935,54 @@ public:
 
 	void handle(const ast::ReturnStatement &stmt)
 	{
-		require(stmt, mode == FUNCTION);
-		log_assert(subroutine);
-		do_simple_assign(netlist.canvas->wire(scoped_id(*subroutine->returnValVar)),
-						   eval(*stmt.expr), true);
+		unimplemented(stmt);
+	}
+
+	void handle(const ast::Expression &expr)
+	{
+		unimplemented(expr);
 	}
 };
 
-#if 0
-static RTLIL::SigSpec evaluate_function(SignalEvalContext &eval, const ast::CallExpression &call)
+void SignalEvalContext::push_frame()
 {
-	const auto &subr = *std::get<0>(call.subroutine);
-	log_assert(subr.subroutineKind == ast::SubroutineKind::Function);
-	RTLIL::Module *mod = eval.netlist.canvas;
-	RTLIL::Process *proc = eval.netlist.canvas->addProcess(NEW_ID);
-	ProceduralVisitor visitor(eval.netlist, proc, ProceduralVisitor::FUNCTION);
-	visitor.subroutine = &subr;
-	log_assert(call.arguments().size() == subr.getArguments().size());
-
-	for (int i = 0; i < (int) call.arguments().size(); i++) {
-		RTLIL::Wire *w = mod->wire(scoped_id(*subr.getArguments()[i]));
-		log_assert(w);
-		eval.set(w, eval(*call.arguments()[i]));
-	}
-	subr.getBody().visit(visitor);
-
-	// This is either a hack or brilliant: it just so happens that the WireAddingVisitor
-	// has created a placeholder wire we can use here. That wire doesn't make sense as a
-	// netlist element though.
-	require(subr, subr.returnValVar->getType().isFixedSize());
-	RTLIL::SigSpec ret = mod->wire(scoped_id(*subr.returnValVar));
-	ret.replace(visitor.staging);
-	return ret;
+	frames.push_back({});
 }
-#endif
+
+void SignalEvalContext::create_local(const ast::Symbol *symbol)
+{
+	log_assert(!frames.empty());
+	log_assert(!frames.back().locals.count(symbol));
+	auto &variable = symbol->as<ast::VariableSymbol>();
+	log_assert(variable.lifetime == ast::VariableLifetime::Automatic);
+
+	RTLIL::Wire *wire = netlist.canvas->addWire(NEW_ID_SUFFIX("local"),
+								variable.getType().getBitstreamWidth());
+	wire->attributes[ID($nonstatic)] = true;
+	frames.back().locals[symbol] = wire;
+}
+
+void SignalEvalContext::pop_frame()
+{
+	log_assert(!frames.empty());
+	frames.pop_back();
+}
+
+RTLIL::Wire *SignalEvalContext::wire(const ast::Symbol &symbol)
+{
+	if (ast::VariableSymbol::isKind(symbol.kind) &&
+			symbol.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic) {
+		for (auto it = frames.rbegin(); it != frames.rend(); it++) {
+			if (it->locals.count(&symbol))
+				return it->locals.at(&symbol);
+		}
+		require(symbol, false && "not found");
+	} else {
+		RTLIL::Wire *wire = netlist.canvas->wire(netlist.id(symbol));
+		log_assert(wire);
+		return wire;
+	}
+}
 
 RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 {
@@ -949,10 +992,7 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	switch (expr.kind) {
 	case ast::ExpressionKind::NamedValue:
 		{
-			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
-			RTLIL::Wire *wire = netlist.wire(sym);
-			log_assert(wire);
-			ret = wire;
+			ret = wire(expr.as<ast::NamedValueExpression>().symbol);
 		}
 		break;
 	case ast::ExpressionKind::RangeSelect:
@@ -998,6 +1038,34 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	return ret;
 }
 
+RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
+{
+	switch (symbol.kind) {
+	case ast::SymbolKind::Net:
+	case ast::SymbolKind::Variable:
+	case ast::SymbolKind::FormalArgument:
+		{
+			RTLIL::Wire *wire = this->wire(symbol);
+			log_assert(wire);
+			RTLIL::SigSpec value = wire;
+			value.replace(rvalue_subs);
+			assert_nonstatic_free(value);
+			return value;
+		}
+		break;
+	case ast::SymbolKind::Parameter:
+		{
+			auto &valsym = symbol.as<ast::ValueSymbol>();
+			require(valsym, valsym.getInitializer());
+			auto exprconst = valsym.getInitializer()->constant;
+			require(valsym, exprconst && exprconst->isInteger());
+			return convert_svint(exprconst->integer());
+		}
+		break;
+	default:
+		unimplemented(symbol);
+	}
+}
 
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
@@ -1018,6 +1086,16 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	}
 
 	switch (expr.kind) {
+	case ast::ExpressionKind::Assignment:
+		{
+			auto &assign = expr.as<ast::AssignmentExpression>();
+			require(expr, procedural != nullptr);
+			RTLIL::SigSpec lvalue_save = lvalue;
+			lvalue = (*this)(assign.left());
+			procedural->assign_rvalue(assign, ret = (*this)(assign.right()));
+			lvalue = lvalue_save;
+			break;
+		}
 	case ast::ExpressionKind::Inside:
 		{
 			auto &inside_expr = expr.as<ast::InsideExpression>();
@@ -1040,32 +1118,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		}
 	case ast::ExpressionKind::NamedValue:
 		{
-			const ast::Symbol &sym = expr.as<ast::NamedValueExpression>().symbol;
-
-			switch (sym.kind) {
-			case ast::SymbolKind::Net:
-			case ast::SymbolKind::Variable:
-			case ast::SymbolKind::FormalArgument:
-				{
-					RTLIL::Wire *wire = netlist.wire(sym);
-					log_assert(wire);
-					ret = wire;
-					ret.replace(rvalue_subs);
-					assert_nonstatic_free(ret);
-				}
-				break;
-			case ast::SymbolKind::Parameter:
-				{
-					auto &valsym = sym.as<ast::ValueSymbol>();
-					require(valsym, valsym.getInitializer());
-					auto exprconst = valsym.getInitializer()->constant;
-					require(valsym, exprconst && exprconst->isInteger());
-					ret = convert_svint(exprconst->integer());
-				}
-				break;
-			default:
-				unimplemented(sym);
-			}
+			ret = (*this)(expr.as<ast::NamedValueExpression>().symbol);
 		}
 		break;
 	case ast::ExpressionKind::UnaryOp:
@@ -1266,8 +1319,14 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
 				require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
-				log_abort();
-				//return evaluate_function(*this, call);
+				if (procedural) {
+					ret = procedural->handle_call(call);
+				} else {
+					UpdateTiming implicit;
+					// TODO: better scope here
+					ProceduralVisitor visitor(netlist, nullptr, implicit, ProceduralVisitor::ContinuousAssign);
+					ret = visitor.handle_call(call);
+				}
 			}
 		}
 		break;
@@ -1295,12 +1354,16 @@ RTLIL::SigSpec SignalEvalContext::eval_signed(ast::Expression const &expr)
 }
 
 SignalEvalContext::SignalEvalContext(NetlistContext &netlist)
-	: netlist(netlist), const_(ast::ASTContext(netlist.compilation.getRoot(),
-											   ast::LookupLocation::max))
+	: netlist(netlist), procedural(nullptr),
+	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
 {
 }
 
-#include "diag.h"
+SignalEvalContext::SignalEvalContext(NetlistContext &netlist, ProceduralVisitor &procedural)
+	: netlist(netlist), procedural(&procedural),
+	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
+{
+}
 
 struct PopulateNetlist : public ast::ASTVisitor<PopulateNetlist, true, false> {
 public:
@@ -1367,7 +1430,7 @@ public:
 		transfer_attrs(body, proc);
 
 		UpdateTiming implicit_timing;
-		ProceduralVisitor visitor(netlist, implicit_timing, ProceduralVisitor::ALWAYS);
+		ProceduralVisitor visitor(netlist, scope, implicit_timing, ProceduralVisitor::AlwaysProcedure);
 		body.visit(visitor);
 		visitor.copy_case_tree_into(proc->root_case);
 
@@ -1491,7 +1554,7 @@ public:
 					// disable the effects if some of the priority async signals are raised
 					branch_timing.background_enable = netlist.LogicNot(previous_async);
 
-					ProceduralVisitor visitor(netlist, branch_timing, ProceduralVisitor::ALWAYS);
+					ProceduralVisitor visitor(netlist, symbol.getParentScope(), branch_timing, ProceduralVisitor::AlwaysProcedure);
 					cond_stmt.ifTrue.visit(visitor);
 
 					visitor.copy_case_tree_into(proc->root_case);
@@ -1521,7 +1584,7 @@ public:
 		require(symbol, aloads.size() <= 1);
 		{
 			timing.background_enable = netlist.LogicNot(previous_async);
-			ProceduralVisitor visitor(netlist, timing, ProceduralVisitor::ALWAYS);
+			ProceduralVisitor visitor(netlist, symbol.getParentScope(), timing, ProceduralVisitor::AlwaysProcedure);
 			stmt->visit(visitor);
 			visitor.copy_case_tree_into(proc->root_case);
 
@@ -1941,15 +2004,17 @@ public:
 		auto wadd = ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
 			if (sym.getType().isFixedSize()) {
 				if (sym.kind == ast::SymbolKind::Variable
-						|| sym.kind == ast::SymbolKind::Net) {
+						|| sym.kind == ast::SymbolKind::Net
+						|| sym.kind == ast::SymbolKind::FormalArgument) {
+
+					if (sym.kind == ast::SymbolKind::Variable
+							&& sym.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic)
+						return;
+
 					std::string kind{ast::toString(sym.kind)};
 					auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
 					transfer_attrs(sym, w);
 					log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
-
-					if (sym.kind == ast::SymbolKind::Variable
-							&& sym.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic)
-						w->attributes[ID($nonstatic)] = true;
 				}
 			}
 		}, [&](auto&, const ast::InstanceSymbol&) {
