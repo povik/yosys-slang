@@ -2121,6 +2121,7 @@ public:
 
 		RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym),
 												id(sym.definitionName));
+		transfer_attrs(sym, cell);
 
 		auto port_names = sym.getPortNames();
 		auto port_conns = sym.getPortConnections();
