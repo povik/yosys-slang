@@ -155,6 +155,9 @@ SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b,
 SigSpec RTLILBuilder::Shiftx(SigSpec a, SigSpec s,
 							 bool s_signed, int result_width)
 {
+	if (a.is_fully_const() && s.is_fully_const())
+		return RTLIL::const_shiftx(a.as_const(), s.as_const(),
+								   false, s_signed, result_width);
 	SigSpec y = canvas->addWire(NEW_ID, result_width);
 	canvas->addShiftx(NEW_ID, a, s, y, s_signed);
 	return y;
