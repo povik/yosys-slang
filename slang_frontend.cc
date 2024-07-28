@@ -660,7 +660,7 @@ public:
 				arg_in.push_back({});
 		}
 
-		eval.push_frame();
+		eval.push_frame(subroutine);
 		for (auto& member : subroutine->members())
 			member.visit(*this);
 
@@ -670,7 +670,11 @@ public:
 				do_simple_assign(eval.wire(*arg_symbols[i]), arg_in[i], true);
 		}
 
-		subroutine->getBody().visit(*this);
+		if (subroutine->getBody().kind == ast::StatementKind::Return) {
+			handle_return(subroutine->getBody().as<ast::ReturnStatement>());
+		} else {
+			subroutine->getBody().visit(*this);
+		}
 
 		for (int i = 0; i < (int) arg_symbols.size(); i++) {
 			auto dir = arg_symbols[i]->direction;
@@ -930,9 +934,13 @@ public:
 		unimplemented(stmt);
 	}
 
-	void handle(const ast::ReturnStatement &stmt)
+	void handle_return(const ast::ReturnStatement &stmt)
 	{
-		unimplemented(stmt);
+		auto subroutine = eval.frames.back().subroutine;
+		log_assert(subroutine && subroutine->subroutineKind == ast::SubroutineKind::Function);
+		log_assert(subroutine->returnValVar && stmt.expr);
+		do_simple_assign(eval.wire(*subroutine->returnValVar),
+						 eval(*stmt.expr), true);
 	}
 
 	void handle(const ast::Expression &expr)
@@ -941,9 +949,10 @@ public:
 	}
 };
 
-void SignalEvalContext::push_frame()
+void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 {
 	frames.push_back({});
+	frames.back().subroutine = subroutine;
 }
 
 void SignalEvalContext::create_local(const ast::Symbol *symbol)
