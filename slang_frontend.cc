@@ -1327,10 +1327,10 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				ret = (*this)(*call.arguments()[0]);
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
-				require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
 				if (procedural) {
 					ret = procedural->handle_call(call);
 				} else {
+					require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
 					UpdateTiming implicit;
 					// TODO: better scope here
 					ProceduralVisitor visitor(netlist, nullptr, implicit, ProceduralVisitor::ContinuousAssign);
