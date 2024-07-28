@@ -690,55 +690,49 @@ public:
 		return ret;
 	}
 
-	void handle(const ast::CallExpression &call)
+	void handle_display(const ast::CallExpression &call)
 	{
-		if (call.getSubroutineName() == "$display") {
-			auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
-			transfer_attrs(call, cell);
-			set_effects_trigger(cell);
-			cell->parameters[ID::PRIORITY] = --effects_priority;
-			std::vector<Yosys::VerilogFmtArg> fmt_args;
-			for (auto arg : call.arguments()) {
-				log_assert(arg);
-				Yosys::VerilogFmtArg fmt_arg = {};
-				// TODO: location info in fmt_arg
-				switch (arg->kind) {
-				case ast::ExpressionKind::StringLiteral:
-					fmt_arg.type = Yosys::VerilogFmtArg::STRING;
-					fmt_arg.str = std::string{arg->as<ast::StringLiteral>().getValue()};
-					fmt_arg.sig = {};
+		auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
+		transfer_attrs(call, cell);
+		set_effects_trigger(cell);
+		cell->parameters[ID::PRIORITY] = --effects_priority;
+		std::vector<Yosys::VerilogFmtArg> fmt_args;
+		for (auto arg : call.arguments()) {
+			log_assert(arg);
+			Yosys::VerilogFmtArg fmt_arg = {};
+			// TODO: location info in fmt_arg
+			switch (arg->kind) {
+			case ast::ExpressionKind::StringLiteral:
+				fmt_arg.type = Yosys::VerilogFmtArg::STRING;
+				fmt_arg.str = std::string{arg->as<ast::StringLiteral>().getValue()};
+				fmt_arg.sig = {};
+				break;
+			case ast::ExpressionKind::Call:
+				if (arg->as<ast::CallExpression>().getSubroutineName() == "$time") {
+					fmt_arg.type = Yosys::VerilogFmtArg::TIME;
 					break;
-				case ast::ExpressionKind::Call:
-					if (arg->as<ast::CallExpression>().getSubroutineName() == "$time") {
-						fmt_arg.type = Yosys::VerilogFmtArg::TIME;
-						break;
-					} else if (arg->as<ast::CallExpression>().getSubroutineName() == "$realtime") {
-						fmt_arg.type = Yosys::VerilogFmtArg::TIME;
-						fmt_arg.realtime = true;
-						break;
-					} else {
-						[[fallthrough]];
-					}
-				default:
-					fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
-					fmt_arg.sig = eval(*arg);
-					fmt_arg.signed_ = arg->type->isSigned();
+				} else if (arg->as<ast::CallExpression>().getSubroutineName() == "$realtime") {
+					fmt_arg.type = Yosys::VerilogFmtArg::TIME;
+					fmt_arg.realtime = true;
 					break;
+				} else {
+					[[fallthrough]];
 				}
-				fmt_args.push_back(fmt_arg);						
-				
+			default:
+				fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
+				fmt_arg.sig = eval(*arg);
+				fmt_arg.signed_ = arg->type->isSigned();
+				break;
 			}
-			Yosys::Fmt fmt = {};
-			// TODO: insert the actual module name
-			fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
-							  std::string{call.getSubroutineName()}, netlist.canvas->name);
-			fmt.append_literal("\n");
-			fmt.emit_rtlil(cell);
-		} else if (!call.isSystemCall()) {
-			handle_call(call);
-		} else {
-			unimplemented(call);
+			fmt_args.push_back(fmt_arg);						
+			
 		}
+		Yosys::Fmt fmt = {};
+		// TODO: insert the actual module name
+		fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
+						  std::string{call.getSubroutineName()}, netlist.canvas->name);
+		fmt.append_literal("\n");
+		fmt.emit_rtlil(cell);
 	}
 
 	void handle(const ast::ExpressionStatement &stmt)
@@ -1325,7 +1319,10 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Call:
 		{
 			const auto &call = expr.as<ast::CallExpression>();
-			if (call.isSystemCall()) {
+			if (call.isSystemCall() && call.getSubroutineName() == "$display") {
+				require(expr, procedural != nullptr);
+				procedural->handle_display(call);
+			} else if (call.isSystemCall()) {
 				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
 				require(expr, call.arguments().size() == 1);
 				ret = (*this)(*call.arguments()[0]);
