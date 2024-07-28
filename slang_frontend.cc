@@ -1075,10 +1075,10 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
-	if (expr.type->isVoid() || expr.kind == ast::ExpressionKind::Invalid)
+	if (expr.kind == ast::ExpressionKind::Invalid)
 		return {};
 
-	require(expr, expr.type->isFixedSize());
+	require(expr, expr.type->isVoid() || expr.type->isFixedSize());
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
 	size_t repl_count;
@@ -1351,7 +1351,6 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	}
 
 done:
-	log_assert(expr.type->isFixedSize());
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
 }
