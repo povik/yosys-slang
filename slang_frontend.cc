@@ -1537,12 +1537,46 @@ public:
 			auto &cond_stmt = stmt->as<ast::ConditionalStatement>();
 			const ast::Expression *condition = cond_stmt.conditions[0].expr;
 
-			bool polarity = true;
-			if (condition->kind == ast::ExpressionKind::UnaryOp
-					&& (condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::LogicalNot
-						|| condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::BitwiseNot)) {
-				polarity = false;
-				condition = &condition->as<ast::UnaryExpression>().operand();
+			bool did_something = true, polarity = true;
+			while (did_something) {
+				did_something = false;
+
+				if (condition->kind == ast::ExpressionKind::UnaryOp
+						&& (condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::LogicalNot
+							|| condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::BitwiseNot)) {
+					polarity = !polarity;
+					condition = &condition->as<ast::UnaryExpression>().operand();
+					did_something = true;
+				}
+
+				if (condition->kind == ast::ExpressionKind::BinaryOp
+						&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
+						&& condition->as<ast::BinaryExpression>().right().constant
+						&& condition->as<ast::BinaryExpression>().right().type->getBitWidth() == 1
+						&& !condition->as<ast::BinaryExpression>().right().constant->hasUnknown()
+						&& condition->as<ast::BinaryExpression>().right().constant->isTrue()) {
+					auto& biop = condition->as<ast::BinaryExpression>();
+					did_something = true;
+					condition = &biop.left();
+				}
+
+				if (condition->kind == ast::ExpressionKind::BinaryOp
+						&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
+						&& condition->as<ast::BinaryExpression>().right().constant
+						&& !condition->as<ast::BinaryExpression>().right().constant->hasUnknown()
+						&& condition->as<ast::BinaryExpression>().right().constant->isFalse()) {
+					auto& biop = condition->as<ast::BinaryExpression>();
+					polarity = !polarity;
+					did_something = true;
+					condition = &biop.left();
+				}
+
+				if (condition->kind == ast::ExpressionKind::Conversion
+						&& condition->as<ast::ConversionExpression>().operand().type->isIntegral()
+						&& condition->as<ast::ConversionExpression>().operand().type->getBitWidth() <  condition->type->getBitWidth()) {
+					did_something = true;
+					condition = &condition->as<ast::ConversionExpression>().operand();
+				}
 			}
 
 			if (condition->kind == ast::ExpressionKind::NamedValue) {
