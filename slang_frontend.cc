@@ -1274,7 +1274,6 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			}
 
 			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
-			require(expr, expr.type->isIntegral());
 
 			ret = {};
 			for (auto elem : pattern_expr.elements())
