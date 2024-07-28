@@ -2364,4 +2364,62 @@ struct SlangFrontend : Frontend {
 	}
 } SlangFrontend;
 
+struct UndrivenPass : Pass {
+	UndrivenPass() : Pass("undriven", "assign initializers to undriven signals") {}
+	void execute(std::vector<std::string> args, RTLIL::Design *d) override
+	{
+		log_header(d, "Executing UNDRIVEN pass. (resolve undriven signals)\n");
+
+		size_t argidx;
+		for (argidx = 1; argidx < args.size(); argidx++) {
+			break;
+		}
+		extra_args(args, argidx, d);
+
+		for (auto module : d->selected_whole_modules_warn()) {
+			SigPool driven;
+
+			std::function<void(RTLIL::CaseRule *rule)> visit_case = [&](RTLIL::CaseRule *rule) {
+				for (auto &action : rule->actions)
+					driven.add(action.first);
+
+				for (auto switch_ : rule->switches) {
+					for (auto case_ : switch_->cases)
+						visit_case(case_);
+				}
+			};
+
+			for (auto proc : module->processes) {
+				visit_case(&proc.second->root_case);
+
+				if (!proc.second->syncs.empty())
+					log_error("Process %s in module %s contains sync rules, that's unsupported by the 'undriven' command.\n",
+							  log_id(proc.second), log_id(module));
+			}
+
+			for (auto conn : module->connections())
+				driven.add(conn.first);
+
+			for (auto cell : module->cells())
+			for (auto &conn : cell->connections())
+			if (cell->output(conn.first))
+			for (auto bit : conn.second)
+				driven.add(bit);
+
+			for (auto wire : module->wires()) {
+				if (!wire->attributes.count(ID::init) || wire->port_input)
+					continue;
+
+				Const init = wire->attributes[ID::init];
+				while (init.size() < wire->width)
+					init.bits.push_back(RTLIL::Sx);
+
+				for (int i = 0; i < wire->width; i++)
+				if (!driven.check(SigBit(wire, i)) && (init[i] == RTLIL::S1 || init[i] == RTLIL::S0))
+					module->connect(SigBit(wire, i), init[i]);
+			}
+		}
+	}
+} UndrivenPass;
+
 };
