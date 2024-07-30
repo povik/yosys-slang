@@ -2405,6 +2405,7 @@ struct SlangFrontend : Frontend {
 
 		if (!settings.no_proc.value_or(false)) {
 			log_push();
+			call(design, "undriven");
 			call(design, "proc_clean");
 			call(design, "proc_rmdead");
 			call(design, "proc_prune");
