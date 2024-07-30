@@ -24,7 +24,6 @@ struct SignalEvalContext {
 	ProceduralVisitor *procedural;
 
 	ast::EvalContext const_;
-	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs;
 	RTLIL::SigSpec lvalue;
 
 	struct Frame {
@@ -38,13 +37,6 @@ struct SignalEvalContext {
 	void create_local(const ast::Symbol *symbol);
 	void pop_frame();
 	RTLIL::Wire *wire(const ast::Symbol &symbol);
-
-	void set(RTLIL::SigSpec lhs, RTLIL::SigSpec value)
-	{
-		log_assert(lhs.size() == value.size());
-		for (int i = 0; i < lhs.size(); i++)
-			rvalue_subs[lhs[i]] = value[i];
-	}
 
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
 	RTLIL::SigSpec operator()(ast::Symbol const &symbol);

@@ -208,76 +208,6 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 	for (auto bit : (signal)) \
 		log_assert(!(bit.wire && bit.wire->get_bool_attribute(ID($nonstatic))));
 
-struct SwitchBuilder {
-	RTLIL::CaseRule *parent;
-	RTLIL::SwitchRule *sw;
-	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> *rvalue_subs;
-	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> rvalue_subs_save;
-
-	std::vector<std::pair<RTLIL::CaseRule *, RTLIL::SigSig>> branch_updates;
-
-	SwitchBuilder(RTLIL::CaseRule *parent, Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> *rvalue_subs,
-				  RTLIL::SigSpec signal)
-		: parent(parent), rvalue_subs(rvalue_subs), rvalue_subs_save(*rvalue_subs)
-	{
-		sw = new RTLIL::SwitchRule;
-		sw->signal = signal;
-		parent->switches.push_back(sw);
-	}
-
-	void branch(std::vector<RTLIL::SigSpec> compare,
-				std::function<void(RTLIL::CaseRule *case_rule)> f)
-	{
-		RTLIL::CaseRule *case_rule = new RTLIL::CaseRule;	
-		sw->cases.push_back(case_rule);
-		case_rule->compare = compare;
-		f(case_rule);
-
-		RTLIL::SigSpec update;
-		for (auto pair : *rvalue_subs)
-		if (!rvalue_subs_save.count(pair.first)
-				|| pair.second != rvalue_subs_save.at(pair.first))
-			update.append(pair.first);
-		update.sort();
-
-		RTLIL::SigSpec update_map = update;
-		update_map.replace(*rvalue_subs);
-		branch_updates.push_back(std::make_pair(case_rule, RTLIL::SigSig(update, update_map)));
-
-		*rvalue_subs = rvalue_subs_save;
-	}
-
-	void finish(RTLIL::Module *mod)
-	{
-		RTLIL::SigSpec updated_anybranch;
-		for (auto &branch : branch_updates)
-			updated_anybranch.append(branch.second.first);
-		updated_anybranch.sort_and_unify();
-
-		for (auto chunk : updated_anybranch.chunks()) {
-			RTLIL::SigSpec w = mod->addWire(NEW_ID, chunk.size());
-			RTLIL::SigSpec w_default = chunk;
-			w_default.replace(*rvalue_subs);
-			parent->actions.push_back(RTLIL::SigSig(w, w_default));
-			for (int i = 0; i < chunk.size(); i++)
-				(*rvalue_subs)[RTLIL::SigSpec(chunk)[i]] = w[i];
-		}
-
-		for (auto &branch : branch_updates) {
-			RTLIL::CaseRule *rule = branch.first;
-			RTLIL::SigSpec target = branch.second.first;
-			RTLIL::SigSpec source = branch.second.second;
-			int done = 0;
-			for (auto chunk : target.chunks()) {
-				RTLIL::SigSpec target_w = chunk;
-				target_w.replace(*rvalue_subs);
-				rule->actions.push_back(RTLIL::SigSig(target_w, source.extract(done, chunk.size())));
-				done += chunk.size();
-			}
-		}
-	}
-};
-
 void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
@@ -286,68 +216,74 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
 	}
 }
 
-static bool detect_full_case(RTLIL::SwitchRule *switch_)
-{
-	Yosys::BitPatternPool pool(switch_->signal);
+#include "diag.h"
+#include "cases.h"
 
-	for (auto case_ : switch_->cases) {
-		if (case_->compare.empty()) {
-			// we have reached a default, by now we know this case is full
-			pool.take_all();
-			break; 
-		} else {
-			for (auto compare : case_->compare)
-			if (compare.is_fully_const())
-				pool.take(compare);
-		}
-	}
-
-	return pool.empty();
-}
-
-static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<RTLIL::SigBit> &signals, RTLIL::CaseRule *rule)
+static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<RTLIL::SigBit> &signals, Case *rule, int level=0)
 {
 	Yosys::pool<RTLIL::SigBit> remaining = signals;
+	bool debug = false;
 
-	for (auto &action : rule->actions)
-	for (auto bit : action.first)
-		remaining.erase(bit);
+	for (auto &action : rule->actions) {
+		if (debug) {
+			log_debug("%saction %s<=%s (mask %s)\n", std::string(level, ' ').c_str(),
+					  log_signal(action.lvalue), log_signal(action.unmasked_rvalue), log_signal(action.mask));
+		}
+
+		if (action.mask.is_fully_ones())
+		for (auto bit : action.lvalue)
+			remaining.erase(bit);
+	}
 
 	for (auto switch_ : rule->switches) {
+		if (debug) {
+			log_debug("%sswitch %s\n", std::string(level, ' ').c_str(), log_signal(switch_->signal));
+		}
+
 		if (remaining.empty())
 			break;
 
-		if (switch_->get_bool_attribute(ID::full_case) || detect_full_case(switch_)) {
-			Yosys::pool<RTLIL::SigBit> new_remaining;
-			for (auto case_ : switch_->cases)
-			for (auto bit : detect_possibly_unassigned_subset(remaining, case_))
-				new_remaining.insert(bit);
-			remaining.swap(new_remaining);
+		Yosys::pool<RTLIL::SigBit> new_remaining;
+		Yosys::BitPatternPool pool(switch_->signal);
+		for (auto case_ : switch_->cases) {
+			if (!switch_->signal.empty() && pool.empty())
+				break;
+
+			if (debug) {
+				log_debug("%s case ", std::string(level, ' ').c_str());
+				for (auto compare : case_->compare)
+					log_debug("%s ", log_signal(compare));
+				log_debug("\n");
+			}
+
+			bool selectable = false;
+			if (case_->compare.empty()) {
+				// we have reached a default, by now we know this case is full
+				selectable = pool.take_all() || switch_->signal.empty();
+			} else {
+				for (auto compare : case_->compare) {
+					if (!compare.is_fully_const()) {
+						if (!pool.empty())
+							selectable = true;
+					} else {
+						if (pool.take(compare))
+							selectable = true;
+					}
+				}
+			}
+
+			if (selectable) {
+				for (auto bit : detect_possibly_unassigned_subset(remaining, case_, level + 2))
+					new_remaining.insert(bit);	
+			}
 		}
+
+		if (switch_->full_case || pool.empty())
+			remaining.swap(new_remaining);
 	}
 
 	return remaining;
 }
-
-static void insert_assign_enables(Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> map, RTLIL::CaseRule *rule)
-{
-	RTLIL::SigSpec to_enable;
-
-	for (auto &action : rule->actions)
-	for (auto bit : action.first)
-	if (map.count(bit))
-		to_enable.append(map.at(bit));
-
-	to_enable.sort_and_unify();
-	if (!to_enable.empty())
-		rule->actions.push_back({to_enable, RTLIL::SigSpec(RTLIL::S1, to_enable.size())});
-
-	for (auto switch_ : rule->switches)
-	for (auto case_ : switch_->cases)
-		insert_assign_enables(map, case_);
-}
-
-#include "diag.h"
 
 struct UpdateTiming {
 	RTLIL::SigBit background_enable = RTLIL::S1;
@@ -428,8 +364,8 @@ public:
 	Yosys::SigPool assigned_blocking;
 	Yosys::SigPool assigned_nonblocking;
 
-	RTLIL::CaseRule *root_case;
-	RTLIL::CaseRule *current_case;
+	Case *root_case;
+	Case *current_case;
 
 	enum Mode {
 		AlwaysProcedure,
@@ -442,12 +378,9 @@ public:
 	ProceduralVisitor(NetlistContext &netlist, const ast::Scope *diag_scope, UpdateTiming &timing, Mode mode)
 			: diag_scope(diag_scope), netlist(netlist), eval(netlist, *this), timing(timing), mode(mode) {
 		eval.push_frame();
-		
-		root_case = new RTLIL::CaseRule;
-		auto top_switch = new RTLIL::SwitchRule;
-		root_case->switches.push_back(top_switch);
-		current_case = new RTLIL::CaseRule;
-		top_switch->cases.push_back(current_case);
+
+		root_case = new Case;
+		current_case = root_case->add_switch({})->add_case({});
 	}
 
 	~ProceduralVisitor()
@@ -457,69 +390,36 @@ public:
 
 	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> staging;
 
+
 	void copy_case_tree_into(RTLIL::CaseRule &rule)
 	{
-		rule.actions.insert(rule.actions.end(),
-							root_case->actions.begin(), root_case->actions.end());
-		root_case->actions.clear();
-		rule.switches.insert(rule.switches.end(),
-							 root_case->switches.begin(), root_case->switches.end());
-		root_case->switches.clear();
+		root_case->copy_into(&rule);
 	}
 
 	RTLIL::SigSpec all_driven()
 	{
 		RTLIL::SigSpec all_driven;
-		for (auto pair : staging)
+		for (auto pair : vstate.visible_assignments)
 			all_driven.append(pair.first);
 		all_driven.sort_and_unify();
 
+		RTLIL::SigSpec all_driven_filtered;
+
 		for (auto chunk : all_driven.chunks()) {
-			log_assert(chunk.wire && !chunk.wire->get_bool_attribute(ID($nonstatic)));
+			log_assert(chunk.wire);
+			if (!chunk.wire->get_bool_attribute(ID($nonstatic)))
+				all_driven_filtered.append(chunk);
 		}
 
-		return all_driven;
-	}
-
-	void stage(RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue)
-	{
-		log_assert(lvalue.size() == rvalue.size());
-		RTLIL::SigSpec to_create, lfiltered, rfiltered;
-
-		for (int i = 0; i < lvalue.size(); i++) {
-			RTLIL::SigBit lbit = lvalue[i];
-			log_assert(lbit.wire);
-
-			if (lbit.wire->get_bool_attribute(ID($nonstatic)))
-				continue;
-
-			if (!staging.count(lbit))
-				to_create.append(lbit);
-
-			lfiltered.append(lbit);
-			rfiltered.append(rvalue[i]);
-		}
-
-		to_create.sort_and_unify();
-		for (auto chunk : to_create.chunks()) {
-			RTLIL::SigSpec w = netlist.canvas->addWire(NEW_ID_SUFFIX("staging"), chunk.size());
-			for (int i = 0; i < chunk.size(); i++)
-				staging[RTLIL::SigSpec(chunk)[i]] = w[i];
-		}
-
-		lfiltered.replace(staging);
-		current_case->actions.push_back(RTLIL::SigSig(
-			lfiltered,
-			rfiltered
-		));
+		return all_driven_filtered;
 	}
 
 	// Return an enable signal for the current case node
 	RTLIL::SigBit case_enable()
 	{
 		RTLIL::SigBit ret = netlist.canvas->addWire(NEW_ID, 1);
-		root_case->actions.emplace_back(ret, RTLIL::State::S0);
-		current_case->actions.emplace_back(ret, RTLIL::State::S1);
+		root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
+		current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
 		return ret;
 	}
 
@@ -529,21 +429,192 @@ public:
 		timing.extract_trigger(netlist, cell, case_enable());
 	}
 
-	void do_simple_assign(RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue, bool blocking)
-	{
-		log_assert(lvalue.size() == rvalue.size());
-		if (blocking) {
-			eval.set(lvalue, rvalue);
-			// TODO: proper message on blocking/nonblocking mixing
-			log_assert(!assigned_nonblocking.check_any(lvalue));
-			assigned_blocking.add(lvalue);
-		} else {
-			 // TODO: proper message on blocking/nonblocking mixing
-			log_assert(!assigned_blocking.check_any(lvalue));
-			assigned_nonblocking.add(lvalue);
+	Yosys::pool<RTLIL::Wire *> seen_blocking_assignment;
+	Yosys::pool<RTLIL::Wire *> seen_nonblocking_assignment;
+
+	struct SwitchHelper {
+		struct VariableState {
+			using Map = Yosys::dict<RTLIL::SigBit, RTLIL::SigBit>;
+
+			Map visible_assignments;
+			Map revert;
+
+			void set(RTLIL::SigSpec lhs, RTLIL::SigSpec value)
+			{
+				log_debug("VariableState.set: lhs=%s value=%s\n",
+						  log_signal(lhs), log_signal(value));
+				log_assert(lhs.size() == value.size());
+
+				for (int i = 0; i < lhs.size(); i++) {
+					RTLIL::SigBit bit = lhs[i];
+
+					if (!revert.count(bit)) {
+						if (visible_assignments.count(bit))
+							revert[bit] = visible_assignments.at(bit);
+						else
+							revert[bit] = RTLIL::Sm;
+					}
+
+					visible_assignments[bit] = value[i];
+				}
+			}
+
+			void save(Map &save)
+			{
+				revert.swap(save);
+			}
+
+			RTLIL::SigSig restore(Map &save)
+			{
+				RTLIL::SigSpec lreverted, rreverted;
+
+				for (auto pair : revert)
+					lreverted.append(pair.first);
+				lreverted.sort();
+				rreverted = lreverted;
+				rreverted.replace(visible_assignments);
+
+				for (auto pair : revert) {
+					if (pair.second == RTLIL::Sm)
+						visible_assignments.erase(pair.first);	
+					else
+						visible_assignments[pair.first] = pair.second;
+				}
+
+				save.swap(revert);
+				return {lreverted, rreverted};
+			}
+		};
+
+		Case *parent;
+		Case *&current_case;
+		Switch *sw;
+		VariableState &vstate;
+
+		SwitchHelper(Case *&current_case, VariableState &vstate, RTLIL::SigSpec signal)
+			: parent(current_case), current_case(current_case), vstate(vstate)
+		{
+			sw = parent->add_switch(signal);
 		}
 
-		stage(lvalue, rvalue);
+		std::vector<std::pair<Case *, RTLIL::SigSig>> branch_updates;
+
+		void branch(std::vector<RTLIL::SigSpec> compare,
+					std::function<void()> f)
+		{
+			Case *this_case;
+
+			VariableState::Map save_map;
+			vstate.save(save_map);
+			current_case = this_case = sw->add_case(compare);
+			f();
+			current_case = parent;
+			auto updates = vstate.restore(save_map);
+
+			branch_updates.push_back(std::make_pair(this_case, updates));
+		}
+
+		void finish(NetlistContext &netlist)
+		{
+			RTLIL::SigSpec updated_anybranch;
+			for (auto &branch : branch_updates)
+				updated_anybranch.append(branch.second.first);
+			updated_anybranch.sort_and_unify();
+
+			for (auto chunk : updated_anybranch.chunks()) {
+				log_assert(chunk.wire);
+
+				if (chunk.wire->has_attribute(ID($nonstatic)) \
+						&& chunk.wire->attributes[ID($nonstatic)].as_int() > parent->level)
+					continue;
+
+				RTLIL::SigSpec w = netlist.canvas->addWire(NEW_ID, chunk.size());
+				RTLIL::SigSpec w_default = chunk;
+				w_default.replace(vstate.visible_assignments);
+				parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
+				vstate.set(chunk, w);
+			}
+
+			for (auto &branch : branch_updates) {
+				Case *rule = branch.first;
+				RTLIL::SigSpec target = branch.second.first;
+				RTLIL::SigSpec source = branch.second.second;
+				int done = 0;
+				for (auto chunk : target.chunks()) {
+					if (chunk.wire->has_attribute(ID($nonstatic)) \
+							&& chunk.wire->attributes[ID($nonstatic)].as_int() > parent->level) {
+						done += chunk.size();
+						continue;
+					}
+
+					RTLIL::SigSpec target_w = chunk;
+					// get the wire (or some part of it) which we created up above
+					target_w.replace(vstate.visible_assignments);
+					rule->aux_actions.push_back(RTLIL::SigSig(target_w,
+						source.extract(done, chunk.size())));
+					done += chunk.size();
+				}
+			}
+		}
+	};
+
+	SwitchHelper::VariableState vstate;
+
+	void do_assign(slang::SourceLocation loc, RTLIL::SigSpec lvalue, RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking)
+	{
+		log_assert(lvalue.size() == unmasked_rvalue.size());
+		log_assert(lvalue.size() == mask.size());
+
+		crop_zero_mask(mask, lvalue);
+		crop_zero_mask(mask, unmasked_rvalue);
+		crop_zero_mask(mask, mask);
+
+		// TODO: proper message on blocking/nonblocking mixing
+		if (blocking) {
+			for (auto bit : lvalue)
+			if (bit.wire) {
+				log_assert(!seen_nonblocking_assignment.count(bit.wire));
+				seen_blocking_assignment.insert(bit.wire);
+			}
+		} else {
+			for (auto bit : lvalue)
+			if (bit.wire) {
+				log_assert(!seen_blocking_assignment.count(bit.wire));
+				seen_nonblocking_assignment.insert(bit.wire);
+			}
+		}
+
+		current_case->actions.push_back(Case::Action{
+			loc,
+			lvalue,
+			mask,
+			unmasked_rvalue
+		});
+
+		RTLIL::SigSpec rvalue_background = lvalue;
+		rvalue_background.replace(vstate.visible_assignments);
+
+		RTLIL::SigSpec rvalue = netlist.Bwmux(rvalue_background, unmasked_rvalue, mask);
+		vstate.set(lvalue, rvalue);
+	}
+
+	void do_simple_assign(slang::SourceLocation loc, RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue, bool blocking)
+	{
+		do_assign(loc, lvalue, rvalue, RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
+	}
+
+	RTLIL::SigSpec substitute_rvalue(RTLIL::Wire *wire)
+	{
+		log_assert(wire);
+
+		// We disallow mixing of blocking and non-blocking assignments to the same
+		// variable from the same process. That simplifies the handling here.
+		if (!seen_blocking_assignment.count(wire))
+			return wire;
+
+		RTLIL::SigSpec subed = wire;
+		subed.replace(vstate.visible_assignments);
+		return subed;
 	}
 
 	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
@@ -604,21 +675,7 @@ public:
 		}
 
 		RTLIL::SigSpec lvalue = eval.lhs(*raw_lexpr);
-		crop_zero_mask(raw_mask, lvalue);
-		crop_zero_mask(raw_mask, raw_rvalue);
-		crop_zero_mask(raw_mask, raw_mask);
-
-		RTLIL::SigSpec masked_rvalue;
-		if (raw_mask.is_fully_ones()) {
-			masked_rvalue = raw_rvalue;
-		} else {
-			RTLIL::SigSpec raw_lvalue_sampled = lvalue;
-			raw_lvalue_sampled.replace(eval.rvalue_subs);
-			assert_nonstatic_free(raw_lvalue_sampled);
-			masked_rvalue = netlist.Bwmux(raw_lvalue_sampled, raw_rvalue, raw_mask);
-		}
-
-		do_simple_assign(lvalue, masked_rvalue, blocking);
+		do_assign(assign.sourceRange.start(), lvalue, raw_rvalue, raw_mask, blocking);
 	}
 
 	void handle(const ast::ImmediateAssertionStatement &stmt)
@@ -660,6 +717,8 @@ public:
 				arg_in.push_back({});
 		}
 
+		slang::SourceLocation loc = call.sourceRange.start();
+
 		eval.push_frame(subroutine);
 		for (auto& member : subroutine->members())
 			member.visit(*this);
@@ -667,7 +726,7 @@ public:
 		for (int i = 0; i < (int) arg_symbols.size(); i++) {
 			auto dir = arg_symbols[i]->direction;
 			if (dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::InOut)
-				do_simple_assign(eval.wire(*arg_symbols[i]), arg_in[i], true);
+				do_simple_assign(loc, eval.wire(*arg_symbols[i]), arg_in[i], true);
 		}
 
 		if (subroutine->getBody().kind == ast::StatementKind::Return) {
@@ -679,7 +738,7 @@ public:
 		for (int i = 0; i < (int) arg_symbols.size(); i++) {
 			auto dir = arg_symbols[i]->direction;
 			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
-				do_simple_assign(arg_out[i], eval(*arg_symbols[i]), true);
+				do_simple_assign(loc, arg_out[i], eval(*arg_symbols[i]), true);
 		}
 
 		if (subroutine->returnValVar)
@@ -755,34 +814,27 @@ public:
 		require(cond, cond.conditions.size() == 1);
 		require(cond, cond.conditions[0].pattern == NULL);
 
-		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec condition = netlist.ReduceBool(
 			eval(*cond.conditions[0].expr)
 		);
-		SwitchBuilder b(current_case, &eval.rvalue_subs, condition);
-		transfer_attrs(cond, b.sw);
+		SwitchHelper b(current_case, vstate, condition);
+		b.sw->statement = &cond;
 
-		b.branch({RTLIL::S1}, [&](RTLIL::CaseRule *rule){
-			current_case = rule;
-			transfer_attrs(cond.ifTrue, rule);
+		b.branch({RTLIL::S1}, [&](){
+			current_case->statement = &cond.ifTrue;
 			cond.ifTrue.visit(*this);
 		});
 
 		if (cond.ifFalse) {
-			b.branch({}, [&](RTLIL::CaseRule *rule){
-				current_case = rule;
-				transfer_attrs(*cond.ifFalse, rule);
+			b.branch({}, [&](){
+				current_case->statement = &cond.ifTrue;
 				cond.ifFalse->visit(*this);
 			});	
 		}
-		b.finish(netlist.canvas);
+		b.finish(netlist);
 
-		current_case = case_save;
-		// descend into an empty switch so we force action priority for follow up statements
-		RTLIL::SwitchRule *dummy_switch = new RTLIL::SwitchRule;
-		current_case->switches.push_back(dummy_switch);
-		current_case = new RTLIL::CaseRule;
-		dummy_switch->cases.push_back(current_case);
+		// descend into an empty switch so we force action priority for follow-up statements
+		current_case = current_case->add_switch({})->add_case({});
 	}
 
 	void handle(const ast::CaseStatement &stmt)
@@ -791,28 +843,27 @@ public:
 					  stmt.condition == ast::CaseStatementCondition::WildcardJustZ ||
 					  stmt.condition == ast::CaseStatementCondition::Inside);
 		bool match_z = stmt.condition == ast::CaseStatementCondition::WildcardJustZ;
-		RTLIL::CaseRule *case_save = current_case;
 		RTLIL::SigSpec dispatch = eval(stmt.expr);
 
-		SwitchBuilder b(current_case, &eval.rvalue_subs,
-						stmt.condition == ast::CaseStatementCondition::Inside ?
-						RTLIL::SigSpec(RTLIL::S1) : dispatch);
+		SwitchHelper b(current_case, vstate,
+					   stmt.condition == ast::CaseStatementCondition::Inside ?
+					   RTLIL::SigSpec(RTLIL::S1) : dispatch);
 
+		b.sw->statement = &stmt;
 		switch (stmt.check) {
 		case ast::UniquePriorityCheck::Priority: 
-			b.sw->attributes[Yosys::ID::full_case] = true;
+			b.sw->full_case = true;
 			break;
 		case ast::UniquePriorityCheck::Unique:
-			b.sw->attributes[Yosys::ID::full_case] = true;
-			b.sw->attributes[Yosys::ID::parallel_case] = true;
+			b.sw->full_case = true;
+			b.sw->parallel_case = true;
 			break;
 		case ast::UniquePriorityCheck::Unique0:
-			b.sw->attributes[Yosys::ID::parallel_case] = true;
+			b.sw->parallel_case = true;
 			break;
 		case ast::UniquePriorityCheck::None:
 			break;
 		}
-		transfer_attrs(stmt, b.sw);
 
 		for (auto item : stmt.items) {
 			std::vector<RTLIL::SigSpec> compares;
@@ -833,29 +884,22 @@ public:
 				compares.push_back(compare);
 			}
 			require(stmt, !compares.empty());
-			b.branch(compares, [&](RTLIL::CaseRule *rule) {
-				current_case = rule;
-				transfer_attrs(*item.stmt, rule);
+			b.branch(compares, [&]() {
+				current_case->statement = item.stmt;
 				item.stmt->visit(*this);
 			});
 		}
 
 		if (stmt.defaultCase) {
-			b.branch(std::vector<RTLIL::SigSpec>{}, [&](RTLIL::CaseRule *rule) {
-				current_case = rule;
-				transfer_attrs(*stmt.defaultCase, rule);
+			b.branch(std::vector<RTLIL::SigSpec>{}, [&]() {
+				current_case->statement = stmt.defaultCase;
 				stmt.defaultCase->visit(*this);
 			});
 		}
+		b.finish(netlist);
 
-		b.finish(netlist.canvas);
-
-		current_case = case_save;
-		// descend into an empty switch so we force action priority for follow up statements
-		RTLIL::SwitchRule *dummy_switch = new RTLIL::SwitchRule;
-		current_case->switches.push_back(dummy_switch);
-		current_case = new RTLIL::CaseRule;
-		dummy_switch->cases.push_back(current_case);
+		// descend into an empty switch so we force action priority for follow-up statements
+		current_case = current_case->add_switch({})->add_case({});
 	}
 
 	void handle(const ast::ForLoopStatement &stmt) {
@@ -906,6 +950,7 @@ public:
 			initval = convert_const(symbol.getType().getDefaultValue());
 
 		do_simple_assign(
+			symbol.location,
 			target,
 			initval,
 			true
@@ -918,7 +963,6 @@ public:
 			init_nonstatic_variable(symbol);
 		}
 	}
-
 	void handle(const ast::VariableDeclStatement &stmt) {
 		stmt.symbol.visit(*this);
 	}
@@ -933,7 +977,7 @@ public:
 		auto subroutine = eval.frames.back().subroutine;
 		log_assert(subroutine && subroutine->subroutineKind == ast::SubroutineKind::Function);
 		log_assert(subroutine->returnValVar && stmt.expr);
-		do_simple_assign(eval.wire(*subroutine->returnValVar),
+		do_simple_assign(stmt.sourceRange.start(), eval.wire(*subroutine->returnValVar),
 						 eval(*stmt.expr), true);
 	}
 
@@ -951,6 +995,7 @@ void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 
 void SignalEvalContext::create_local(const ast::Symbol *symbol)
 {
+	log_assert(procedural);
 	log_assert(!frames.empty());
 	log_assert(!frames.back().locals.count(symbol));
 	auto &variable = symbol->as<ast::VariableSymbol>();
@@ -958,7 +1003,7 @@ void SignalEvalContext::create_local(const ast::Symbol *symbol)
 
 	RTLIL::Wire *wire = netlist.canvas->addWire(NEW_ID_SUFFIX("local"),
 								variable.getType().getBitstreamWidth());
-	wire->attributes[ID($nonstatic)] = true;
+	wire->attributes[ID($nonstatic)] = procedural->current_case->level;
 	frames.back().locals[symbol] = wire;
 }
 
@@ -1047,8 +1092,11 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 		{
 			RTLIL::Wire *wire = this->wire(symbol);
 			log_assert(wire);
-			RTLIL::SigSpec value = wire;
-			value.replace(rvalue_subs);
+			RTLIL::SigSpec value;
+			if (procedural)
+				value = procedural->substitute_rvalue(wire);
+			else
+				value = wire;
 			assert_nonstatic_free(value);
 			return value;
 		}
@@ -1122,7 +1170,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 
 			if (unop.op == ast::UnaryOperator::Postincrement) {
 				require(expr, procedural != nullptr);
-				procedural->do_simple_assign(lhs(unop.operand()),
+				procedural->do_simple_assign(expr.sourceRange.start(), lhs(unop.operand()),
 					ret = netlist.Biop(ID($add), left, {RTLIL::S0, RTLIL::S1},
 							 unop.operand().type->isSigned(), unop.operand().type->isSigned(),
 							 left.size()), true);
@@ -1440,38 +1488,32 @@ public:
 		UpdateTiming implicit_timing;
 		ProceduralVisitor visitor(netlist, scope, implicit_timing, ProceduralVisitor::AlwaysProcedure);
 		body.visit(visitor);
-		visitor.copy_case_tree_into(proc->root_case);
 
-		Yosys::pool<RTLIL::SigBit> all_staging_signals;
-		for (auto pair : visitor.staging)
-			all_staging_signals.insert(pair.second);
+		RTLIL::SigSpec all_driven = visitor.all_driven();
 
-		Yosys::pool<RTLIL::SigBit> dangling =
-				detect_possibly_unassigned_subset(all_staging_signals, &proc->root_case);
+		Yosys::pool<RTLIL::SigBit> dangling;
+		if (symbol.procedureKind != ast::ProceduralBlockKind::AlwaysComb) {
+			Yosys::pool<RTLIL::SigBit> driven_pool = {all_driven.begin(), all_driven.end()};
+			dangling = 
+				detect_possibly_unassigned_subset(driven_pool, visitor.root_case);
+		}
+
+		RTLIL::SigSpec dangling_;
+		for (auto bit : dangling)
+			dangling_.append(bit);
+		dangling_.sort_and_unify();
 
 		// left-hand side and right-hand side of the connections to be made
 		RTLIL::SigSpec cl, cr;
-
-		// map from a driven signal to the corresponding latch enable
-		Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> latch_enables;
 		RTLIL::SigSpec latch_driven;
 
 		for (auto driven_bit : visitor.all_driven()) {
-			RTLIL::SigBit staged_bit = visitor.staging.at(driven_bit);
-
-			if (!dangling.count(staged_bit)) {
+			if (!dangling.count(driven_bit)) {
 				// No latch inferred
 				cl.append(driven_bit);
-				cr.append(staged_bit);
+				cr.append(visitor.vstate.visible_assignments.at(driven_bit));
 			} else {
-				// TODO: create latches in groups
-				RTLIL::SigBit en = netlist.canvas->addWire(NEW_ID, 1);
-				RTLIL::Cell *cell = netlist.canvas->addDlatchGate(NEW_ID, en,
-														staged_bit, driven_bit, true);
-				transfer_attrs(symbol, cell);
-				latch_enables[staged_bit] = en;
 				latch_driven.append(driven_bit);
-				proc->root_case.actions.push_back({en, RTLIL::S0});
 			}
 		}
 
@@ -1482,14 +1524,29 @@ public:
 			}
 		}
 
-		if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysComb && !latch_driven.empty()) {
-			for (auto chunk : latch_driven.chunks()) {
-				auto &diag = scope->addDiag(diag::LatchInferred, symbol.location);
-				diag << std::string(log_signal(chunk));
+		if (!latch_driven.empty()) {
+			// map from a driven signal to the corresponding enable/staging signal
+			// TODO: SigSig needlessly costly here
+			Yosys::dict<RTLIL::SigBit, RTLIL::SigSig> signaling;
+			RTLIL::SigSpec enables;
+
+			for (auto bit : latch_driven) {
+				// TODO: create latches in groups
+				RTLIL::SigBit en = netlist.canvas->addWire(NEW_ID, 1);
+				RTLIL::SigBit staging = netlist.canvas->addWire(NEW_ID, 1);
+				RTLIL::Cell *cell = netlist.canvas->addDlatchGate(NEW_ID, en,
+														staging, bit, true);
+				signaling[bit] = {en, staging};
+				enables.append(en);
+				transfer_attrs(symbol, cell);
 			}
+
+			visitor.root_case->aux_actions.push_back(
+						{enables, RTLIL::SigSpec(RTLIL::S0, enables.size())});
+			visitor.root_case->insert_latch_signaling(scope, signaling);
 		}
 
-		insert_assign_enables(latch_enables, &proc->root_case);
+		visitor.root_case->copy_into(&proc->root_case);
 		netlist.GroupConnect(cl, cr);
 	}
 
@@ -1602,7 +1659,7 @@ public:
 					aloads.push_back({
 						found->signal,
 						found->edge_polarity,
-						visitor.staging,
+						visitor.vstate.visible_assignments,
 						&cond_stmt.ifTrue
 					});
 
@@ -1632,12 +1689,9 @@ public:
 			RTLIL::SigSpec driven = visitor.all_driven();
 			for (auto driven_chunk : driven.chunks()) {
 				RTLIL::SigSpec staging_chunk = driven_chunk;
-				staging_chunk.replace(visitor.staging);
-
-				proc->root_case.actions.push_back({staging_chunk, driven_chunk});
+				staging_chunk.replace(visitor.vstate.visible_assignments);
 
 				RTLIL::Cell *cell;
-
 				if (aloads.empty()) {
 					cell = netlist.canvas->addDff(NEW_ID,
 											timing.triggers[0].signal, staging_chunk, driven_chunk,
@@ -2053,9 +2107,10 @@ public:
 						return;
 
 					std::string kind{ast::toString(sym.kind)};
+					log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
+
 					auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
 					transfer_attrs(sym, w);
-					log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
 				}
 			}
 		}, [&](auto&, const ast::InstanceSymbol&) {

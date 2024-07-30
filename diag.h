@@ -10,7 +10,6 @@ namespace diag {
 	slang::DiagCode IfElseAloadPolarity(slang::DiagSubsystem::Netlist, 1008);
 	slang::DiagCode IfElseAloadMismatch(slang::DiagSubsystem::Netlist, 1009);
 	slang::DiagCode LatchNotInferred(slang::DiagSubsystem::Netlist, 1010);
-	slang::DiagCode LatchInferred(slang::DiagSubsystem::Netlist, 1011);
 	slang::DiagCode MissingAload(slang::DiagSubsystem::Netlist, 1012);
 	slang::DiagCode NoteProcessDriver(slang::DiagSubsystem::Netlist, 1013);
 	slang::DiagCode AlwaysFFBadTiming(slang::DiagSubsystem::Netlist, 1014);
@@ -18,6 +17,8 @@ namespace diag {
 	slang::DiagCode ForLoopIndeterminate(slang::DiagSubsystem::Netlist, 1015);
 	slang::DiagCode NoteUnrollCycles(slang::DiagSubsystem::Netlist, 1016);
 	slang::DiagCode MissingStopCondition(slang::DiagSubsystem::Netlist, 1017);
+
+	slang::DiagCode ComplexLatchLHS(slang::DiagSubsystem::Netlist, 1018);
 
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
@@ -39,12 +40,9 @@ namespace diag {
 
 		engine.setMessage(IfElseAloadPolarity, "polarity of the condition doesn't match the edge sensitivity");
 		engine.setMessage(IfElseAloadMismatch, "condition cannot be matched to any signal from the event list");
-		engine.setSeverity(LatchInferred, slang::DiagnosticSeverity::Error);
 
 		engine.setMessage(LatchNotInferred, "latch not inferred for variable '{}' driven from always_latch procedure");
 		engine.setSeverity(LatchNotInferred, slang::DiagnosticSeverity::Error);
-		engine.setMessage(LatchInferred, "latch inferred for variable '{}' driven from always_comb procedure");
-		engine.setSeverity(LatchInferred, slang::DiagnosticSeverity::Error);
 
 		engine.setMessage(MissingAload, "asynchronous load value missing for variable '{}'");
 		engine.setSeverity(MissingAload, slang::DiagnosticSeverity::Error);
@@ -61,6 +59,9 @@ namespace diag {
 
 		engine.setMessage(MissingStopCondition, "stop condition is missing; loop cannot be unrolled");
 		engine.setSeverity(MissingStopCondition, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(ComplexLatchLHS, "complex lhs in assignment to latched variable '{}' unsupported");
+		engine.setSeverity(ComplexLatchLHS, slang::DiagnosticSeverity::Error);
 
 		engine.setSeverity(unsynthesizable, slang::DiagnosticSeverity::Error);
 		engine.setSeverity(sanity, slang::DiagnosticSeverity::Error);
