@@ -1,6 +1,6 @@
 [submodule "slang"]
 	path = third_party/slang
-	url = https://github.com/MikePopoloski/slang.git
+	url = https://github.com/povik/slang.git
 [submodule "tests/third_party/yosys"]
 	path = tests/third_party/yosys
 	url = https://github.com/YosysHQ/yosys.git
