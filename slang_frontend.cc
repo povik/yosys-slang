@@ -1164,6 +1164,11 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			ret = (*this)(expr.as<ast::NamedValueExpression>().symbol);
 		}
 		break;
+	case ast::ExpressionKind::HierarchicalValue:
+		{
+			ret = (*this)(expr.as<ast::HierarchicalValueExpression>().symbol);
+		}
+		break;
 	case ast::ExpressionKind::UnaryOp:
 		{
 			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
