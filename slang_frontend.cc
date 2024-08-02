@@ -790,7 +790,8 @@ public:
 		// TODO: insert the actual module name
 		fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
 						  std::string{call.getSubroutineName()}, netlist.canvas->name);
-		fmt.append_literal("\n");
+		if (call.getSubroutineName() == "$display")
+			fmt.append_literal("\n");
 		fmt.emit_rtlil(cell);
 	}
 
@@ -1367,7 +1368,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Call:
 		{
 			const auto &call = expr.as<ast::CallExpression>();
-			if (call.isSystemCall() && call.getSubroutineName() == "$display") {
+			if (call.isSystemCall() && (call.getSubroutineName() == "$display"
+					|| call.getSubroutineName() == "$write")) {
 				require(expr, procedural != nullptr);
 				procedural->handle_display(call);
 			} else if (call.isSystemCall()) {
