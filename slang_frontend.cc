@@ -1325,7 +1325,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 
 			ret = {};
 			for (auto elem : pattern_expr.elements())
-				ret.append((*this)(*elem));
+				ret = {ret, (*this)(*elem)};
 			ret = ret.repeat(repl_count);				
 		}
 		break;
