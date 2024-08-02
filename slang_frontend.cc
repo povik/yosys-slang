@@ -1205,6 +1205,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			if (invert) {
 				RTLIL::SigSpec new_ret = mod->addWire(NEW_ID, 1);
 				transfer_attrs(unop, mod->addLogicNot(NEW_ID, ret, new_ret));
+				ret = new_ret;
 			}
 		}
 		break;
