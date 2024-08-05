@@ -1,0 +1,9 @@
+read_slang --top croc_soc -f croc.f \
+		-D SYNTHESIS -D COMMON_CELLS_ASSERTS_OFF --compat-mode \
+		--allow-use-before-declare --keep-hierarchy -D TARGET_SYNTHESIS
+hierarchy -top croc_soc
+stat
+check -assert
+prep -nomem
+bwmuxmap
+write_cxxrtl croc_soc.cc

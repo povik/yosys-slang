@@ -7,3 +7,6 @@
 [submodule "tests/third_party/picorv32"]
 	path = tests/third_party/picorv32
 	url = https://github.com/YosysHQ/picorv32.git
+[submodule "tests/third_party/croc"]
+	path = tests/third_party/croc
+	url = https://github.com/pulp-platform/croc.git
