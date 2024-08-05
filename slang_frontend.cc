@@ -1055,6 +1055,15 @@ public:
 
 void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 {
+	if (subroutine) {
+		std::string hier;
+		subroutine->getHierarchicalPath(hier);
+		log_debug("%s-> push (%s)\n", std::string(frames.size(), ' ').c_str(),
+				  hier.c_str());
+	} else {
+		log_debug("%s-> push\n", std::string(frames.size(), ' ').c_str());
+	}
+
 	frames.push_back({});
 	frames.back().subroutine = subroutine;
 }
@@ -1063,6 +1072,13 @@ void SignalEvalContext::create_local(const ast::Symbol *symbol)
 {
 	log_assert(procedural);
 	log_assert(!frames.empty());
+
+	{
+		std::string hier;
+		symbol->getHierarchicalPath(hier);
+		log_debug("%s- local (%s)\n", std::string(frames.size(), ' ').c_str(), hier.c_str());
+	}
+
 	log_assert(!frames.back().locals.count(symbol));
 	auto &variable = symbol->as<ast::VariableSymbol>();
 	log_assert(variable.lifetime == ast::VariableLifetime::Automatic);
@@ -1077,6 +1093,8 @@ void SignalEvalContext::pop_frame()
 {
 	log_assert(!frames.empty());
 	frames.pop_back();
+
+	log_debug("%s<- pop\n", std::string(frames.size(), ' ').c_str());
 }
 
 RTLIL::Wire *SignalEvalContext::wire(const ast::Symbol &symbol)
