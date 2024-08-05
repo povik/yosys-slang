@@ -1666,7 +1666,7 @@ public:
 				// TODO: create latches in groups
 				RTLIL::SigBit en = netlist.canvas->addWire(NEW_ID, 1);
 				RTLIL::SigBit staging = netlist.canvas->addWire(NEW_ID, 1);
-				RTLIL::Cell *cell = netlist.canvas->addDlatchGate(NEW_ID, en,
+				RTLIL::Cell *cell = netlist.canvas->addDlatch(NEW_ID, en,
 														staging, bit, true);
 				signaling[bit] = {en, staging};
 				enables.append(en);
