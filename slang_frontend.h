@@ -107,6 +107,11 @@ struct NetlistContext : RTLILBuilder {
 
 	RTLIL::Wire *wire(const ast::Symbol &sym);
 
+	struct Memory {
+		int num_wr_ports = 0;
+	};
+	Yosys::dict<RTLIL::IdString, Memory> emitted_mems;
+
 	NetlistContext(RTLIL::Design *design,
 		ast::Compilation &compilation,
 		const ast::InstanceSymbol &instance);

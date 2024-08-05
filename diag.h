@@ -20,6 +20,10 @@ namespace diag {
 
 	slang::DiagCode ComplexLatchLHS(slang::DiagSubsystem::Netlist, 1018);
 
+	slang::DiagCode BadMemoryExpr(slang::DiagSubsystem::Netlist, 1019);
+	slang::DiagCode MemoryNotInferred(slang::DiagSubsystem::Netlist, 1020);
+	slang::DiagCode NoteUsageBlame(slang::DiagSubsystem::Netlist, 1021);
+
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
 	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
@@ -62,6 +66,14 @@ namespace diag {
 
 		engine.setMessage(ComplexLatchLHS, "complex lhs in assignment to latched variable '{}' unsupported");
 		engine.setSeverity(ComplexLatchLHS, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(BadMemoryExpr, "unsupported operation on a memory variable");
+		engine.setSeverity(BadMemoryExpr, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(MemoryNotInferred, "memory not inferred despite a memory attribute");
+		engine.setSeverity(MemoryNotInferred, slang::DiagnosticSeverity::Error);
+		engine.setMessage(NoteUsageBlame, "inference prevented by variable usage here");
+		engine.setSeverity(NoteUsageBlame, slang::DiagnosticSeverity::Note);
 
 		engine.setSeverity(unsynthesizable, slang::DiagnosticSeverity::Error);
 		engine.setSeverity(sanity, slang::DiagnosticSeverity::Error);

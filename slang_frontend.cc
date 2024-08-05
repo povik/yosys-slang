@@ -353,6 +353,19 @@ RTLIL::SigBit inside_comparison(SignalEvalContext &eval, RTLIL::SigSpec left,
 	}
 }
 
+Yosys::pool<const ast::Symbol *> memory_candidates;
+
+bool is_inferred_memory(const ast::Symbol &symbol)
+{
+	return memory_candidates.count(&symbol);
+}
+
+bool is_inferred_memory(const ast::Expression &expr)
+{
+	return expr.kind == ast::ExpressionKind::NamedValue &&
+			is_inferred_memory(expr.as<ast::NamedValueExpression>().symbol);
+}
+
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
 	const ast::Scope *diag_scope;
@@ -372,6 +385,7 @@ public:
 		ContinuousAssign
 	} mode;
 
+	std::vector<RTLIL::Cell *> preceding_memwr;
 	int effects_priority = 0;
 
 	// TODO: revisit diag_scope
@@ -624,6 +638,7 @@ public:
 		RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
 
 		bool finished_etching = false;
+		bool memory_write = false;
 		while (!finished_etching) {
 			switch (raw_lexpr->kind) {
 			case ast::ExpressionKind::RangeSelect:
@@ -646,6 +661,13 @@ public:
 			case ast::ExpressionKind::ElementSelect:
 				{
 					auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
+
+					if (is_inferred_memory(sel.value())) {
+						finished_etching = true;
+						memory_write = true;
+						break;
+					}
+
 					Addressing addr(eval, sel);
 					raw_mask = addr.demux(raw_mask, sel.value().type->getBitstreamWidth());
 					raw_rvalue = raw_rvalue.repeat(addr.range.width());
@@ -674,8 +696,51 @@ public:
 			log_assert(raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
 		}
 
-		RTLIL::SigSpec lvalue = eval.lhs(*raw_lexpr);
-		do_assign(assign.sourceRange.start(), lvalue, raw_rvalue, raw_mask, blocking);
+		if (memory_write) {
+			log_assert(raw_lexpr->kind == ast::ExpressionKind::ElementSelect);
+			auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
+			log_assert(is_inferred_memory(sel.value()));
+			require(assign, !blocking);
+
+			RTLIL::IdString id = netlist.id(sel.value().as<ast::NamedValueExpression>().symbol);
+			RTLIL::Cell *memwr = netlist.canvas->addCell(NEW_ID, ID($memwr_v2));
+			memwr->setParam(ID::MEMID, id.str());
+			if (timing.implicit()) {
+				memwr->setParam(ID::CLK_ENABLE, false);
+				memwr->setParam(ID::CLK_POLARITY, false);
+				memwr->setPort(ID::CLK, RTLIL::Sx);
+			} else {
+				require(assign, timing.triggers.size() == 1);
+				auto& trigger = timing.triggers[0];
+				memwr->setParam(ID::CLK_ENABLE, true);
+				memwr->setParam(ID::CLK_POLARITY, trigger.edge_polarity);
+				memwr->setPort(ID::CLK, trigger.signal);
+			}
+			int portid = netlist.emitted_mems[id].num_wr_ports++;
+			memwr->setParam(ID::PORTID, portid);
+			RTLIL::Const mask(RTLIL::S0, portid);
+			for (auto prev : preceding_memwr) {
+				log_assert(prev->type == ID($memwr_v2));
+				if (prev->getParam(ID::MEMID) == memwr->getParam(ID::MEMID)) {
+					mask[prev->getParam(ID::PORTID).as_int()] = RTLIL::S1;
+				}
+			}
+			memwr->setParam(ID::PRIORITY_MASK, mask);
+			memwr->setPort(ID::EN, netlist.Mux(
+				RTLIL::SigSpec(RTLIL::S0, raw_mask.size()), raw_mask,
+				netlist.LogicAnd(case_enable(), timing.background_enable)));
+
+			RTLIL::SigSpec addr = eval(sel.selector());
+
+			memwr->setParam(ID::ABITS, addr.size());
+			memwr->setPort(ID::ADDR, addr);
+			memwr->setParam(ID::WIDTH, raw_rvalue.size());
+			memwr->setPort(ID::DATA, raw_rvalue);
+			preceding_memwr.push_back(memwr);
+		} else {
+			RTLIL::SigSpec lvalue = eval.lhs(*raw_lexpr);
+			do_assign(assign.sourceRange.start(), lvalue, raw_rvalue, raw_mask, blocking);
+		}
 	}
 
 	void handle(const ast::ImmediateAssertionStatement &stmt)
@@ -1038,7 +1103,15 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	switch (expr.kind) {
 	case ast::ExpressionKind::NamedValue:
 		{
-			ret = wire(expr.as<ast::NamedValueExpression>().symbol);
+			const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
+			if (is_inferred_memory(symbol)) {
+				// TODO: scope
+				netlist.realm.addDiag(diag::BadMemoryExpr, expr.sourceRange);
+				ret = netlist.canvas->addWire(NEW_ID, expr.type->getBitstreamWidth());
+				break;
+			}
+
+			ret = wire(symbol);
 		}
 		break;
 	case ast::ExpressionKind::RangeSelect:
@@ -1160,13 +1233,17 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			break;
 		}
 	case ast::ExpressionKind::NamedValue:
-		{
-			ret = (*this)(expr.as<ast::NamedValueExpression>().symbol);
-		}
-		break;
 	case ast::ExpressionKind::HierarchicalValue:
 		{
-			ret = (*this)(expr.as<ast::HierarchicalValueExpression>().symbol);
+			const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
+			if (is_inferred_memory(symbol)) {
+				// TODO: scope
+				netlist.realm.addDiag(diag::BadMemoryExpr, expr.sourceRange);
+				ret = netlist.canvas->addWire(NEW_ID, expr.type->getBitstreamWidth());
+				break;
+			}
+
+			ret = (*this)(symbol);
 		}
 		break;
 	case ast::ExpressionKind::UnaryOp:
@@ -1306,6 +1383,35 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::ElementSelect:
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
+
+			if (is_inferred_memory(elemsel.value())) {
+				int width = elemsel.type->getBitstreamWidth();
+				RTLIL::IdString id = netlist.id(elemsel.value()
+										.as<ast::NamedValueExpression>().symbol);
+				RTLIL::Cell *memrd = netlist.canvas->addCell(NEW_ID, ID($memrd_v2));
+				memrd->setParam(ID::MEMID, id.str());
+				memrd->setParam(ID::CLK_ENABLE, false);
+				memrd->setParam(ID::CLK_POLARITY, false);
+				memrd->setParam(ID::TRANSPARENCY_MASK, RTLIL::Const(0, 0));
+				memrd->setParam(ID::COLLISION_X_MASK, RTLIL::Const(0, 0));
+				memrd->setParam(ID::CE_OVER_SRST, false);
+				memrd->setParam(ID::ARST_VALUE, RTLIL::Const(RTLIL::Sx, width));
+				memrd->setParam(ID::SRST_VALUE, RTLIL::Const(RTLIL::Sx, width));
+				memrd->setParam(ID::INIT_VALUE, RTLIL::Const(RTLIL::Sx, width));
+				memrd->setPort(ID::CLK, RTLIL::Sx);
+				memrd->setPort(ID::EN, RTLIL::S1);
+				memrd->setPort(ID::ARST, RTLIL::S0);
+				memrd->setPort(ID::SRST, RTLIL::S0);
+				// TODO: signedness
+				RTLIL::SigSpec addr = (*this)(elemsel.selector());
+				memrd->setPort(ID::ADDR, addr);
+				memrd->setParam(ID::ABITS, addr.size());
+				ret = netlist.canvas->addWire(NEW_ID, width);
+				memrd->setPort(ID::DATA, ret);
+				memrd->setParam(ID::WIDTH, width);
+				break;
+			}
+
 			Addressing addr(*this, elemsel);
 			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
@@ -2117,8 +2223,20 @@ public:
 					std::string kind{ast::toString(sym.kind)};
 					log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
 
-					auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
-					transfer_attrs(sym, w);
+					if (is_inferred_memory(sym)) {
+						RTLIL::Memory *m = new RTLIL::Memory;
+						transfer_attrs(sym, m);
+						m->name = netlist.id(sym);
+						m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
+						auto range = sym.getType().getFixedRange();
+						m->start_offset = range.lower();
+						m->size = range.width();
+						netlist.canvas->memories[m->name] = m;
+						netlist.emitted_mems[m->name] = {};
+					} else {
+						auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
+						transfer_attrs(sym, w);
+					}
 				}
 			}
 		}, [&](auto&, const ast::InstanceSymbol&) {
@@ -2327,6 +2445,8 @@ NetlistContext::~NetlistContext()
 	canvas->check();
 }
 
+#include "memory.h"
+
 USING_YOSYS_NAMESPACE
 
 struct SlangFrontend : Frontend {
@@ -2389,6 +2509,10 @@ struct SlangFrontend : Frontend {
 			global_diagengine = &driver.diagEngine;
 			global_diagclient = driver.diagClient.get();
 			global_diagclient->clear();
+
+			InferredMemoryDetector mem_detect;
+			compilation->getRoot().visit(mem_detect);
+			memory_candidates = mem_detect.memory_candidates;
 
 			{
 				std::vector<const ast::InstanceSymbol *> queue;
