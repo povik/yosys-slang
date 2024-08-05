@@ -1801,7 +1801,7 @@ public:
 			visitor.copy_case_tree_into(proc->root_case);
 
 			RTLIL::SigSpec driven = visitor.all_driven();
-			for (auto driven_chunk : driven.chunks()) {
+			for (RTLIL::SigSpec driven_chunk : driven.chunks()) {
 				RTLIL::SigSpec staging_chunk = driven_chunk;
 				staging_chunk.replace(visitor.vstate.visible_assignments);
 
@@ -1810,28 +1810,48 @@ public:
 					cell = netlist.canvas->addDff(NEW_ID,
 											timing.triggers[0].signal, staging_chunk, driven_chunk,
 											timing.triggers[0].edge_polarity);
+					transfer_attrs(symbol, cell);
 				} else if (aloads.size() == 1) {
 					RTLIL::SigSpec aload_chunk = driven_chunk;
 					aload_chunk.replace(aloads[0].values);
 
-					for (int i = 0; i < aload_chunk.size(); i++) {
-						if (aload_chunk[i] == RTLIL::SigSpec(driven_chunk)[i]) {
-							auto &diag = scope->addDiag(diag::MissingAload, aloads[0].ast_node->sourceRange);
-							diag << std::string(log_signal(RTLIL::SigSpec(driven_chunk)[i]));
-							diag.addNote(diag::NoteProcessDriver, symbol.location);
-							diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-							aload_chunk[i] = RTLIL::Sx;
+					RTLIL::SigSpec aldff_d, aldff_q, aldff_aload;
+					RTLIL::SigSpec dffe_d, dffe_q; // fallback
+
+					for (int i = 0; i < driven_chunk.size(); i++) {
+						if (aload_chunk[i] != driven_chunk[i]) {
+							aldff_d.append(staging_chunk[i]);
+							aldff_q.append(driven_chunk[i]);
+							aldff_aload.append(aload_chunk[i]);
+						} else {
+							dffe_d.append(staging_chunk[i]);
+							dffe_q.append(driven_chunk[i]);
 						}
 					}
 
-					cell = netlist.canvas->addAldff(NEW_ID,
-											timing.triggers[0].signal, aloads[0].trigger,
-											staging_chunk, driven_chunk, aload_chunk,
-											timing.triggers[0].edge_polarity, aloads[0].trigger_polarity);
+					if (!aldff_q.empty()) {
+						cell = netlist.canvas->addAldff(NEW_ID,
+												timing.triggers[0].signal, aloads[0].trigger,
+												aldff_d, aldff_q, aldff_aload,
+												timing.triggers[0].edge_polarity, aloads[0].trigger_polarity);
+						transfer_attrs(symbol, cell);
+					}
+
+					if (!dffe_q.empty()) {
+						auto &diag = scope->addDiag(diag::MissingAload, aloads[0].ast_node->sourceRange);
+						diag << std::string(log_signal(dffe_q));
+						diag.addNote(diag::NoteProcessDriver, symbol.location);
+						diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+
+						cell = netlist.canvas->addDffe(NEW_ID,
+												timing.triggers[0].signal, aloads[0].trigger,
+												dffe_d, dffe_q,
+												timing.triggers[0].edge_polarity, !aloads[0].trigger_polarity);
+						transfer_attrs(symbol, cell);
+					}
 				} else {
 					log_abort();
 				}
-				transfer_attrs(symbol, cell);
 			}
 		}
 	}

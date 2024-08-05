@@ -49,7 +49,7 @@ namespace diag {
 		engine.setSeverity(LatchNotInferred, slang::DiagnosticSeverity::Error);
 
 		engine.setMessage(MissingAload, "asynchronous load value missing for variable '{}'");
-		engine.setSeverity(MissingAload, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(MissingAload, slang::DiagnosticSeverity::Warning);
 		engine.setMessage(NoteProcessDriver, "variable driven from this procedure");
 		engine.setSeverity(NoteProcessDriver, slang::DiagnosticSeverity::Note);
 
