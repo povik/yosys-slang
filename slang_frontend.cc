@@ -2021,6 +2021,11 @@ public:
 		if (sym.getParentScope()->getContainingInstance() != &netlist.realm)
 			return;
 
+		if (!sym.internalSymbol) {
+			// This can happen in case of a compilation error.
+			return;
+		}
+
 		RTLIL::Wire *wire = netlist.wire(*sym.internalSymbol);
 		log_assert(wire);
 		switch (sym.direction) {
