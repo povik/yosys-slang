@@ -1275,7 +1275,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
 			RTLIL::SigSpec left = (*this)(unop.operand());
 
-			if (unop.op == ast::UnaryOperator::Postincrement) {
+			if (unop.op == ast::UnaryOperator::Postincrement
+					|| unop.op == ast::UnaryOperator::Preincrement) {
 				require(expr, procedural != nullptr);
 				procedural->do_simple_assign(expr.sourceRange.start(), lhs(unop.operand()),
 					ret = netlist.Biop(ID($add), left, {RTLIL::S0, RTLIL::S1},
