@@ -1,6 +1,6 @@
 # yosys & slang: A match made in heaven
 
-This is an incomplete slang-based frontend for Yosys. You can use it to read SystemVerilog sources into Yosys.
+This is a slang-based frontend for Yosys undergoing active development. You can use it to read SystemVerilog sources into Yosys.
 
 ## Background
 
@@ -12,15 +12,13 @@ This combination of software projects (Yosys and Slang) is perfect, because:
 
 ## Status
 
-Basically this can parse out simple Verilog projects (it does parse a functioning [picorv32](https://github.com/YosysHQ/picorv32)!). Some missing features are:
+*News:* The [Microelectronics Design Center](https://dz.ethz.ch/) at ETH Zürich is now sponsoring yosys-slang development for usage in ASIC synthesis flows!
 
- * Memory inference
+yosys-slang understands some synthesizable subset of SystemVerilog. For any user input, it should either emit a correct netlist (under synthesis semantics), or produce an error. If that's not the case, that's a serious bug.
 
- * Interfaces
+To a user, the error messages can be cryptic and expose details about the inner workings of the frontend. Nonetheless they should point to the filename and line number with the offending input.
 
- * Full-featured execution of initial blocks
-
- * Assertions, formal statements
+If you wish to sponsor the project's development, and prioritize certain features, please get in touch.
 
 `yosys-slang` is on the [CHIPS Alliance sv-tests dashboard](https://chipsalliance.github.io/sv-tests-results/) where failing test cases and their error messages (with useful line numbers and AST dumps!) can be browsed.
 
@@ -66,8 +64,8 @@ Sample usage:
 
 ## Contributing
 
-This is foremost a demonstrator with no fixed plans for its future. Any contributions, gradual improvements, or just better characterization of the available and missing feature sets are welcome! The glue code here understands some AST features, and rejects others, but it's not clear what language features that translates to when there's preprocessing done by slang.
+Contributions are welcome! If you intent to develop a particular feature, feel free to get in touch and consult on the appropriate approach.
 
 ## License
 
-The main glue code (`slang_frontend.cc` `slang_frontend.h` `proc_usage.cc` `addressing.h`) is distributed under the ISC license, see `LICENSE`. The `initial_eval.cc` code contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
+The main glue code (`slang_frontend.cc` `slang_frontend.h` `memory.h` `addressing.h`) is distributed under the ISC license, see `LICENSE`. The `initial_eval.cc` code contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
