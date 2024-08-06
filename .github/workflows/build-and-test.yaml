@@ -125,9 +125,6 @@ jobs:
         run: |
           cd tests/third_party/yosys
           sudo make install
-      - name: Pull submodules for tests
-        run: |
-          git submodule update --depth 0 -- tests/third_party/picorv32
       - name: Run tests
         run: |
           tests/run.sh
