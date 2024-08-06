@@ -786,7 +786,13 @@ public:
 
 		eval.push_frame(subroutine);
 		for (auto& member : subroutine->members())
-			member.visit(*this);
+		if (ast::VariableSymbol::isKind(member.kind)) {
+			auto& var = member.as<ast::VariableSymbol>();
+
+			if (var.kind == ast::SymbolKind::FormalArgument ||
+					var.flags.has(ast::VariableFlags::CompilerGenerated))
+				var.visit(*this);
+		}
 
 		for (int i = 0; i < (int) arg_symbols.size(); i++) {
 			auto dir = arg_symbols[i]->direction;
