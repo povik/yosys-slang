@@ -987,7 +987,7 @@ public:
 		}
 
 		RTLIL::Wire *disable = netlist.canvas->addWire(NEW_ID_SUFFIX("disable"), 1);
-		disable->attributes[ID($nonstatic)] = 1;
+		disable->attributes[ID($nonstatic)] = current_case->level;
 		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
 
 		while (true) {
