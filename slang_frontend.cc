@@ -985,13 +985,13 @@ public:
 			diag_scope->addDiag(diag::MissingStopCondition, stmt.sourceRange.start());
 			return;
 		}
+
 		SwitchHelper b(current_case, vstate, {RTLIL::S0});
 		b.sw->statement = &stmt;
 
 		RTLIL::Wire *disable = netlist.canvas->addWire(NEW_ID_SUFFIX("disable"), 1);
 		disable->attributes[ID($nonstatic)] = 1;
 		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
-		eval.frames.back().loopDisableWire = disable;
 
 		while (true) {
 			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
@@ -1007,7 +1007,9 @@ public:
 
 			b.branch({substitute_rvalue(disable)}, [&]() {
 				current_case->statement = &stmt.body;
+				eval.push_frame(nullptr, disable);
 				stmt.body.visit(*this);
+				eval.pop_frame();
 			});
 
 			for (auto step : stmt.steps)
@@ -1077,7 +1079,7 @@ public:
 	}
 };
 
-void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
+void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLIL::Wire *loopDisable)
 {
 	if (subroutine) {
 		std::string hier;
@@ -1090,6 +1092,7 @@ void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 
 	frames.push_back({});
 	frames.back().subroutine = subroutine;
+	frames.back().loopDisableWire= loopDisable;
 }
 
 void SignalEvalContext::create_local(const ast::Symbol *symbol)

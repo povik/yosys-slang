@@ -34,7 +34,7 @@ struct SignalEvalContext {
 
 	std::vector<Frame> frames;
 
-	void push_frame(const ast::SubroutineSymbol *subroutine=nullptr);
+	void push_frame(const ast::SubroutineSymbol *subroutine=nullptr, RTLIL::Wire *loopDisable=nullptr);
 	void create_local(const ast::Symbol *symbol);
 	void pop_frame();
 	RTLIL::Wire *wire(const ast::Symbol &symbol);
