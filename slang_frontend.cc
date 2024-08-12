@@ -986,14 +986,14 @@ public:
 			return;
 		}
 
-		SwitchHelper b(current_case, vstate, {RTLIL::S0});
-		b.sw->statement = &stmt;
-
 		RTLIL::Wire *disable = netlist.canvas->addWire(NEW_ID_SUFFIX("disable"), 1);
 		disable->attributes[ID($nonstatic)] = 1;
 		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
 
 		while (true) {
+			SwitchHelper b(current_case, vstate, {RTLIL::S0});
+			b.sw->statement = &stmt;
+
 			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
 			if (!cv.is_fully_const()) {
 				auto& diag = diag_scope->addDiag(diag::ForLoopIndeterminate, stmt.sourceRange);
@@ -1016,8 +1016,8 @@ public:
 				eval(*step);
 
 			ncycles++;
+			b.finish(netlist);
 		}
-		b.finish(netlist);
 		current_case = current_case->add_switch({})->add_case({});
 	}
 
