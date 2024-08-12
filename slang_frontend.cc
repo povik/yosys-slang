@@ -820,9 +820,6 @@ public:
 		return ret;
 	}
 
-	std::vector<RTLIL::Wire*> disableLoop_ins;
-	std::vector<RTLIL::SigSpec> disableLoop_outs;
-
 	void handle_display(const ast::CallExpression &call)
 	{
 		auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
@@ -982,19 +979,19 @@ public:
 		for (auto init : stmt.initializers)
 			eval(*init);
 
-		disableLoop_ins = {};
-		disableLoop_outs = {};
-
-
 		int ncycles = 0;
 
 		if (!stmt.stopExpr) {
 			diag_scope->addDiag(diag::MissingStopCondition, stmt.sourceRange.start());
 			return;
 		}
-
 		SwitchHelper b(current_case, vstate, {RTLIL::S0});
 		b.sw->statement = &stmt;
+
+		RTLIL::Wire *disable = netlist.canvas->addWire(NEW_ID_SUFFIX("disable"), 1);
+		disable->attributes[ID($nonstatic)] = 1;
+		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
+		eval.frames.back().loopDisableWire = disable;
 
 		while (true) {
 			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
@@ -1008,28 +1005,10 @@ public:
 			if (!cv.as_const().as_bool())
 				break;
 
-			RTLIL::SigSpec disable;
-
-			if (disableLoop_outs.empty()) {
-				disable = RTLIL::S0;
-			} else {
-				disable = disableLoop_outs.back();
-			}
-
-			// add next disable wire
-			RTLIL::Wire *breakNextLoop = netlist.canvas->addWire(NEW_ID_SUFFIX("breakNextLoop"), 1);
-			RTLIL::SigSpec breakNextLoopOred = netlist.LogicOr(breakNextLoop, disable);
-			do_simple_assign(stmt.sourceRange.start(), breakNextLoop, RTLIL::S0, false);
-
-			disableLoop_ins.push_back(breakNextLoop);
-			disableLoop_outs.push_back(breakNextLoopOred);
-
-			eval.push_frame();
-			b.branch({disable}, [&]() {	// disable on previous break
+			b.branch({substitute_rvalue(disable)}, [&]() {
 				current_case->statement = &stmt.body;
 				stmt.body.visit(*this);
 			});
-			eval.pop_frame();
 
 			for (auto step : stmt.steps)
 				eval(*step);
@@ -1073,8 +1052,9 @@ public:
 
 	void handle(const ast::BreakStatement &brk)
 	{
-		log_assert(!disableLoop_ins.empty());
-		do_simple_assign(brk.sourceRange.start(), disableLoop_ins.back(), RTLIL::S1, false);
+		log_assert(!eval.frames.empty());
+		log_assert(eval.frames.back().loopDisableWire != nullptr);
+		do_simple_assign(brk.sourceRange.start(), eval.frames.back().loopDisableWire, RTLIL::S1, true);
 	}
 
 	void handle(const ast::Statement &stmt)

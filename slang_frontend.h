@@ -29,8 +29,7 @@ struct SignalEvalContext {
 	struct Frame {
 		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
 		const ast::SubroutineSymbol *subroutine;
-		std::vector<RTLIL::Wire*> disableLoop_ins;
-		std::vector<RTLIL::SigSpec> disableLoop_outs;
+		RTLIL::Wire* loopDisableWire;
 	};
 
 	std::vector<Frame> frames;
