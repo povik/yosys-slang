@@ -991,9 +991,6 @@ public:
 		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
 
 		while (true) {
-			SwitchHelper b(current_case, vstate, {RTLIL::S0});
-			b.sw->statement = &stmt;
-
 			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
 			if (!cv.is_fully_const()) {
 				auto& diag = diag_scope->addDiag(diag::ForLoopIndeterminate, stmt.sourceRange);
@@ -1005,18 +1002,21 @@ public:
 			if (!cv.as_const().as_bool())
 				break;
 
+			SwitchHelper b(current_case, vstate, {RTLIL::S0});
+			b.sw->statement = &stmt;
+
 			b.branch({substitute_rvalue(disable)}, [&]() {
 				current_case->statement = &stmt.body;
 				eval.push_frame(nullptr, disable);
 				stmt.body.visit(*this);
 				eval.pop_frame();
 			});
+			b.finish(netlist);
 
 			for (auto step : stmt.steps)
 				eval(*step);
 
 			ncycles++;
-			b.finish(netlist);
 		}
 		current_case = current_case->add_switch({})->add_case({});
 	}
