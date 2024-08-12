@@ -29,6 +29,8 @@ struct SignalEvalContext {
 	struct Frame {
 		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
 		const ast::SubroutineSymbol *subroutine;
+		std::vector<RTLIL::Wire*> disableLoop_ins;
+		std::vector<RTLIL::SigSpec> disableLoop_outs;
 	};
 
 	std::vector<Frame> frames;
@@ -65,6 +67,7 @@ struct RTLILBuilder {
 	SigSpec EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b);
 	SigSpec Eq(SigSpec a, SigSpec b);
 	SigSpec LogicAnd(SigSpec a, SigSpec b);
+	SigSpec LogicOr(SigSpec a, SigSpec b);
 	SigSpec LogicNot(SigSpec a);
 	SigSpec Mux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bwmux(SigSpec a, SigSpec b, SigSpec s);

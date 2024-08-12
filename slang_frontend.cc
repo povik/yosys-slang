@@ -820,6 +820,9 @@ public:
 		return ret;
 	}
 
+	std::vector<RTLIL::Wire*> disableLoop_ins;
+	std::vector<RTLIL::SigSpec> disableLoop_outs;
+
 	void handle_display(const ast::CallExpression &call)
 	{
 		auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
@@ -974,9 +977,14 @@ public:
 		current_case = current_case->add_switch({})->add_case({});
 	}
 
+
 	void handle(const ast::ForLoopStatement &stmt) {
 		for (auto init : stmt.initializers)
 			eval(*init);
+
+		disableLoop_ins = {};
+		disableLoop_outs = {};
+
 
 		int ncycles = 0;
 
@@ -984,6 +992,9 @@ public:
 			diag_scope->addDiag(diag::MissingStopCondition, stmt.sourceRange.start());
 			return;
 		}
+
+		SwitchHelper b(current_case, vstate, {RTLIL::S0});
+		b.sw->statement = &stmt;
 
 		while (true) {
 			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
@@ -997,8 +1008,27 @@ public:
 			if (!cv.as_const().as_bool())
 				break;
 
+			RTLIL::SigSpec disable;
+
+			if (disableLoop_outs.empty()) {
+				disable = RTLIL::S0;
+			} else {
+				disable = disableLoop_outs.back();
+			}
+
+			// add next disable wire
+			RTLIL::Wire *breakNextLoop = netlist.canvas->addWire(NEW_ID_SUFFIX("breakNextLoop"), 1);
+			RTLIL::SigSpec breakNextLoopOred = netlist.LogicOr(breakNextLoop, disable);
+			do_simple_assign(stmt.sourceRange.start(), breakNextLoop, RTLIL::S0, false);
+
+			disableLoop_ins.push_back(breakNextLoop);
+			disableLoop_outs.push_back(breakNextLoopOred);
+
 			eval.push_frame();
-			stmt.body.visit(*this);
+			b.branch({disable}, [&]() {	// disable on previous break
+				current_case->statement = &stmt.body;
+				stmt.body.visit(*this);
+			});
 			eval.pop_frame();
 
 			for (auto step : stmt.steps)
@@ -1006,6 +1036,8 @@ public:
 
 			ncycles++;
 		}
+		b.finish(netlist);
+		current_case = current_case->add_switch({})->add_case({});
 	}
 
 	void handle(const ast::InvalidStatement&) { log_abort(); }
@@ -1037,6 +1069,12 @@ public:
 	}
 	void handle(const ast::VariableDeclStatement &stmt) {
 		stmt.symbol.visit(*this);
+	}
+
+	void handle(const ast::BreakStatement &brk)
+	{
+		log_assert(!disableLoop_ins.empty());
+		do_simple_assign(brk.sourceRange.start(), disableLoop_ins.back(), RTLIL::S1, false);
 	}
 
 	void handle(const ast::Statement &stmt)
