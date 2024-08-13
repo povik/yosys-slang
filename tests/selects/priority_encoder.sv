@@ -13,19 +13,15 @@ module priority_encoder #(
             end
         end
     end
+
     always_comb begin
         if (bits == 'd0 || ^bits === 1'bx) begin
         end else begin
-            integer previousSet = 0;
-            for (integer unsigned i = 0; i < INPUT_WIDTH; i++) begin
-                if (bits[i]) begin
-                    if (previousSet == 0) begin
-                        assert(encoded == i);
-                        previousSet = 1;
-                    end
-                end
-            end
+            logic [INPUT_WIDTH-1:0] masked;
 
+            assert(bits[encoded]);
+            masked = bits & ~(-1 << encoded);
+            assert(masked == '0);
         end
     end
 endmodule
@@ -34,4 +30,22 @@ module test_0 (bits, encoded);
     input  logic[2:0] bits;
     output logic[1:0] encoded;
     priority_encoder #(3) test_0_inst (.*);
+endmodule
+
+module test_1 (bits, encoded);
+    input  logic[1:0] bits;
+    output logic[0:0] encoded;
+    priority_encoder #(2) test_1_inst (.*);
+endmodule
+
+module test_2 (bits, encoded);
+    input  logic[4:0] bits;
+    output logic[2:0] encoded;
+    priority_encoder #(5) test_2_inst (.*);
+endmodule
+
+module test_3 (bits, encoded);
+    input  logic[7:0] bits;
+    output logic[2:0] encoded;
+    priority_encoder #(8) test_3_inst (.*);
 endmodule
