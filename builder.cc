@@ -88,6 +88,14 @@ SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b) {
 	return canvas->LogicAnd(NEW_ID, a, b);
 }
 
+SigSpec RTLILBuilder::LogicOr(SigSpec a, SigSpec b) {
+	if (a.is_fully_ones() || b.is_fully_ones())
+		return RTLIL::Const(1, 1);
+	if (a.is_fully_zero() && b.is_fully_zero())
+		return RTLIL::Const(0, 1);
+	return canvas->LogicOr(NEW_ID, a, b);
+}
+
 SigSpec RTLILBuilder::LogicNot(SigSpec a) {
 	if (a.is_fully_const())
 		return RTLIL::const_logic_not(a.as_const(), RTLIL::Const(), false, false, -1);

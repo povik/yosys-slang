@@ -5,7 +5,7 @@ proc module_list {} {
 	return [dict keys [dict get $stat modules]]
 }
 
-foreach fn {bitsel.v indexed_down.v indexed_up.v} {
+foreach fn {bitsel.v indexed_down.v indexed_up.v priority_encoder.sv} {
 	log -header "Testset $fn"
 	log -push
 	design -reset

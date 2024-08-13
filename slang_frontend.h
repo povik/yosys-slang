@@ -29,11 +29,12 @@ struct SignalEvalContext {
 	struct Frame {
 		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
 		const ast::SubroutineSymbol *subroutine;
+		RTLIL::Wire* loopDisableWire;
 	};
 
 	std::vector<Frame> frames;
 
-	void push_frame(const ast::SubroutineSymbol *subroutine=nullptr);
+	void push_frame(const ast::SubroutineSymbol *subroutine=nullptr, RTLIL::Wire *loopDisable=nullptr);
 	void create_local(const ast::Symbol *symbol);
 	void pop_frame();
 	RTLIL::Wire *wire(const ast::Symbol &symbol);
@@ -65,6 +66,7 @@ struct RTLILBuilder {
 	SigSpec EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b);
 	SigSpec Eq(SigSpec a, SigSpec b);
 	SigSpec LogicAnd(SigSpec a, SigSpec b);
+	SigSpec LogicOr(SigSpec a, SigSpec b);
 	SigSpec LogicNot(SigSpec a);
 	SigSpec Mux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bwmux(SigSpec a, SigSpec b, SigSpec s);

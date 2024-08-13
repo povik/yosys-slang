@@ -974,6 +974,7 @@ public:
 		current_case = current_case->add_switch({})->add_case({});
 	}
 
+
 	void handle(const ast::ForLoopStatement &stmt) {
 		for (auto init : stmt.initializers)
 			eval(*init);
@@ -984,6 +985,10 @@ public:
 			diag_scope->addDiag(diag::MissingStopCondition, stmt.sourceRange.start());
 			return;
 		}
+
+		RTLIL::Wire *disable = netlist.canvas->addWire(NEW_ID_SUFFIX("disable"), 1);
+		disable->attributes[ID($nonstatic)] = current_case->level;
+		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
 
 		while (true) {
 			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
@@ -997,15 +1002,23 @@ public:
 			if (!cv.as_const().as_bool())
 				break;
 
-			eval.push_frame();
-			stmt.body.visit(*this);
-			eval.pop_frame();
+			SwitchHelper b(current_case, vstate, {RTLIL::S0});
+			b.sw->statement = &stmt;
+
+			b.branch({substitute_rvalue(disable)}, [&]() {
+				current_case->statement = &stmt.body;
+				eval.push_frame(nullptr, disable);
+				stmt.body.visit(*this);
+				eval.pop_frame();
+			});
+			b.finish(netlist);
 
 			for (auto step : stmt.steps)
 				eval(*step);
 
 			ncycles++;
 		}
+		current_case = current_case->add_switch({})->add_case({});
 	}
 
 	void handle(const ast::InvalidStatement&) { log_abort(); }
@@ -1039,6 +1052,13 @@ public:
 		stmt.symbol.visit(*this);
 	}
 
+	void handle(const ast::BreakStatement &brk)
+	{
+		log_assert(!eval.frames.empty());
+		log_assert(eval.frames.back().loopDisableWire != nullptr);
+		do_simple_assign(brk.sourceRange.start(), eval.frames.back().loopDisableWire, RTLIL::S1, true);
+	}
+
 	void handle(const ast::Statement &stmt)
 	{
 		unimplemented(stmt);
@@ -1059,7 +1079,7 @@ public:
 	}
 };
 
-void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
+void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLIL::Wire *loopDisable)
 {
 	if (subroutine) {
 		std::string hier;
@@ -1072,6 +1092,7 @@ void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 
 	frames.push_back({});
 	frames.back().subroutine = subroutine;
+	frames.back().loopDisableWire= loopDisable;
 }
 
 void SignalEvalContext::create_local(const ast::Symbol *symbol)
