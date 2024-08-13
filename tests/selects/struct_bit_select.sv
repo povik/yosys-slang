@@ -15,8 +15,8 @@ module t_base #(
     assign struct_signal[FIELD1_WIDTH-1:0] = in1;
 
     always_comb begin
-        assert(struct_signal.field0 == in0);
-        assert(struct_signal.field1 == in1);
+        assert(struct_signal.field0 === in0);
+        assert(struct_signal.field1 === in1);
     end
 endmodule
 
