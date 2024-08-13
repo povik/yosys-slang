@@ -2575,6 +2575,12 @@ struct SlangFrontend : Frontend {
 				std::cout << writer.view() << std::endl;
 			}
 
+			compilation->forceElaborate(compilation->getRoot());
+			if (compilation->hasIssuedErrors()) {
+				if (!driver.reportCompilation(*compilation, /* quiet */ false))
+					log_error("Compilation failed\n");
+			}
+
 			global_compilation = &(*compilation);
 			global_sourcemgr = compilation->getSourceManager();
 			global_diagengine = &driver.diagEngine;
