@@ -504,6 +504,7 @@ public:
 		Case *&current_case;
 		Switch *sw;
 		VariableState &vstate;
+		VariableState::Map save_map;
 
 		SwitchHelper(Case *&current_case, VariableState &vstate, RTLIL::SigSpec signal)
 			: parent(current_case), current_case(current_case), vstate(vstate)
@@ -513,19 +514,28 @@ public:
 
 		std::vector<std::pair<Case *, RTLIL::SigSig>> branch_updates;
 
+		void enter_branch(std::vector<RTLIL::SigSpec> compare)
+		{
+			vstate.save(save_map);
+			log_assert(current_case == parent);
+			current_case = sw->add_case(compare);
+		}
+
+		void exit_branch()
+		{
+			log_assert(current_case != parent);
+			Case *this_case = current_case;
+			current_case = parent;
+			auto updates = vstate.restore(save_map);
+			branch_updates.push_back(std::make_pair(this_case, updates));
+		}
+
 		void branch(std::vector<RTLIL::SigSpec> compare,
 					std::function<void()> f)
 		{
-			Case *this_case;
-
-			VariableState::Map save_map;
-			vstate.save(save_map);
-			current_case = this_case = sw->add_case(compare);
+			enter_branch(compare);
 			f();
-			current_case = parent;
-			auto updates = vstate.restore(save_map);
-
-			branch_updates.push_back(std::make_pair(this_case, updates));
+			exit_branch();
 		}
 
 		void finish(NetlistContext &netlist)
@@ -995,6 +1005,7 @@ public:
 		RTLIL::Wire *disable = add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
 		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
 
+		std::vector<SwitchHelper> sw_stack;
 		while (true) {
 			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
 			if (!cv.is_fully_const()) {
@@ -1007,22 +1018,37 @@ public:
 			if (!cv.as_const().as_bool())
 				break;
 
-			SwitchHelper b(current_case, vstate, {RTLIL::S0});
-			b.sw->statement = &stmt;
+			eval.push_frame(nullptr, disable);
+			stmt.body.visit(*this);
+			eval.pop_frame();
 
-			b.branch({substitute_rvalue(disable)}, [&]() {
+			RTLIL::SigSpec disable_rv = substitute_rvalue(disable);
+			if (!disable_rv.is_fully_const()) {
+				auto &b = sw_stack.emplace_back(current_case, vstate, disable_rv);
+				b.sw->statement = &stmt;
+				b.enter_branch({RTLIL::S0});
 				current_case->statement = &stmt.body;
-				eval.push_frame(nullptr, disable);
-				stmt.body.visit(*this);
-				eval.pop_frame();
-			});
-			b.finish(netlist);
+
+				// From a semantical POV the following is a no-op, but it allows us to
+				// do more constant folding.
+				do_simple_assign(slang::SourceLocation::NoLocation, disable, RTLIL::S0, true);
+			} else if (disable_rv.as_bool()) {
+				break;
+			} else {
+				log_assert(!disable_rv.as_bool());
+			}
 
 			for (auto step : stmt.steps)
 				eval(*step);
 
 			ncycles++;
 		}
+
+		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
+			it->exit_branch();
+			it->finish(netlist);
+		}
+
 		current_case = current_case->add_switch({})->add_case({});
 	}
 
