@@ -1639,6 +1639,10 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 					// TODO: better scope here
 					ProceduralVisitor visitor(netlist, nullptr, implicit, ProceduralVisitor::ContinuousAssign);
 					ret = visitor.handle_call(call);
+
+					RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
+					transfer_attrs(call, proc);
+					visitor.root_case->copy_into(&proc->root_case);	
 				}
 			}
 		}
