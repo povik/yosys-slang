@@ -974,6 +974,12 @@ public:
 		current_case = current_case->add_switch({})->add_case({});
 	}
 
+	RTLIL::Wire *add_nonstatic(RTLIL::IdString id, int width)
+	{
+		RTLIL::Wire *wire = netlist.canvas->addWire(id, width);
+		wire->attributes[ID($nonstatic)] = current_case->level;
+		return wire;
+	}
 
 	void handle(const ast::ForLoopStatement &stmt) {
 		for (auto init : stmt.initializers)
@@ -986,8 +992,7 @@ public:
 			return;
 		}
 
-		RTLIL::Wire *disable = netlist.canvas->addWire(NEW_ID_SUFFIX("disable"), 1);
-		disable->attributes[ID($nonstatic)] = current_case->level;
+		RTLIL::Wire *disable = add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
 		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
 
 		while (true) {
@@ -1110,10 +1115,8 @@ void SignalEvalContext::create_local(const ast::Symbol *symbol)
 	auto &variable = symbol->as<ast::VariableSymbol>();
 	log_assert(variable.lifetime == ast::VariableLifetime::Automatic);
 
-	RTLIL::Wire *wire = netlist.canvas->addWire(NEW_ID_SUFFIX("local"),
-								variable.getType().getBitstreamWidth());
-	wire->attributes[ID($nonstatic)] = procedural->current_case->level;
-	frames.back().locals[symbol] = wire;
+	frames.back().locals[symbol] = procedural->add_nonstatic(NEW_ID_SUFFIX("local"),
+												variable.getType().getBitstreamWidth());
 }
 
 void SignalEvalContext::pop_frame()
