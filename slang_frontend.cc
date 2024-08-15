@@ -367,6 +367,17 @@ bool is_inferred_memory(const ast::Expression &expr)
 			is_inferred_memory(expr.as<ast::NamedValueExpression>().symbol);
 }
 
+std::string format_wchunk(RTLIL::SigChunk chunk)
+{
+	log_assert(chunk.wire != nullptr);
+	if (chunk.width == chunk.wire->width)
+		return chunk.wire->name.c_str();
+	else if (chunk.width)
+		return Yosys::stringf("%s[%d]", chunk.wire->name.c_str(), chunk.offset);
+	else
+		return Yosys::stringf("%s[%d:%d]", chunk.wire->name.c_str(), chunk.offset, chunk.offset + chunk.width);
+}
+
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
 public:
 	const ast::Scope *diag_scope;
@@ -553,7 +564,9 @@ public:
 						&& chunk.wire->attributes[ID($nonstatic)].as_int() > parent->level)
 					continue;
 
-				RTLIL::SigSpec w = netlist.canvas->addWire(NEW_ID, chunk.size());
+				RTLIL::Wire *w = netlist.canvas->addWire(NEW_ID_SUFFIX(format_wchunk(chunk)), chunk.size());
+				if (sw->statement)
+					transfer_attrs(*sw->statement, w);
 				RTLIL::SigSpec w_default = chunk;
 				w_default.replace(vstate.visible_assignments);
 				parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
