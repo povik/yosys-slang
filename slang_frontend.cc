@@ -881,14 +881,35 @@ public:
 		eval(stmt.expr);
 	}
 
-	void handle(const ast::BlockStatement &blk) {
+	void handle(const ast::BlockStatement &blk)
+	{
 		require(blk, blk.blockKind == ast::StatementBlockKind::Sequential)
 		blk.body.visit(*this);
 	}
 
-	void handle(const ast::StatementList &list) {
-		for (auto &stmt : list.list)
+	void handle(const ast::StatementList &list)
+	{
+		RTLIL::Wire *disable = eval.frames.back().disable;
+		std::vector<SwitchHelper> sw_stack;
+
+		for (auto &stmt : list.list) {
+			RTLIL::SigSpec disable_rv = disable != nullptr ? substitute_rvalue(disable) : RTLIL::S0;
+			if (!disable_rv.is_fully_const()) {
+				auto &b = sw_stack.emplace_back(current_case, vstate, disable_rv);
+				b.sw->statement = stmt;
+				b.enter_branch({RTLIL::S0});
+
+				// From a semantical POV the following is a no-op, but it allows us to
+				// do more constant folding.
+				do_simple_assign(slang::SourceLocation::NoLocation, disable, RTLIL::S0, true);
+			} else if (disable_rv.as_bool()) {
+				break;
+			} else {
+				log_assert(!disable_rv.as_bool());
+			}
+
 			stmt->visit(*this);
+		}
 	}
 
 	void handle(const ast::ConditionalStatement &cond)
@@ -1086,8 +1107,8 @@ public:
 	void handle(const ast::BreakStatement &brk)
 	{
 		log_assert(!eval.frames.empty());
-		log_assert(eval.frames.back().loopDisableWire != nullptr);
-		do_simple_assign(brk.sourceRange.start(), eval.frames.back().loopDisableWire, RTLIL::S1, true);
+		log_assert(eval.frames.back().disable != nullptr);
+		do_simple_assign(brk.sourceRange.start(), eval.frames.back().disable, RTLIL::S1, true);
 	}
 
 	void handle(const ast::Statement &stmt)
@@ -1110,7 +1131,7 @@ public:
 	}
 };
 
-void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLIL::Wire *loopDisable)
+void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLIL::Wire *disable)
 {
 	if (subroutine) {
 		std::string hier;
@@ -1123,7 +1144,7 @@ void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLI
 
 	frames.push_back({});
 	frames.back().subroutine = subroutine;
-	frames.back().loopDisableWire= loopDisable;
+	frames.back().disable = disable;
 }
 
 void SignalEvalContext::create_local(const ast::Symbol *symbol)
