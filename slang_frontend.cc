@@ -162,6 +162,7 @@ static const RTLIL::Const convert_svint(const slang::SVInt &svint)
 
 static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 {
+	log_assert(!constval.bad());
 	log_assert(!constval.isReal());
 	log_assert(!constval.isShortReal());
 	log_assert(!constval.isNullHandle());
@@ -810,11 +811,7 @@ public:
 				do_simple_assign(loc, eval.wire(*arg_symbols[i]), arg_in[i], true);
 		}
 
-		if (subroutine->getBody().kind == ast::StatementKind::Return) {
-			handle_return(subroutine->getBody().as<ast::ReturnStatement>());
-		} else {
-			subroutine->getBody().visit(*this);
-		}
+		subroutine->getBody().visit(*this);
 
 		for (int i = 0; i < (int) arg_symbols.size(); i++) {
 			auto dir = arg_symbols[i]->direction;
@@ -898,6 +895,7 @@ public:
 				auto &b = sw_stack.emplace_back(current_case, vstate, disable_rv);
 				b.sw->statement = stmt;
 				b.enter_branch({RTLIL::S0});
+				current_case->statement = stmt;
 
 				// From a semantical POV the following is a no-op, but it allows us to
 				// do more constant folding.
@@ -1079,8 +1077,11 @@ public:
 	void init_nonstatic_variable(const ast::ValueSymbol &symbol) {
 		RTLIL::Wire *target = eval.wire(symbol);
 		log_assert(target);
-		RTLIL::SigSpec initval;
 
+		if (!target->width)
+			return;
+
+		RTLIL::SigSpec initval;
 		if (symbol.getInitializer())
 			initval = eval(*symbol.getInitializer());
 		else
@@ -1104,25 +1105,44 @@ public:
 		stmt.symbol.visit(*this);
 	}
 
+	using Frame = SignalEvalContext::Frame;
+
 	void handle(const ast::BreakStatement &brk)
 	{
-		log_assert(!eval.frames.empty());
+		log_assert(eval.frames.back().kind == Frame::LoopBody);
 		log_assert(eval.frames.back().disable != nullptr);
+
 		do_simple_assign(brk.sourceRange.start(), eval.frames.back().disable, RTLIL::S1, true);
+	}
+
+	void handle(const ast::ReturnStatement &stmt)
+	{
+		log_assert(!eval.frames.empty());
+		auto it = eval.frames.end() - 1;
+		for (; it != eval.frames.begin(); it--) {
+			if (it->kind == Frame::FunctionBody)
+				break;
+		}
+		log_assert(it != eval.frames.begin());
+
+		auto subroutine = it->subroutine;
+		log_assert(subroutine && subroutine->subroutineKind == ast::SubroutineKind::Function);
+		log_assert(subroutine->returnValVar);
+
+		if (stmt.expr) {
+			do_simple_assign(stmt.sourceRange.start(), eval.wire(*subroutine->returnValVar),
+							 eval(*stmt.expr), true);
+		}
+
+		for (; it != eval.frames.end(); it++) {
+			log_assert(it->disable != nullptr);
+			do_simple_assign(stmt.sourceRange.start(), it->disable, RTLIL::S1, true);
+		}
 	}
 
 	void handle(const ast::Statement &stmt)
 	{
 		unimplemented(stmt);
-	}
-
-	void handle_return(const ast::ReturnStatement &stmt)
-	{
-		auto subroutine = eval.frames.back().subroutine;
-		log_assert(subroutine && subroutine->subroutineKind == ast::SubroutineKind::Function);
-		log_assert(subroutine->returnValVar && stmt.expr);
-		do_simple_assign(stmt.sourceRange.start(), eval.wire(*subroutine->returnValVar),
-						 eval(*stmt.expr), true);
 	}
 
 	void handle(const ast::Expression &expr)
@@ -1142,9 +1162,22 @@ void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLI
 		log_debug("%s-> push\n", std::string(frames.size(), ' ').c_str());
 	}
 
-	frames.push_back({});
-	frames.back().subroutine = subroutine;
-	frames.back().disable = disable;
+	auto &frame = frames.emplace_back();
+	frame.subroutine = subroutine;
+	if (frames.size() == 1) {
+		log_assert(!subroutine && !disable);
+		frame.kind = Frame::Implicit;
+		frame.disable = nullptr;
+	} else {
+		if (!disable) {
+			log_assert(procedural);
+			frame.disable = procedural->add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
+			procedural->do_simple_assign(slang::SourceLocation::NoLocation, frame.disable, RTLIL::S0, true);
+		} else {
+			frame.disable = disable;
+		}
+		frame.kind = subroutine != nullptr ? Frame::FunctionBody : Frame::LoopBody;
+	}
 }
 
 void SignalEvalContext::create_local(const ast::Symbol *symbol)

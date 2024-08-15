@@ -30,6 +30,11 @@ struct SignalEvalContext {
 		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
 		const ast::SubroutineSymbol *subroutine;
 		RTLIL::Wire* disable;
+		enum {
+			Implicit,
+			LoopBody,
+			FunctionBody
+		} kind;
 	};
 
 	std::vector<Frame> frames;
