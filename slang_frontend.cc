@@ -1023,6 +1023,48 @@ public:
 		return wire;
 	}
 
+	void handle(const ast::WhileLoopStatement &stmt) {
+		int ncycles = 0;
+
+		RTLIL::Wire *disable = add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
+		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
+
+		std::vector<SwitchHelper> sw_stack;
+		while (true) {
+			RTLIL::SigSpec cv = netlist.ReduceBool(eval(stmt.cond));
+			RTLIL::SigSpec disable_rv = substitute_rvalue(disable);
+			RTLIL::SigSpec joint_disable = netlist.LogicOr(netlist.LogicNot(cv), disable_rv);
+
+			if (!joint_disable.is_fully_const()) {
+				auto &b = sw_stack.emplace_back(current_case, vstate, joint_disable);
+				b.sw->statement = &stmt;
+				b.enter_branch({RTLIL::S0});
+				current_case->statement = &stmt.body;
+
+				// From a semantical POV the following is a no-op, but it allows us to
+				// do more constant folding.
+				do_simple_assign(slang::SourceLocation::NoLocation, disable, RTLIL::S0, true);
+			} else if (joint_disable.as_bool()) {
+				break;
+			} else {
+				log_assert(!joint_disable.as_bool());
+			}
+
+			eval.push_frame(nullptr, disable);
+			stmt.body.visit(*this);
+			eval.pop_frame();
+
+			ncycles++;
+		}
+
+		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
+			it->exit_branch();
+			it->finish(netlist);
+		}
+
+		current_case = current_case->add_switch({})->add_case({});
+	}
+
 	void handle(const ast::ForLoopStatement &stmt) {
 		for (auto init : stmt.initializers)
 			eval(*init);
