@@ -93,9 +93,12 @@ public:
 		expr.selector().visit(*this);
 	}
 
+	bool wr_allowed = false;
+
 	void handle(const ast::ExpressionStatement &stmt) {
 		if (stmt.expr.kind == ast::ExpressionKind::Assignment &&
-				stmt.expr.as<ast::AssignmentExpression>().isNonBlocking()) {
+				stmt.expr.as<ast::AssignmentExpression>().isNonBlocking() &&
+				wr_allowed) {
 			auto& assign = stmt.expr.as<ast::AssignmentExpression>();
 			assign.right().visit(*this);
 
@@ -138,6 +141,33 @@ public:
 		}
 
 		stmt.expr.visit(*this);
+	}
+
+	void handle(const ast::ProceduralBlockSymbol &symbol)
+	{
+		if (symbol.procedureKind == ast::ProceduralBlockKind::Always ||
+				symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
+			if (symbol.getBody().kind == ast::StatementKind::Timed) {
+				const auto &timed = symbol.getBody().as<ast::TimedStatement>();
+				const auto *top_ast_timing = &timed.timing;
+
+				using TCKind = ast::TimingControlKind;
+				std::span<const ast::TimingControl* const> events;
+				const ast::TimingControl* const top_events[1] = {top_ast_timing};
+
+				events = (top_ast_timing->kind == TCKind::EventList) ?
+						top_ast_timing->as<ast::EventListControl>().events
+						: std::span<const ast::TimingControl* const>(top_events);
+
+				if (events.size() == 1 && events[0]->kind == ast::TimingControlKind::SignalEvent &&
+						events[0]->as<ast::SignalEventControl>().edge != ast::EdgeKind::None) {
+					wr_allowed = true;
+				}
+			}
+		}
+
+		visitDefault(symbol);
+		wr_allowed = false;
 	}
 
 	void handle(const ast::GenerateBlockSymbol &sym)
