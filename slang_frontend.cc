@@ -2496,6 +2496,7 @@ public:
 	void handle(const ast::ParameterSymbol&) {}
 	void handle(const ast::TypeParameterSymbol&) {}
 	void handle(const ast::WildcardImportSymbol&) {}
+	void handle(const ast::ExplicitImportSymbol&) {}
 	void handle(const ast::GenvarSymbol&) {}
 	void handle(const ast::VariableSymbol&) {}
 	void handle(const ast::EmptyMemberSymbol&) {}
