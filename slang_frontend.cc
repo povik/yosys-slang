@@ -1402,6 +1402,16 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				break;
 			}
 
+			if (unop.op == ast::UnaryOperator::Postdecrement
+					|| unop.op == ast::UnaryOperator::Predecrement) {
+				require(expr, procedural != nullptr);
+				procedural->do_simple_assign(expr.sourceRange.start(), lhs(unop.operand()),
+					ret = netlist.Biop(ID($sub), left, {RTLIL::S0, RTLIL::S1},
+							 unop.operand().type->isSigned(), unop.operand().type->isSigned(),
+							 left.size()), true);
+				break;
+			}
+
 			bool invert = false;
 
 			RTLIL::IdString type;
