@@ -38,7 +38,7 @@ namespace diag {
 		engine.setMessage(NoteSignalEvent, "signal event specified here");
 		engine.setSeverity(NoteSignalEvent, slang::DiagnosticSeverity::Note);
 
-		engine.setMessage(ExpectingIfElseAload, "a simple if-else pattern is expected in modeling an asynchronous load on a flip-flop");
+		engine.setMessage(ExpectingIfElseAload, "simple if-else pattern expected in modeling an asynchronous load on a flip-flop");
 		engine.setMessage(NoteDuplicateEdgeSense, "asynchronous load pattern implied by edge sensitivity on multiple signals");
 		engine.setSeverity(NoteDuplicateEdgeSense, slang::DiagnosticSeverity::Note);
 
