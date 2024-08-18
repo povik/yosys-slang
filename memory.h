@@ -46,7 +46,7 @@ public:
 		}
 	};
 
-	bool has_user_hint(const ast::Symbol &symbol)
+	std::optional<std::string_view> find_user_hint(const ast::Symbol &symbol)
 	{
 		const static std::set<std::string> recognized =
 			{"ram_block", "rom_block", "ram_style", "rom_style", "ramstyle",
@@ -54,15 +54,17 @@ public:
 
 		for (auto attr : global_compilation->getAttributes(symbol)) {
 			if (recognized.count(std::string{attr->name}) && !attr->getValue().isFalse())
-				return true;
+				return attr->name;
 		}
-		return false;
+		return {};
 	}
 
 	void disqualify(const ast::Symbol &symbol, slang::SourceLocation loc)
 	{
-		if (memory_candidates.count(&symbol) && has_user_hint(symbol)) {
+		std::optional<std::string_view> found_attr;
+		if (memory_candidates.count(&symbol) && (found_attr = find_user_hint(symbol))) {
 			auto &diag = symbol.getParentScope()->addDiag(diag::MemoryNotInferred, symbol.location);
+			diag << found_attr.value();
 			diag.addNote(diag::NoteUsageBlame, loc);
 		}
 

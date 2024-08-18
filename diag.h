@@ -70,7 +70,7 @@ namespace diag {
 		engine.setMessage(BadMemoryExpr, "unsupported operation on a memory variable");
 		engine.setSeverity(BadMemoryExpr, slang::DiagnosticSeverity::Error);
 
-		engine.setMessage(MemoryNotInferred, "memory not inferred despite a memory attribute");
+		engine.setMessage(MemoryNotInferred, "cannot infer memory from a variable despite '{}' attribute");
 		engine.setSeverity(MemoryNotInferred, slang::DiagnosticSeverity::Error);
 		engine.setMessage(NoteUsageBlame, "inference prevented by variable usage here");
 		engine.setSeverity(NoteUsageBlame, slang::DiagnosticSeverity::Note);
