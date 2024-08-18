@@ -1898,7 +1898,7 @@ public:
 					|| !stmt->as<ast::ConditionalStatement>().ifFalse) {
 				auto &diag = symbol.getParentScope()->addDiag(diag::ExpectingIfElseAload, stmt->sourceRange);
 				diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-				break;
+				return;
 			}
 
 			auto &cond_stmt = stmt->as<ast::ConditionalStatement>();
@@ -1992,7 +1992,7 @@ public:
 
 			auto &diag = scope->addDiag(diag::IfElseAloadMismatch, stmt->sourceRange);
 			diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-			break;
+			return;
 		}
 
 		require(symbol, aloads.size() <= 1);
