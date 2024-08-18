@@ -1,4 +1,4 @@
-module t_base(data, sel);
+module base(data, sel);
 	parameter MSB = 4;
 	parameter LSB = 0;
 	localparam little_endian = MSB > LSB;
@@ -9,11 +9,7 @@ module t_base(data, sel);
 	wire o = data[sel];
 
 	always @* begin
-		if (sel[0] === 1'bx ||
-				sel[1] === 1'bx ||
-				sel[2] === 1'bx ||
-				sel[3] === 1'bx ||
-				sel[4] === 1'bx) begin
+		if (^sel === 'x) begin
 			assert(o === 1'bx);
 		end else begin
 			if (little_endian) begin
@@ -33,44 +29,44 @@ module t_base(data, sel);
 	end
 endmodule
 
-module t01(data, sel);
+module test_bitsel01(data, sel);
 	input [4:-2] data;
 	input signed [4:0] sel;
-	t_base #(.MSB(4), .LSB(-2)) t(.*);
+	base #(.MSB(4), .LSB(-2)) t(.*);
 endmodule
 
-module t02(data, sel);
+module test_bitsel02(data, sel);
 	input [6:0] data;
 	input signed [4:0] sel;
-	t_base #(.MSB(6), .LSB(0)) t(.*);
+	base #(.MSB(6), .LSB(0)) t(.*);
 endmodule
 
-module t03(data, sel);
+module test_bitsel03(data, sel);
 	input [7:2] data;
 	input signed [4:0] sel;
-	t_base #(.MSB(7), .LSB(2)) t(.*);
+	base #(.MSB(7), .LSB(2)) t(.*);
 endmodule
 
-module t04(data, sel);
+module test_bitsel04(data, sel);
 	input [0:6] data;
 	input signed [4:0] sel;
-	t_base #(.MSB(0), .LSB(6)) t(.*);
+	base #(.MSB(0), .LSB(6)) t(.*);
 endmodule
 
-module t05(data, sel);
+module test_bitsel05(data, sel);
 	input [2:7] data;
 	input signed [4:0] sel;
-	t_base #(.MSB(2), .LSB(7)) t(.*);
+	base #(.MSB(2), .LSB(7)) t(.*);
 endmodule
 
-module t06(data, sel);
+module test_bitsel06(data, sel);
 	input [-7:-2] data;
 	input signed [4:0] sel;
-	t_base #(.MSB(-7), .LSB(-2)) t(.*);
+	base #(.MSB(-7), .LSB(-2)) t(.*);
 endmodule
 
-module t07(data, sel);
+module test_bitsel07(data, sel);
 	input [-2:-7] data;
 	input signed [4:0] sel;
-	t_base #(.MSB(-2), .LSB(-7)) t(.*);
+	base #(.MSB(-2), .LSB(-7)) t(.*);
 endmodule

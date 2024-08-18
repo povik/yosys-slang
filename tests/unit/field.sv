@@ -1,4 +1,4 @@
-module t_base #(
+module test_field_assign #(
     parameter integer FIELD0_WIDTH = 4,
     parameter integer FIELD1_WIDTH = 4
 ) (
@@ -18,10 +18,4 @@ module t_base #(
         assert(struct_signal.field0 === in0);
         assert(struct_signal.field1 === in1);
     end
-endmodule
-
-module t01(in0, in1);
-    input logic [5:0] in0;
-    input logic [4:0] in1;
-    t_base #(6, 5) t (.*);
 endmodule

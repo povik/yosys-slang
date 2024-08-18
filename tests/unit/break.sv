@@ -26,25 +26,25 @@ module priority_encoder #(
     end
 endmodule
 
-module test_0 (bits, encoded);
+module test_break00 (bits, encoded);
     input  logic[2:0] bits;
     output logic[1:0] encoded;
     priority_encoder #(3) test_0_inst (.*);
 endmodule
 
-module test_1 (bits, encoded);
+module test_break01 (bits, encoded);
     input  logic[1:0] bits;
     output logic[0:0] encoded;
     priority_encoder #(2) test_1_inst (.*);
 endmodule
 
-module test_2 (bits, encoded);
+module test_break02 (bits, encoded);
     input  logic[4:0] bits;
     output logic[2:0] encoded;
     priority_encoder #(5) test_2_inst (.*);
 endmodule
 
-module test_3 (bits, encoded);
+module test_break03 (bits, encoded);
     input  logic[7:0] bits;
     output logic[2:0] encoded;
     priority_encoder #(8) test_3_inst (.*);
@@ -79,27 +79,26 @@ module priority_encoder2 #(
     end
 endmodule
 
-module test_4 (bits, encoded);
+module test_break04 (bits, encoded);
     input  logic[2:0] bits;
     output logic[1:0] encoded;
     priority_encoder2 #(3) test_4_inst (.*);
 endmodule
 
-module test_5 (bits, encoded);
+module test_break05 (bits, encoded);
     input  logic[1:0] bits;
     output logic[0:0] encoded;
     priority_encoder2 #(2) test_5_inst (.*);
 endmodule
 
-module test_6 (bits, encoded);
+module test_break06 (bits, encoded);
     input  logic[4:0] bits;
     output logic[2:0] encoded;
     priority_encoder2 #(5) test_6_inst (.*);
 endmodule
 
-module test_7 (bits, encoded);
+module test_break07 (bits, encoded);
     input  logic[7:0] bits;
     output logic[2:0] encoded;
     priority_encoder2 #(8) test_7_inst (.*);
 endmodule
-
