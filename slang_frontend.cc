@@ -2730,7 +2730,12 @@ struct SlangFrontend : Frontend {
 				std::cout << writer.view() << std::endl;
 			}
 
-			compilation->forceElaborate(compilation->getRoot());
+			auto elab = ast::makeVisitor([&](auto& visitor, const ast::InstanceBodySymbol &body) {
+				compilation->forceElaborate(body);
+				visitor.visitDefault(body);
+			});
+			compilation->getRoot().visit(elab);
+
 			if (compilation->hasIssuedErrors()) {
 				if (!driver.reportCompilation(*compilation, /* quiet */ false))
 					log_error("Compilation failed\n");
