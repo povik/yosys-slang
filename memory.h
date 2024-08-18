@@ -13,7 +13,9 @@ public:
 		auto first_pass = ast::makeVisitor([&](auto&, const ast::VariableSymbol &symbol) {
 			if (symbol.lifetime == ast::VariableLifetime::Static &&
 					symbol.getType().isUnpackedArray() &&
-					symbol.getType().hasFixedRange())
+					symbol.getType().hasFixedRange() &&
+					/* non four-state types have implicit init; we don't support meminit yet */
+					symbol.getType().isFourState())
 				memory_candidates.insert(&symbol);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol &symbol) {
 			if (symbol.isUninstantiated)
