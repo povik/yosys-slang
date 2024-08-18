@@ -790,13 +790,6 @@ public:
 			const ast::Expression *arg = call.arguments()[i];
 			auto dir = arg_symbols[i]->direction;
 
-			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut) {
-				arg = &arg->as<ast::AssignmentExpression>().left();
-				arg_out.push_back(eval.lhs(*arg));
-			} else {
-				arg_out.push_back({});
-			}
-
 			if (dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::InOut)
 				arg_in.push_back(eval(*arg));
 			else
@@ -826,13 +819,23 @@ public:
 		for (int i = 0; i < (int) arg_symbols.size(); i++) {
 			auto dir = arg_symbols[i]->direction;
 			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
-				do_simple_assign(loc, arg_out[i], eval(*arg_symbols[i]), true);
+				arg_out.push_back(eval(*arg_symbols[i]));
+			else
+				arg_out.push_back({});
 		}
 
 		if (subroutine->returnValVar)
 			ret = eval(*subroutine->returnValVar);
 
 		eval.pop_frame();
+
+		for (int i = 0; i < (int) arg_symbols.size(); i++) {
+			const ast::Expression *arg = call.arguments()[i];
+			auto dir = arg_symbols[i]->direction;
+
+			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
+				assign_rvalue(arg->as<ast::AssignmentExpression>(), arg_out[i]);
+		}
 
 		return ret;
 	}
