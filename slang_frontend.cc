@@ -414,9 +414,6 @@ public:
 		delete root_case;
 	}
 
-	Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> staging;
-
-
 	void copy_case_tree_into(RTLIL::CaseRule &rule)
 	{
 		root_case->copy_into(&rule);
