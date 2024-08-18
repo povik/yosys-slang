@@ -2042,7 +2042,6 @@ public:
 					if (!dffe_q.empty()) {
 						auto &diag = scope->addDiag(diag::MissingAload, aloads[0].ast_node->sourceRange);
 						diag << std::string(log_signal(dffe_q));
-						diag.addNote(diag::NoteProcessDriver, symbol.location);
 						diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 
 						cell = netlist.canvas->addDffe(NEW_ID,
@@ -2138,7 +2137,6 @@ public:
 						// Report on the top timing node as that makes for nicer reports in case there
 						// are many signals in the sensitivity list
 						auto &diag = symbol.getParentScope()->addDiag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
-						diag.addNote(diag::NoteSignalEvent, sigev.sourceRange);
 						implicit = true;
 					}
 					break;
