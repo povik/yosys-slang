@@ -2388,7 +2388,7 @@ public:
 						netlist.canvas->memories[m->name] = m;
 						netlist.emitted_mems[m->name] = {};
 
-						log_debug("Memory inferred for signal %s (size: %d, width: %d)\n", m->name, m->size, m->width);
+						log_debug("Memory inferred for variable %s (size: %d, width: %d)\n", m->name, m->size, m->width);
 					} else {
 						auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
 						transfer_attrs(sym, w);
