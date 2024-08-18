@@ -1179,6 +1179,7 @@ public:
 				break;
 		}
 		log_assert(it != eval.frames.begin());
+		int level = it - eval.frames.begin();
 
 		auto subroutine = it->subroutine;
 		log_assert(subroutine && subroutine->subroutineKind == ast::SubroutineKind::Function);
@@ -1189,6 +1190,9 @@ public:
 							 eval(*stmt.expr), true);
 		}
 
+		// refetch the iterator (stack may have changed in the meantime)
+		log_assert(level < eval.frames.size());
+		it = eval.frames.begin() + level;
 		for (; it != eval.frames.end(); it++) {
 			log_assert(it->disable != nullptr);
 			do_simple_assign(stmt.sourceRange.start(), it->disable, RTLIL::S1, true);
