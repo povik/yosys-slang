@@ -32,10 +32,10 @@ build/slang/.configured:
 build-slang: build/slang/.configured
 	$(MAKE) -C $(dir $^)
 	$(MAKE) -C $(dir $^) install
+	touch build/slang_install/.built
 
 build/slang_install/.built:
 	$(MAKE) build-slang
-	touch $@
 
 clean-slang:
 	rm -rf build/slang build/slang_install
