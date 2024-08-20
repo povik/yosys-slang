@@ -4,12 +4,23 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
-#include "slang/ast/Compilation.h"
 #include "slang/ast/EvalContext.h"
-#include "slang/ast/symbols/InstanceSymbols.h"
 #include "kernel/rtlil.h"
 
 template<> struct Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : Yosys::hashlib::hash_ptr_ops {};
+
+namespace slang {
+	struct ConstantRange;
+	class SourceManager;
+	namespace ast {
+		class Compilation;
+		class Symbol;
+		class Expression;
+		class SubroutineSymbol;
+		class InstanceSymbol;
+		class InstanceBodySymbol;
+	};
+};
 
 inline namespace slang_frontend {
 
