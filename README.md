@@ -36,15 +36,11 @@ Check out the repository including the submodule, e.g. with
 
     git clone --recursive https://github.com/povik/yosys-slang
 
-First build slang and install it into `build/slang_install`:
+Then build both slang and the `build/slang.so` plugin for Yosys:
 
-    cmake -S third_party/slang -B build/slang -DCMAKE_INSTALL_PREFIX=build/slang_install -DSLANG_USE_MIMALLOC=OFF
-    make -C build/slang -j$(nproc)
-    make -C build/slang install
+    make -j$(noproc)
 
-Then build the `build/slang.so` plugin for Yosys:
-
-    yosys-config --build build/slang.so slang_frontend.cc initial_eval.cc builder.cc -Ibuild/slang_install/include -std=c++20 -DSLANG_BOOST_SINGLE_HEADER -Lbuild/slang_install/lib -lsvlang -lfmt
+Use a custom `-jN` switch to build with `N` concurrent processes instead of matching the number of cores.
 
 ## Usage
 
