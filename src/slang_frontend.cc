@@ -1191,7 +1191,7 @@ public:
 		}
 
 		// refetch the iterator (stack may have changed in the meantime)
-		log_assert(level < eval.frames.size());
+		log_assert(level < (int) eval.frames.size());
 		it = eval.frames.begin() + level;
 		for (; it != eval.frames.end(); it++) {
 			log_assert(it->disable != nullptr);
@@ -2136,7 +2136,7 @@ public:
 
 						// Report on the top timing node as that makes for nicer reports in case there
 						// are many signals in the sensitivity list
-						auto &diag = symbol.getParentScope()->addDiag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
+						symbol.getParentScope()->addDiag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
 						implicit = true;
 					}
 					break;
