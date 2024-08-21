@@ -6,7 +6,7 @@
 //
 #include "slang_frontend.h"
 
-inline namespace slang_frontend {
+namespace slang_frontend {
 
 using RTLIL::Cell;
 using RTLIL::IdString;

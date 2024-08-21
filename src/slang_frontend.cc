@@ -24,8 +24,9 @@
 
 #include "initial_eval.h"
 #include "slang_frontend.h"
+#include "diag.h"
 
-inline namespace slang_frontend {
+namespace slang_frontend {
 
 struct SynthesisSettings {
 	std::optional<bool> dump_ast;
@@ -110,22 +111,22 @@ template<typename T>
 			  file, line, condition ? " (failed condition \"" : "", condition ? condition : "", condition ? "\")" : "");
 }
 #define require(obj, property) { if (!(property)) unimplemented_(obj, __FILE__, __LINE__, #property); }
-#define unimplemented(obj) { unimplemented_(obj, __FILE__, __LINE__, NULL); }
+#define unimplemented(obj) { slang_frontend::unimplemented_(obj, __FILE__, __LINE__, NULL); }
 
 };
 
 #include "addressing.h"
 
-inline namespace slang_frontend {
+namespace slang_frontend {
 
 // step outside slang_frontend namespace for a minute, to patch in
 // unimplemented() into the SlangInitial evaluator
 };
-ast::Statement::EvalResult SlangInitial::EvalVisitor::visit(const ast::Statement &stmt)
+slang::ast::Statement::EvalResult SlangInitial::EvalVisitor::visit(const slang::ast::Statement &stmt)
 {
 	unimplemented(stmt);
 }
-inline namespace slang_frontend {
+namespace slang_frontend {
 
 const RTLIL::IdString id(const std::string_view &view)
 {
@@ -214,8 +215,12 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
 	}
 }
 
-#include "diag.h"
+};
+
 #include "cases.h"
+#include "memory.h"
+
+namespace slang_frontend {
 
 static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<RTLIL::SigBit> &signals, Case *rule, int level=0)
 {
@@ -2588,8 +2593,6 @@ NetlistContext::~NetlistContext()
 	canvas->fixup_ports();
 	canvas->check();
 }
-
-#include "memory.h"
 
 USING_YOSYS_NAMESPACE
 

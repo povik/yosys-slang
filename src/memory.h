@@ -4,6 +4,8 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#pragma once
+namespace slang_frontend {
 
 struct InferredMemoryDetector : public ast::ASTVisitor<InferredMemoryDetector, true, true> {
 public:
@@ -150,4 +152,6 @@ public:
 			return;
 		visitDefault(sym);
 	}
+};
+
 };

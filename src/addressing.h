@@ -4,9 +4,8 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
-#ifndef __ADDR_H__
-
-inline namespace slang_frontend {
+#pragma once
+namespace slang_frontend {
 
 // TODO: audit for overflows
 struct Addressing {
@@ -272,5 +271,3 @@ struct Addressing {
 };
 
 };
-
-#endif /* __ADDR_H__ */

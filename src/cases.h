@@ -4,9 +4,8 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
-#ifndef __CASES_H__
-
-inline namespace slang_frontend {
+#pragma once
+namespace slang_frontend {
 
 // These structures are modeled after RTLIL's SwitchRule and CaseRule, to which
 // they are eventually lowered.
@@ -158,5 +157,3 @@ RTLIL::SwitchRule *Switch::lower()
 }
 
 };
-
-#endif /* __CASES_H__ */

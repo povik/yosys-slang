@@ -4,6 +4,7 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#pragma once
 #include "slang/ast/EvalContext.h"
 #include "kernel/rtlil.h"
 
@@ -19,13 +20,16 @@ namespace slang {
 		class SubroutineSymbol;
 		class InstanceSymbol;
 		class InstanceBodySymbol;
+		class Statement;
+		class SignalEventControl;
+		class ProceduralBlockSymbol;
 	};
 };
 
-inline namespace slang_frontend {
+namespace slang_frontend {
 
-namespace RTLIL = Yosys::RTLIL;
-namespace ast = slang::ast;
+namespace RTLIL = ::Yosys::RTLIL;
+namespace ast = ::slang::ast;
 
 struct NetlistContext;
 struct ProceduralVisitor;
