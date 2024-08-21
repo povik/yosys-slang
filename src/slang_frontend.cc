@@ -1609,6 +1609,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				ret = netlist.canvas->addWire(NEW_ID, width);
 				memrd->setPort(ID::DATA, ret);
 				memrd->setParam(ID::WIDTH, width);
+				transfer_attrs(expr, memrd);
 				break;
 			}
 
