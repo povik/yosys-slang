@@ -7,8 +7,9 @@
 #pragma once
 namespace slang_frontend {
 
-struct InferredMemoryDetector : public ast::ASTVisitor<InferredMemoryDetector, true, true> {
-public:
+struct InferredMemoryDetector : 
+		public TimingPatternInterpretor,
+		public ast::ASTVisitor<InferredMemoryDetector, true, true> {
 	Yosys::pool<const ast::Symbol *> memory_candidates;
 
 	void handle(const ast::RootSymbol &root) {
@@ -99,9 +100,12 @@ public:
 		expr.selector().visit(*this);
 	}
 
+	bool wr_allowed = false;
+
 	void handle(const ast::ExpressionStatement &stmt) {
 		if (stmt.expr.kind == ast::ExpressionKind::Assignment &&
-				stmt.expr.as<ast::AssignmentExpression>().isNonBlocking()) {
+				stmt.expr.as<ast::AssignmentExpression>().isNonBlocking() &&
+				wr_allowed) {
 			auto& assign = stmt.expr.as<ast::AssignmentExpression>();
 			assign.right().visit(*this);
 
@@ -151,6 +155,35 @@ public:
 		if (sym.isUninstantiated)
 			return;
 		visitDefault(sym);
+	}
+
+	void handle(const ast::ProceduralBlockSymbol &symbol)
+	{
+		interpret(symbol);
+	}
+
+	virtual void handle_comb_like_process(const ast::ProceduralBlockSymbol &,
+										  const ast::Statement &body)
+	{
+		body.visit(*this);
+	}
+
+	virtual void handle_ff_process(const ast::ProceduralBlockSymbol&,
+								   const ast::SignalEventControl&,
+								   const ast::Statement &sync_body,
+								   std::span<AsyncBranch> async)
+	{
+		for (auto &branch : async)
+			branch.body.visit(*this);
+		wr_allowed = true;
+		sync_body.visit(*this);
+		wr_allowed = false;
+	}
+
+	virtual void handle_initial_process(const ast::ProceduralBlockSymbol&,
+										const ast::Statement&)
+	{
+		// Initial processes have no influence over memory inference
 	}
 };
 
