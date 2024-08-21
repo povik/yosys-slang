@@ -25,6 +25,7 @@
 #include "initial_eval.h"
 #include "slang_frontend.h"
 #include "diag.h"
+#include "async_pattern.h"
 
 namespace slang_frontend {
 
@@ -1740,7 +1741,7 @@ SignalEvalContext::SignalEvalContext(NetlistContext &netlist, ProceduralVisitor 
 {
 }
 
-struct PopulateNetlist : public ast::ASTVisitor<PopulateNetlist, true, false> {
+struct PopulateNetlist : public TimingPatternInterpretor, public ast::ASTVisitor<PopulateNetlist, true, false> {
 public:
 	NetlistContext &netlist;
 	SynthesisSettings &settings;
@@ -1797,7 +1798,7 @@ public:
 	PopulateNetlist(NetlistContext &netlist, SynthesisSettings &settings)
 		: netlist(netlist), settings(settings), initial_eval(&netlist.compilation, netlist.canvas) {}
 
-	void synthesize_procedure_with_implicit_timing(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
+	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
 		const ast::Scope *scope = symbol.getParentScope();
 
@@ -1869,11 +1870,13 @@ public:
 		netlist.GroupConnect(cl, cr);
 	}
 
-	void synthesize_procedure_with_edge_timing(const ast::ProceduralBlockSymbol &symbol, UpdateTiming &timing)
+	void handle_ff_process(const ast::ProceduralBlockSymbol &symbol,
+						   const ast::SignalEventControl &clock,
+						   const ast::Statement &sync_body,
+						   std::span<AsyncBranch> async)
 	{
 		log_assert(symbol.getBody().kind == ast::StatementKind::Timed);
 		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
-		const ast::Statement *stmt = &timed.stmt;
 		const ast::Scope *scope = symbol.getParentScope();
 
 		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
@@ -1886,123 +1889,33 @@ public:
 			const ast::Statement *ast_node;
 		};
 		std::vector<Aload> aloads;
-		RTLIL::SigSpec previous_async;
+		RTLIL::SigSpec prior_branch_taken;
 
-		// Keep inferring asynchronous loads until we get to a single remaining edge trigger
-		while (timing.triggers.size() > 1) {
-			while (stmt->kind == ast::StatementKind::Block
-					&& stmt->as<ast::BlockStatement>().blockKind == ast::StatementBlockKind::Sequential)
-				stmt = &stmt->as<ast::BlockStatement>().body;
+		for (auto &abranch : async) {
+			RTLIL::SigSpec sig = netlist.eval(abranch.trigger);
+			log_assert(sig.size() == 1);
 
-			if (stmt->kind != ast::StatementKind::Conditional
-					|| stmt->as<ast::ConditionalStatement>().check != ast::UniquePriorityCheck::None
-					|| stmt->as<ast::ConditionalStatement>().conditions.size() != 1
-					|| stmt->as<ast::ConditionalStatement>().conditions[0].pattern
-					|| !stmt->as<ast::ConditionalStatement>().ifFalse) {
-				auto &diag = symbol.getParentScope()->addDiag(diag::ExpectingIfElseAload, stmt->sourceRange);
-				diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-				return;
-			}
+			UpdateTiming branch_timing;
+			branch_timing.background_enable =
+				netlist.LogicAnd(netlist.LogicNot(prior_branch_taken), abranch.polarity ? sig : netlist.LogicNot(sig));
+			prior_branch_taken.append(abranch.polarity ? netlist.LogicNot(sig) : sig);
 
-			auto &cond_stmt = stmt->as<ast::ConditionalStatement>();
-			const ast::Expression *condition = cond_stmt.conditions[0].expr;
-
-			bool did_something = true, polarity = true;
-			while (did_something) {
-				did_something = false;
-
-				if (condition->kind == ast::ExpressionKind::UnaryOp
-						&& (condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::LogicalNot
-							|| condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::BitwiseNot)) {
-					polarity = !polarity;
-					condition = &condition->as<ast::UnaryExpression>().operand();
-					did_something = true;
-				}
-
-				if (condition->kind == ast::ExpressionKind::BinaryOp
-						&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
-						&& condition->as<ast::BinaryExpression>().right().constant
-						&& condition->as<ast::BinaryExpression>().right().type->getBitWidth() == 1
-						&& !condition->as<ast::BinaryExpression>().right().constant->hasUnknown()
-						&& condition->as<ast::BinaryExpression>().right().constant->isTrue()) {
-					auto& biop = condition->as<ast::BinaryExpression>();
-					did_something = true;
-					condition = &biop.left();
-				}
-
-				if (condition->kind == ast::ExpressionKind::BinaryOp
-						&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
-						&& condition->as<ast::BinaryExpression>().right().constant
-						&& !condition->as<ast::BinaryExpression>().right().constant->hasUnknown()
-						&& condition->as<ast::BinaryExpression>().right().constant->isFalse()) {
-					auto& biop = condition->as<ast::BinaryExpression>();
-					polarity = !polarity;
-					did_something = true;
-					condition = &biop.left();
-				}
-
-				if (condition->kind == ast::ExpressionKind::Conversion
-						&& condition->as<ast::ConversionExpression>().operand().type->isIntegral()
-						&& condition->as<ast::ConversionExpression>().operand().type->getBitWidth() <  condition->type->getBitWidth()) {
-					did_something = true;
-					condition = &condition->as<ast::ConversionExpression>().operand();
-				}
-			}
-
-			if (condition->kind == ast::ExpressionKind::NamedValue) {
-				RTLIL::SigSpec cond_signal = netlist.eval(*condition);
-
-				auto found = std::find_if(timing.triggers.begin(), timing.triggers.end(),
-									   [=](const UpdateTiming::Sensitivity &sense) {
-					return RTLIL::SigSpec(sense.signal) == cond_signal;
-				});
-
-				if (found != timing.triggers.end()) {
-					if (found->edge_polarity != polarity) {
-						auto &diag = symbol.getParentScope()->addDiag(diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
-						diag.addNote(diag::NoteSignalEvent, found->ast_node->sourceRange);
-						diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-						// We raised an error. Do infer the async load anyway
-					}
-
-					UpdateTiming branch_timing;
-					// copy in the single trigger for this branch
-					branch_timing.triggers = {*found};
-					// disable the effects if some of the priority async signals are raised
-					branch_timing.background_enable = netlist.LogicNot(previous_async);
-
-					ProceduralVisitor visitor(netlist, symbol.getParentScope(), branch_timing, ProceduralVisitor::AlwaysProcedure);
-					cond_stmt.ifTrue.visit(visitor);
-
-					visitor.copy_case_tree_into(proc->root_case);
-					aloads.push_back({
-						found->signal,
-						found->edge_polarity,
-						visitor.vstate.visible_assignments,
-						&cond_stmt.ifTrue
-					});
-
-					// TODO: check for non-constant load values and warn about sim/synth mismatch
-
-					// Prepare the stage for the inference of the next async load,
-					// or for the final synchronous part.
-					previous_async.append(polarity ? found->signal : RTLIL::SigBit(netlist.Not(found->signal)));
-					timing.triggers.erase(found);
-					stmt = cond_stmt.ifFalse;
-					continue;
-				}
-			}
-
-			auto &diag = scope->addDiag(diag::IfElseAloadMismatch, stmt->sourceRange);
-			diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-			return;
+			ProceduralVisitor visitor(netlist, scope, branch_timing, ProceduralVisitor::AlwaysProcedure);
+			abranch.body.visit(visitor);
+			visitor.copy_case_tree_into(proc->root_case);
+			aloads.push_back({
+				sig, abranch.polarity, visitor.vstate.visible_assignments, &abranch.body
+			});
+			// TODO: check for non-constant load values and warn about sim/synth mismatch
 		}
 
 		require(symbol, aloads.size() <= 1);
 		{
-			timing.background_enable = netlist.LogicNot(previous_async);
-			ProceduralVisitor visitor(netlist, symbol.getParentScope(), timing, ProceduralVisitor::AlwaysProcedure);
-			stmt->visit(visitor);
+			UpdateTiming timing;
+			timing.background_enable = netlist.LogicNot(prior_branch_taken);
+			timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
+			ProceduralVisitor visitor(netlist, scope, timing, ProceduralVisitor::AlwaysProcedure);
+			sync_body.visit(visitor);
 			visitor.copy_case_tree_into(proc->root_case);
 
 			RTLIL::SigSpec driven = visitor.all_driven();
@@ -2060,139 +1973,20 @@ public:
 		}
 	}
 
-	void handle(const ast::ProceduralBlockSymbol &symbol)
-	{
-		auto kind = symbol.procedureKind;
-		switch (kind) {
-		case ast::ProceduralBlockKind::Always:
-		case ast::ProceduralBlockKind::AlwaysFF:
-			handle_always(symbol);
-			break;
-
-		case ast::ProceduralBlockKind::AlwaysComb:
-		case ast::ProceduralBlockKind::AlwaysLatch:
-			synthesize_procedure_with_implicit_timing(symbol, symbol.getBody());
-			break;
-
-		case ast::ProceduralBlockKind::Initial:
-			{
-				auto result = symbol.getBody().visit(initial_eval);
-				if (result != ast::Statement::EvalResult::Success) {
-					for (auto& diag : initial_eval.context.getAllDiagnostics())
-        				global_diagengine->issue(diag);
-        			auto str = global_diagclient->getString();
-					log_error("Failed to execute initial block\n%s\n",
-							  str.c_str());
-				}
-			}
-			break;
-		case ast::ProceduralBlockKind::Final:
-			{
-				/* no-op */
-			}
-			break;
-		default:
-			unimplemented(symbol);
-		}	
+	void handle_initial_process(const ast::ProceduralBlockSymbol &, const ast::Statement &body) {
+		auto result = body.visit(initial_eval);
+		if (result != ast::Statement::EvalResult::Success) {
+			for (auto& diag : initial_eval.context.getAllDiagnostics())
+    			global_diagengine->issue(diag);
+			auto str = global_diagclient->getString();
+			log_error("Failed to execute initial block\n%s\n",
+					  str.c_str());
+		}
 	}
 
-	void handle_always(const ast::ProceduralBlockSymbol &symbol)
+	void handle(const ast::ProceduralBlockSymbol &symbol)
 	{
-		const ast::Scope *scope = symbol.getParentScope();
-		log_assert(symbol.procedureKind == ast::ProceduralBlockKind::Always
-				|| symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
-
-		if (symbol.getBody().kind == ast::StatementKind::Invalid)
-			return;
-
-		require(symbol, symbol.getBody().kind == ast::StatementKind::Timed);
-		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
-		const auto *top_ast_timing = &timed.timing;
-
-		using TCKind = ast::TimingControlKind;
-		std::span<const ast::TimingControl* const> events;
-		const ast::TimingControl* const top_events[1] = {top_ast_timing};
-
-		events = (top_ast_timing->kind == TCKind::EventList) ?
-				top_ast_timing->as<ast::EventListControl>().events
-				: std::span<const ast::TimingControl* const>(top_events);
-
-		bool implicit = false;
-		UpdateTiming timing;
-
-		for (auto ev : events)
-		switch (ev->kind) {
-		case ast::TimingControlKind::SignalEvent:
-			{
-				const auto &sigev = ev->as<ast::SignalEventControl>();
-
-				if (sigev.iffCondition)
-					scope->addDiag(diag::IffUnsupported, sigev.iffCondition->sourceRange);
-
-				switch (sigev.edge) {
-				case ast::EdgeKind::None:
-					{
-						if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
-							scope->addDiag(diag::AlwaysFFBadTiming, ev->sourceRange);
-							break;
-						}
-
-						// Report on the top timing node as that makes for nicer reports in case there
-						// are many signals in the sensitivity list
-						symbol.getParentScope()->addDiag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
-						implicit = true;
-					}
-					break;
-
-				case ast::EdgeKind::PosEdge:
-				case ast::EdgeKind::NegEdge:
-					{
-						RTLIL::SigSpec sig = netlist.eval(sigev.expr);
-						require(symbol, !sig.empty());
-
-						// The LSB is the trigger; slang raises the 'multibit-edge' warning
-						// to point this out to users
-						timing.triggers.push_back(UpdateTiming::Sensitivity{
-							sig.lsb(),
-							(sigev.edge == ast::EdgeKind::PosEdge),
-							&sigev
-						});
-					}
-					break;
-
-				case ast::EdgeKind::BothEdges:
-					scope->addDiag(diag::BothEdgesUnsupported, sigev.sourceRange);
-					break;
-				}
-			}
-			break;
-
-		case ast::TimingControlKind::ImplicitEvent:
-			{
-				if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
-					scope->addDiag(diag::AlwaysFFBadTiming, ev->sourceRange);
-					break;
-				}
-
-				implicit = true;
-			}
-			break;
-
-		case ast::TimingControlKind::EventList:
-			log_abort();
-
-		default:
-			scope->addDiag(diag::GenericTimingUnsyn, ev->sourceRange);
-			break;
-		}
-
-		if (implicit && !timing.triggers.empty())
-			scope->addDiag(diag::EdgeImplicitMixing, top_ast_timing->sourceRange);
-
-		if (implicit)
-			synthesize_procedure_with_implicit_timing(symbol, timed.stmt);
-		else if (!timing.triggers.empty())
-			synthesize_procedure_with_edge_timing(symbol, timing);
+		interpret(symbol);
 	}
 
 	void handle(const ast::NetSymbol &sym)
