@@ -38,7 +38,7 @@ Check out the repository including the submodule, e.g. with
 
 Then build both slang and the `build/slang.so` plugin for Yosys:
 
-    make -j$(noproc)
+    make -j$(nproc)
 
 Use a custom `-jN` switch to build with `N` concurrent processes instead of matching the number of cores.
 
