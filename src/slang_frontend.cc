@@ -2450,7 +2450,8 @@ struct SlangFrontend : Frontend {
 				compilation->forceElaborate(body);
 				visitor.visitDefault(body);
 			});
-			compilation->getRoot().visit(elab);
+			for (auto instance : compilation->getRoot().topInstances)
+				instance->visit(elab);
 
 			if (compilation->hasIssuedErrors()) {
 				if (!driver.reportCompilation(*compilation, /* quiet */ false))

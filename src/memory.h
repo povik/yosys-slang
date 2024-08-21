@@ -25,8 +25,10 @@ struct InferredMemoryDetector :
 				return;
 			visitor.visitDefault(symbol);
 		});
-		root.visit(first_pass);
-		visitDefault(root);
+		for (auto top : root.topInstances) {
+			top->visit(first_pass);
+			visitDefault(*top);
+		}
 	}
 
 	struct LHSVisitor : public ast::ASTVisitor<LHSVisitor, true, true> {
