@@ -7,7 +7,7 @@ OBJS = $(patsubst $(SRC_DIR)/src/%.cc,build/%.o,$(SRCS))
 
 build: build/slang.so
 
-build/slang/.configured:
+configure-slang:
 	@mkdir -p $(@D)
 	@if [ ! -f "$(SRC_DIR)/third_party/slang/CMakeLists.txt" ]; then \
 		echo "The content of the slang submodule seems to be missing."; \
@@ -27,6 +27,9 @@ build/slang/.configured:
 		-DCMAKE_CXX_FLAGS="-fPIC" \
 		-DBoost_NO_BOOST_CMAKE=ON \
 		-DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON
+
+build/slang/.configured:
+	$(MAKE) configure-slang
 	touch $@
 
 build-slang: build/slang/.configured
@@ -65,4 +68,4 @@ build/slang.so: $(OBJS)
 		-Lbuild/slang_install/lib \
 		-lsvlang -lfmt
 
-.PHONY: build build-slang clean-slang clean-objects clean clean-all
+.PHONY: build configure-slang build-slang clean-slang clean-objects clean clean-all
