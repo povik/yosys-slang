@@ -15,6 +15,6 @@ resume
 halt
 if {[read_memory 0x03000008 32 1] != 7} {
 	puts "bad canary value"
-	exit 1
+	shutdown error
 }
-exit
+shutdown
