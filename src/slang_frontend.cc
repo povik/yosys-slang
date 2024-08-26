@@ -1896,9 +1896,9 @@ public:
 			log_assert(sig.size() == 1);
 
 			UpdateTiming branch_timing;
-			branch_timing.background_enable =
-				netlist.LogicAnd(netlist.LogicNot(prior_branch_taken), abranch.polarity ? sig : netlist.LogicNot(sig));
-			prior_branch_taken.append(abranch.polarity ? netlist.LogicNot(sig) : sig);
+			RTLIL::SigSpec sig_depol = abranch.polarity ? sig : netlist.LogicNot(sig);
+			branch_timing.background_enable = netlist.LogicAnd(netlist.LogicNot(prior_branch_taken), sig_depol);
+			prior_branch_taken.append(sig_depol);
 
 			ProceduralVisitor visitor(netlist, scope, branch_timing, ProceduralVisitor::AlwaysProcedure);
 			abranch.body.visit(visitor);
