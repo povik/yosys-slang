@@ -32,7 +32,6 @@ namespace slang_frontend {
 struct SynthesisSettings {
 	std::optional<bool> dump_ast;
 	std::optional<bool> no_proc;
-	std::optional<bool> translate_on_off_compat;
 	std::optional<bool> compat_mode;
 	std::optional<bool> keep_hierarchy;
 
