@@ -389,8 +389,8 @@ public:
 	SignalEvalContext eval;
 	UpdateTiming &timing;	
 
-	Yosys::SigPool assigned_blocking;
-	Yosys::SigPool assigned_nonblocking;
+	Yosys::pool<RTLIL::Wire *> seen_blocking_assignment;
+	Yosys::pool<RTLIL::Wire *> seen_nonblocking_assignment;
 
 	Case *root_case;
 	Case *current_case;
@@ -415,6 +415,16 @@ public:
 	~ProceduralVisitor()
 	{
 		delete root_case;
+	}
+
+	void inherit_state(ProceduralVisitor &other)
+	{
+		log_assert(other.eval.frames.size() == 1);
+		eval.frames[0].locals = other.eval.frames[0].locals;
+		seen_blocking_assignment = other.seen_blocking_assignment;
+		seen_nonblocking_assignment = other.seen_nonblocking_assignment;
+		preceding_memwr = other.preceding_memwr;
+		vstate = other.vstate;
 	}
 
 	void copy_case_tree_into(RTLIL::CaseRule &rule)
@@ -454,9 +464,6 @@ public:
 	{
 		timing.extract_trigger(netlist, cell, case_enable());
 	}
-
-	Yosys::pool<RTLIL::Wire *> seen_blocking_assignment;
-	Yosys::pool<RTLIL::Wire *> seen_nonblocking_assignment;
 
 	struct SwitchHelper {
 		struct VariableState {
@@ -1872,6 +1879,7 @@ public:
 
 	void handle_ff_process(const ast::ProceduralBlockSymbol &symbol,
 						   const ast::SignalEventControl &clock,
+						   std::vector<const ast::Statement *> prologue,
 						   const ast::Statement &sync_body,
 						   std::span<AsyncBranch> async)
 	{
@@ -1881,6 +1889,21 @@ public:
 
 		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
 		transfer_attrs(timed.stmt, proc);
+
+		UpdateTiming prologue_timing;
+		{
+			prologue_timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
+			for (auto &abranch : async)	{
+				RTLIL::SigSpec sig = netlist.eval(abranch.trigger);
+				log_assert(sig.size() == 1);
+				prologue_timing.triggers.push_back({sig, abranch.polarity, nullptr});
+			}
+		}
+		ProceduralVisitor prologue_visitor(netlist, symbol.getParentScope(), prologue_timing,
+										   ProceduralVisitor::AlwaysProcedure);
+		for (auto stmt : prologue)
+			stmt->visit(prologue_visitor);
+		prologue_visitor.copy_case_tree_into(proc->root_case);
 
 		struct Aload {
 			RTLIL::SigBit trigger;
@@ -1901,6 +1924,7 @@ public:
 			prior_branch_taken.append(sig_depol);
 
 			ProceduralVisitor visitor(netlist, scope, branch_timing, ProceduralVisitor::AlwaysProcedure);
+			visitor.inherit_state(prologue_visitor);
 			abranch.body.visit(visitor);
 			visitor.copy_case_tree_into(proc->root_case);
 			aloads.push_back({
@@ -1915,6 +1939,7 @@ public:
 			timing.background_enable = netlist.LogicNot(prior_branch_taken);
 			timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
 			ProceduralVisitor visitor(netlist, scope, timing, ProceduralVisitor::AlwaysProcedure);
+			visitor.inherit_state(prologue_visitor);
 			sync_body.visit(visitor);
 			visitor.copy_case_tree_into(proc->root_case);
 

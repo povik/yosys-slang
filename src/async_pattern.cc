@@ -117,13 +117,44 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 	const ast::Statement *stmt = &body;
 
 	std::vector<AsyncBranch> found_async;
+	std::vector<const ast::Statement *> prologue;
+	bool did_something = true;
+	while (did_something) {
+		did_something = false;
+
+		if (stmt->kind == ast::StatementKind::Block &&
+				stmt->as<ast::BlockStatement>().blockKind == ast::StatementBlockKind::Sequential) {
+			stmt = &stmt->as<ast::BlockStatement>().body;
+			did_something = true;
+		}
+
+		if (stmt->kind == ast::StatementKind::List && triggers.size() > 1) {
+			auto& list = stmt->as<ast::StatementList>().list;
+			std::vector<const ast::Statement *> pending_prologue;
+			for (size_t i = 0; i < list.size(); i++) {
+				auto &inner_stmt = list[i];
+				if (inner_stmt->kind == ast::StatementKind::ExpressionStatement ||
+						inner_stmt->kind == ast::StatementKind::VariableDeclaration) {
+					pending_prologue.push_back(inner_stmt);
+				} else if (i == list.size() - 1) {
+					stmt = inner_stmt;
+					prologue.insert(prologue.end(), pending_prologue.begin(), pending_prologue.end());
+					pending_prologue.clear();
+					did_something = true;
+					break;
+				} else {
+					break;
+				}
+			}
+
+			if (!pending_prologue.empty()) {
+				break;
+			}
+		}
+	}
 
 	// Keep inferring asynchronous loads until we get to a single remaining edge trigger
 	while (triggers.size() > 1) {
-		while (stmt->kind == ast::StatementKind::Block
-				&& stmt->as<ast::BlockStatement>().blockKind == ast::StatementBlockKind::Sequential)
-			stmt = &stmt->as<ast::BlockStatement>().body;
-
 		if (stmt->kind != ast::StatementKind::Conditional
 				|| stmt->as<ast::ConditionalStatement>().check != ast::UniquePriorityCheck::None
 				|| stmt->as<ast::ConditionalStatement>().conditions.size() != 1
@@ -213,7 +244,7 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 		return;
 	}
 
-	handle_ff_process(symbol, *triggers[0], *stmt, found_async);
+	handle_ff_process(symbol, *triggers[0], prologue, *stmt, found_async);
 }
 
 void TimingPatternInterpretor::interpret(const ast::ProceduralBlockSymbol &symbol)

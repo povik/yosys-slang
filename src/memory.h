@@ -172,9 +172,12 @@ struct InferredMemoryDetector :
 
 	virtual void handle_ff_process(const ast::ProceduralBlockSymbol&,
 								   const ast::SignalEventControl&,
+								   std::vector<const ast::Statement *> prologue,
 								   const ast::Statement &sync_body,
 								   std::span<AsyncBranch> async)
 	{
+		for (auto stmt : prologue)
+			stmt->visit(*this);
 		for (auto &branch : async)
 			branch.body.visit(*this);
 		wr_allowed = true;
