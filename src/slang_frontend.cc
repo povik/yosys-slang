@@ -1533,26 +1533,20 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			case ast::BinaryOperator::LogicalOr:	type = ID($logic_or); break;
 			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = mod->LogicNot(NEW_ID, left); a_signed = false; break;
 			case ast::BinaryOperator::LogicalEquivalence: type = ID($eq); left = mod->ReduceBool(NEW_ID, left); right = mod->ReduceBool(NEW_ID, right); a_signed = b_signed = false; break;
-			case ast::BinaryOperator::LogicalShiftLeft:	type = ID($sshl); break;
-			case ast::BinaryOperator::LogicalShiftRight:	type = ID($sshr); break;
-			case ast::BinaryOperator::ArithmeticShiftLeft:	type = ID($shl); break; // TODO: check shl vs sshl
-			case ast::BinaryOperator::ArithmeticShiftRight:	type = ID($shr); break;
+			case ast::BinaryOperator::LogicalShiftLeft:	type = ID($shl); break;
+			case ast::BinaryOperator::LogicalShiftRight:	type = ID($shr); break;
+			case ast::BinaryOperator::ArithmeticShiftLeft:	type = ID($sshl); break;
+			case ast::BinaryOperator::ArithmeticShiftRight:	type = ID($sshr); break;
 			case ast::BinaryOperator::Power:	type = ID($pow); break;
 			default:
 				unimplemented(biop);
 			}
 
 			// fixups
-			if (type == ID($shr)) {
-				// TODO: is this kosher?
-				b_signed = false;
-			}
-
-			if (type.in(ID($sshr), ID($sshl))) {
-				// TODO: is this kosher?
+			if (type.in(ID($shr), ID($shl)))
 				a_signed = false;
+			if (type.in(ID($shr), ID($shl), ID($sshr), ID($sshl)))
 				b_signed = false;
-			}
 
 			ret = netlist.Biop(
 				type, left, right,
