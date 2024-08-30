@@ -163,7 +163,6 @@ static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 	log_assert(!constval.bad());
 	log_assert(!constval.isReal());
 	log_assert(!constval.isShortReal());
-	log_assert(!constval.isNullHandle());
 	log_assert(!constval.isUnbounded());
 	log_assert(!constval.isMap());
 	log_assert(!constval.isQueue());
@@ -184,6 +183,8 @@ static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 		RTLIL::Const ret = convert_svint(constval.convertToInt().integer());
 		ret.flags |= RTLIL::CONST_FLAG_STRING;
 		return ret;
+	} else if (constval.isNullHandle()) {
+		return {};
 	}
 
 	log_abort();
