@@ -43,7 +43,7 @@ jobs:
           cd tests/third_party/yosys
           make config-gcc
           echo "ENABLE_ABC := 0" >> Makefile.conf
-          patch -p1 < ../cxxrtl-work-around-issue-3459.patch
+          patch -p1 < ../cxxrtl-work-around-issue-3549.patch
           make -j6
       - name: Install Yosys
         shell: bash
