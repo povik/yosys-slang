@@ -1299,6 +1299,7 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 
 	switch (expr.kind) {
 	case ast::ExpressionKind::NamedValue:
+	case ast::ExpressionKind::HierarchicalValue: // TODO: raise error if there's a boundary
 		{
 			const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
 			if (is_inferred_memory(symbol)) {
