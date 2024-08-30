@@ -1307,6 +1307,11 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 				break;
 			}
 
+			if (symbol.kind == ast::SymbolKind::ModportPort) {
+				ret = lhs(*symbol.as<ast::ModportPortSymbol>().getConnectionExpr());
+				break;
+			}
+
 			ret = wire(symbol);
 		}
 		break;
@@ -1378,6 +1383,11 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 			auto exprconst = valsym.getInitializer()->constant;
 			require(valsym, exprconst && exprconst->isInteger());
 			return convert_svint(exprconst->integer());
+		}
+		break;
+	case ast::SymbolKind::ModportPort:
+		{
+			return (*this)(*symbol.as<ast::ModportPortSymbol>().getConnectionExpr());
 		}
 		break;
 	default:
@@ -2307,6 +2317,7 @@ public:
 	void handle(const ast::GenvarSymbol&) {}
 	void handle(const ast::VariableSymbol&) {}
 	void handle(const ast::EmptyMemberSymbol&) {}
+	void handle(const ast::ModportSymbol&) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{
