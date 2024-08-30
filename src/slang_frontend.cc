@@ -1136,7 +1136,6 @@ public:
 		current_case = current_case->add_switch({})->add_case({});
 	}
 
-	void handle(const ast::InvalidStatement&) { log_abort(); }
 	void handle(const ast::EmptyStatement&) {}
 
 	void init_nonstatic_variable(const ast::ValueSymbol &symbol) {
@@ -1399,9 +1398,6 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
-	if (expr.kind == ast::ExpressionKind::Invalid)
-		return {};
-
 	require(expr, expr.type->isVoid() || expr.type->isFixedSize());
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
@@ -2157,9 +2153,6 @@ public:
 
 	void handle(const ast::ContinuousAssignSymbol &sym)
 	{
-		if (sym.getAssignment().kind == ast::ExpressionKind::Invalid)
-			return;
-
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
 		RTLIL::SigSpec lhs = netlist.eval.lhs(expr.left());
 		assert_nonstatic_free(lhs);
