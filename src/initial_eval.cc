@@ -42,8 +42,9 @@ inline constexpr slang::DiagCode ParallelBlockUnsupported(DiagSubsystem::Netlist
 inline constexpr slang::DiagCode TODO(DiagSubsystem::Netlist, 102);
 inline constexpr slang::DiagCode BadEvaluation(DiagSubsystem::Netlist, 103);
 
-EvalVisitor::EvalVisitor(Compilation *compilation)
+EvalVisitor::EvalVisitor(Compilation *compilation, bool ignore_timing)
 	: context(ASTContext(compilation->getRoot(), LookupLocation::max), /* HACK */ ast::EvalFlags::IsScript)
+	, ignore_timing(ignore_timing)
 {
 	context.pushEmptyFrame();
 }
@@ -682,6 +683,16 @@ ER EvalVisitor::visit(const ImmediateAssertionStatement &stmt)
 		return ER::Fail;
 	}
 	return ER::Success;
+}
+
+ER EvalVisitor::visit(const TimedStatement &stmt)
+{
+	if (!ignore_timing) // call unimplemented
+		return visit(static_cast<const Statement &>(stmt));
+
+	// ignore timing and visit inner statement
+	ER result = stmt.stmt.visit(*this);
+	return result;
 }
 
 ER EvalVisitor::visit(const EmptyStatement&)

@@ -6,7 +6,7 @@ namespace SlangInitial {
 struct EvalVisitor {
 public:
 	slang::ast::EvalContext context;
-	EvalVisitor(slang::ast::Compilation *compilation);
+	EvalVisitor(slang::ast::Compilation *compilation, bool ignore_timing = false);
 
 	using ER = slang::ast::Statement::EvalResult;
 
@@ -33,11 +33,14 @@ public:
 	ER visit(const slang::ast::ForeverLoopStatement &stmt);
 	ER visit(const slang::ast::ExpressionStatement &stmt);
 	ER visit(const slang::ast::ImmediateAssertionStatement &stmt);
+	ER visit(const slang::ast::TimedStatement &stmt);
 	ER visit(const slang::ast::EmptyStatement &stmt);
 	ER visit(const slang::ast::Statement &);
 
 	// to let clients choose the display handling
 	virtual void handleDisplay(const slang::ast::CallExpression &call,
 							   const std::vector<slang::ConstantValue> &args);
+
+	bool ignore_timing;
 };
 };
