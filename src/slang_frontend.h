@@ -97,6 +97,7 @@ struct RTLILBuilder {
 	SigSpec Neg(SigSpec a, bool signed_);
 	SigSpec Not(SigSpec a);
 
+	SigSpec Unop(RTLIL::IdString op, SigSpec a, bool a_signed, int y_width);
 	SigSpec Biop(RTLIL::IdString op, SigSpec a, SigSpec b,
 				 bool a_signed, bool b_signed, int y_width);
 

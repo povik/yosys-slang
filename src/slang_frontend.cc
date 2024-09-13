@@ -1491,14 +1491,9 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				unimplemented(unop);
 			}
 
-			RTLIL::Cell *cell = mod->addCell(NEW_ID, type);
-			cell->setPort(RTLIL::ID::A, left);
-			cell->setParam(RTLIL::ID::A_WIDTH, left.size());
-			cell->setParam(RTLIL::ID::A_SIGNED, unop.operand().type->isSigned());
-			cell->setParam(RTLIL::ID::Y_WIDTH, expr.type->getBitstreamWidth());
-			ret = mod->addWire(NEW_ID, expr.type->getBitstreamWidth());
-			cell->setPort(RTLIL::ID::Y, ret);
-			transfer_attrs(unop, cell);
+			ret = netlist.Unop(
+				type, left, unop.operand().type->isSigned(), expr.type->getBitstreamWidth()
+			);
 
 			if (invert) {
 				RTLIL::SigSpec new_ret = mod->addWire(NEW_ID, 1);
