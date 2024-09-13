@@ -207,6 +207,7 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 		OP(sub)
 		OP(mul)
 		OP(divfloor)
+		OP(div)
 		OP(mod)
 		OP(and)
 		OP(or)

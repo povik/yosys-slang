@@ -1516,8 +1516,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			case ast::BinaryOperator::Add:      type = ID($add); break;
 			case ast::BinaryOperator::Subtract: type = ID($sub); break;
 			case ast::BinaryOperator::Multiply:	type = ID($mul); break;
-			case ast::BinaryOperator::Divide:	type = ID($divfloor); break; // TODO: check
-			case ast::BinaryOperator::Mod:		type = ID($mod); break; // TODO: check
+			case ast::BinaryOperator::Divide:	type = ID($div); break;
+			case ast::BinaryOperator::Mod:		type = ID($mod); break;
 			case ast::BinaryOperator::BinaryAnd: type = ID($and); break;
 			case ast::BinaryOperator::BinaryOr:	type = ID($or); break;
 			case ast::BinaryOperator::BinaryXor:	type = ID($xor); break;
