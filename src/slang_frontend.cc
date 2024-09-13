@@ -1705,6 +1705,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 					UpdateTiming implicit;
 					// TODO: better scope here
 					ProceduralVisitor visitor(netlist, nullptr, implicit, ProceduralVisitor::ContinuousAssign);
+					visitor.eval.disable_const_folding = disable_const_folding;
 					ret = visitor.handle_call(call);
 
 					RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
