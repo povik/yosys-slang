@@ -238,8 +238,11 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 
 	if (op == ID($logic_or)) {
 		// IMPROVEMENT: condition could be relaxed
-		if ((a.is_fully_const() && a.as_bool()) || (b.is_fully_const() && b.as_bool()))
-			return SigSpec(RTLIL::S0, y_width);
+		if ((a.is_fully_const() && a.as_bool()) || (b.is_fully_const() && b.as_bool())) {
+			SigSpec ret = {RTLIL::S1};
+			ret.extend_u0(y_width);
+			return ret;
+		}
 	}
 
 	Cell *cell = canvas->addCell(NEW_ID, op);
