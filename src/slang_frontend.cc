@@ -1495,11 +1495,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				type, left, unop.operand().type->isSigned(), expr.type->getBitstreamWidth()
 			);
 
-			if (invert) {
-				RTLIL::SigSpec new_ret = mod->addWire(NEW_ID, 1);
-				transfer_attrs(unop, mod->addLogicNot(NEW_ID, ret, new_ret));
-				ret = new_ret;
-			}
+			if (invert)
+				ret = netlist.LogicNot(ret);
 		}
 		break;
 	case ast::ExpressionKind::BinaryOp:
@@ -1534,8 +1531,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			//case ast::BinaryOperator::WildcardInequality;
 			case ast::BinaryOperator::LogicalAnd:	type = ID($logic_and); break;
 			case ast::BinaryOperator::LogicalOr:	type = ID($logic_or); break;
-			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = mod->LogicNot(NEW_ID, left); a_signed = false; break;
-			case ast::BinaryOperator::LogicalEquivalence: type = ID($eq); left = mod->ReduceBool(NEW_ID, left); right = mod->ReduceBool(NEW_ID, right); a_signed = b_signed = false; break;
+			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = netlist.LogicNot(left); a_signed = false; break;
+			case ast::BinaryOperator::LogicalEquivalence: type = ID($eq); left = netlist.ReduceBool(left); right = netlist.ReduceBool(right); a_signed = b_signed = false; break;
 			case ast::BinaryOperator::LogicalShiftLeft:	type = ID($shl); break;
 			case ast::BinaryOperator::LogicalShiftRight:	type = ID($shr); break;
 			case ast::BinaryOperator::ArithmeticShiftLeft:	type = ID($sshl); break;
