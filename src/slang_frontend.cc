@@ -7,6 +7,7 @@
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/EvalContext.h"
+#include "slang/ast/SystemSubroutine.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/diagnostics/TextDiagnosticClient.h"
 #include "slang/driver/Driver.h"
@@ -1403,7 +1404,12 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	RTLIL::SigSpec ret;
 	size_t repl_count;
 
-	{
+	if (!disable_const_folding ||
+			expr.kind == ast::ExpressionKind::IntegerLiteral ||
+			expr.kind == ast::ExpressionKind::RealLiteral ||
+			expr.kind == ast::ExpressionKind::UnbasedUnsizedIntegerLiteral ||
+			expr.kind == ast::ExpressionKind::NullLiteral ||
+			expr.kind == ast::ExpressionKind::StringLiteral) {
 		auto const_result = expr.eval(this->const_);
 		if (const_result) {
 			ret = convert_const(const_result);
@@ -2579,5 +2585,130 @@ struct UndrivenPass : Pass {
 		}
 	}
 } UndrivenPass;
+
+class TFunc : public ast::SystemSubroutine {
+public:
+    TFunc() : ast::SystemSubroutine("$t", ast::SubroutineKind::Function) {}
+
+    const ast::Type& checkArguments(const ast::ASTContext& context, const Args& args,
+									slang::SourceRange range, const ast::Expression*) const final {
+        auto& comp = context.getCompilation();
+        if (!checkArgCount(context, false, args, range, 1, 1))
+            return comp.getErrorType();
+        return comp.getVoidType();
+    }
+
+    slang::ConstantValue eval(ast::EvalContext& context, const Args&,
+    						  slang::SourceRange range,
+							  const ast::CallExpression::SystemCallInfo&) const final {
+        notConst(context, range);
+        return nullptr;
+    }
+};
+
+struct TestSlangExprPass : Pass {
+	TestSlangExprPass() : Pass("test_slangexpr", "test expression evaluation within slang frontend") {}
+
+	void help() override
+	{
+		log("Perform internal test of the slang frontend.\n");
+	}
+
+	void execute(std::vector<std::string> args, RTLIL::Design *d) override
+	{
+		log_header(d, "Executing TEST_SLANGEXPR pass.\n");
+
+		slang::driver::Driver driver;
+		driver.addStandardArgs();
+		SynthesisSettings settings;
+		settings.addOptions(driver.cmdLine);
+
+		{
+			std::vector<char *> c_args;
+			for (auto arg : args) {
+				char *c = new char[arg.size() + 1];
+				strcpy(c, arg.c_str());
+				c_args.push_back(c);
+			}
+			if (!driver.parseCommandLine(c_args.size(), &c_args[0]))
+				log_cmd_error("Bad command\n");
+		}
+		if (!driver.processOptions())
+			log_cmd_error("Bad command\n");
+
+		if (!driver.parseAllSources())
+			log_error("Parsing failed\n");
+		
+		auto compilation = driver.createCompilation();
+		auto tfunc = std::make_shared<TFunc>();
+		compilation->addSystemSubroutine(tfunc);
+
+		if (settings.dump_ast.value_or(false)) {
+			slang::JsonWriter writer;
+			writer.setPrettyPrint(true);
+			ast::ASTSerializer serializer(*compilation, writer);
+			serializer.serialize(compilation->getRoot());
+			std::cout << writer.view() << std::endl;
+		}
+
+		log_assert(compilation->getRoot().topInstances.size() == 1);
+		auto *top = compilation->getRoot().topInstances[0];
+		compilation->forceElaborate(top->body);
+
+		//if (compilation->hasIssuedErrors()) {
+			if (!driver.reportCompilation(*compilation, /* quiet */ false))
+				log_error("Compilation failed\n");
+		//}
+
+		global_compilation = &(*compilation);
+		global_sourcemgr = compilation->getSourceManager();
+		global_diagengine = &driver.diagEngine;
+		global_diagclient = driver.diagClient.get();
+		global_diagclient->clear();
+
+		NetlistContext netlist(d, *compilation, *top);
+		PopulateNetlist populate(netlist, settings);
+
+		SignalEvalContext amended_eval(netlist);
+		amended_eval.disable_const_folding = true;
+
+		int ntests = 0;
+		int nfailures = 0;
+
+		top->visit(ast::makeVisitor([&](auto&, const ast::SubroutineSymbol&) {
+			// ignore
+		}, [&](auto&, const ast::ExpressionStatement &stmt) {
+			assert(stmt.expr.kind == ast::ExpressionKind::Call);
+			auto &call = stmt.expr.as<ast::CallExpression>();
+			assert(call.getSubroutineName() == "$t");
+			auto expr = call.arguments()[0];
+
+			SigSpec ref = netlist.eval(*expr);
+			SigSpec test = amended_eval(*expr);
+
+			slang::SourceRange sr = expr->sourceRange;
+			std::string_view text = global_sourcemgr->getSourceText(sr.start().buffer()) \
+										.substr(sr.start().offset(), sr.end().offset() - sr.start().offset());
+
+			if (ref == test) {
+				log_debug("%s: %s (ref) == %s (test) # %s\n", format_src(*expr).c_str(),
+					log_signal(ref), log_signal(test),
+					std::string(text).c_str());
+				ntests++;
+			} else {
+				log("%s: %s (ref) == %s (test) # %s\n", format_src(*expr).c_str(),
+					log_signal(ref), log_signal(test),
+					std::string(text).c_str());
+				ntests++;
+				nfailures++;
+			}
+		}));
+
+		if (!nfailures)
+			log("%d tests passed.\n", ntests);
+		else
+			log_error("%d out of %d tests failed.\n", nfailures, ntests);
+	}
+} TestSlangExprPass;
 
 };
