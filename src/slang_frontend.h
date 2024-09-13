@@ -64,9 +64,6 @@ struct SignalEvalContext {
 	RTLIL::SigSpec lhs(ast::Expression const &expr);
 	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
 
-	std::pair<RTLIL::SigSpec, RTLIL::SigBit> translate_index(
-		const ast::Expression &expr, slang::ConstantRange range);
-
 	SignalEvalContext(NetlistContext &netlist);
 	SignalEvalContext(NetlistContext &netlist, ProceduralVisitor &procedural);
 
