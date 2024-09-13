@@ -1487,6 +1487,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			case ast::UnaryOperator::BitwiseNand: type = ID($reduce_and); invert = true; break;
 			case ast::UnaryOperator::BitwiseNor: type = ID($reduce_or); invert = true; break;
 			case ast::UnaryOperator::BitwiseXor: type = ID($reduce_xor); break;
+			case ast::UnaryOperator::BitwiseXnor: type = ID($reduce_xnor); break;
 			default:
 				unimplemented(unop);
 			}
