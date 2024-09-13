@@ -669,6 +669,15 @@ public:
 		const ast::Expression *raw_lexpr = &assign.left();
 		RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
 
+		if (raw_lexpr->kind == ast::ExpressionKind::Streaming) {
+			auto& stream_lexpr = raw_lexpr->as<ast::StreamingConcatenationExpression>();
+			RTLIL::SigSpec lvalue = eval.streaming(stream_lexpr, true);
+			log_assert(rvalue.size() >= lvalue.size()); // should have been checked by slang
+			do_simple_assign(assign.sourceRange.start(), lvalue,
+							 rvalue.extract_end(rvalue.size() - lvalue.size()), blocking);
+			return;
+		}
+
 		bool finished_etching = false;
 		bool memory_write = false;
 		while (!finished_etching) {
@@ -1294,6 +1303,7 @@ RTLIL::Wire *SignalEvalContext::wire(const ast::Symbol &symbol)
 
 RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 {
+	log_assert(expr.kind != ast::ExpressionKind::Streaming);
 	require(expr, expr.type->isFixedSize());
 	RTLIL::SigSpec ret;
 
@@ -1397,8 +1407,31 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 	}
 }
 
+RTLIL::SigSpec SignalEvalContext::streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs)
+{
+	require(expr, expr.isFixedSize());
+	RTLIL::SigSpec cat;
+
+	for (auto stream : expr.streams()) {
+		require(*stream.operand, !stream.withExpr);
+		cat = {cat, in_lhs ? lhs(*stream.operand) : (*this)(*stream.operand)};
+	}
+
+	require(expr, expr.getSliceSize() <= std::numeric_limits<int>::max());
+	int slice = expr.getSliceSize();
+	if (slice == 0) {
+		return cat;
+	} else {
+		RTLIL::SigSpec reorder;
+		for (int i = 0; i < cat.size(); i += slice)
+			reorder = {reorder, cat.extract(i, std::min(slice, cat.size() - i))};
+		return reorder;
+	}
+}
+
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
+	log_assert(expr.kind != ast::ExpressionKind::Streaming);
 	require(expr, expr.type->isVoid() || expr.type->isFixedSize());
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
@@ -1422,9 +1455,16 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		{
 			auto &assign = expr.as<ast::AssignmentExpression>();
 			require(expr, procedural != nullptr);
-			RTLIL::SigSpec lvalue_save = lvalue;
-			lvalue = (*this)(assign.left());
+			const ast::Expression *lvalue_save = lvalue;
+			lvalue = &assign.left();
 			procedural->assign_rvalue(assign, ret = (*this)(assign.right()));
+
+			// TODO: this is a fixup for a specific scenario, we need to
+			// check if there isn't some other general handling of return
+			// values we should be doing
+			if (assign.left().kind == ast::ExpressionKind::Streaming)
+				ret = {};
+
 			lvalue = lvalue_save;
 			break;
 		}
@@ -1566,10 +1606,19 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
 			const ast::Type &from = conv.operand().type->getCanonicalType();
 			const ast::Type &to = conv.type->getCanonicalType();
-			require(expr, from.isIntegral() /* && from.isScalar() */);
-			require(expr, to.isIntegral() /* && to.isScalar() */);
-			ret = (*this)(conv.operand());
-			ret.extend_u0((int) to.getBitWidth(), to.isSigned());
+			if (from.isIntegral() && to.isIntegral()) {
+				ret = (*this)(conv.operand());
+				ret.extend_u0((int) to.getBitWidth(), to.isSigned());
+			} else if (from.isBitstreamType() && to.isBitstreamType()) {
+				require(expr, from.getBitstreamWidth() == to.getBitstreamWidth());
+				ret = (*this)(conv.operand());
+			} else if (conv.operand().kind == ast::ExpressionKind::Streaming &&
+					to.isBitstreamType()) {
+				auto &stream_expr = conv.operand().as<ast::StreamingConcatenationExpression>();
+				RTLIL::SigSpec stream = streaming(stream_expr, false);
+				log_assert(stream.size() <= expr.type->getBitstreamWidth());
+				ret = {stream, RTLIL::SigSpec(RTLIL::S0, expr.type->getBitstreamWidth() - stream.size())};
+			}
 		}
 		break;
 	case ast::ExpressionKind::IntegerLiteral:
@@ -1716,7 +1765,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		}
 		break;
 	case ast::ExpressionKind::LValueReference:
-		ret = lvalue;
+		log_assert(lvalue != nullptr);
+		ret = (*this)(*lvalue);
 		break;
 	default:
 		unimplemented(expr);

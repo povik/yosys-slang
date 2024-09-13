@@ -100,4 +100,57 @@ initial begin
 	$t(0**7);
 end
 
+typedef logic [7:0] byte_t;
+
+initial begin
+	$t(byte_t'({<<1{8'hd6}}));
+	$t(byte_t'({>>1{8'hd6}}));
+	$t(byte_t'({<<2{8'hd6}}));
+	$t(byte_t'({>>2{8'hd6}}));
+	$t(byte_t'({>>3{8'hd6}}));
+	$t(byte_t'({<<3{8'hd6}}));
+	$t(byte_t'({>>5{8'hd6}}));
+	$t(byte_t'({<<5{8'hd6}}));
+end
+
+function [7:0] stream1();
+	stream1 = {<<1{8'hd6}};
+endfunction
+function [7:0] stream2();
+	stream2 = {>>1{7'h56}};
+endfunction
+function [7:0] stream3();
+	stream3 = {<<2{8'hd6}};
+endfunction
+function [7:0] stream4();
+	stream4 = {>>2{8'hd6}};
+endfunction
+
+initial begin
+	$t(stream1());
+	$t(stream2());
+	$t(stream3());
+	$t(stream4());
+end
+
+function [7:0] stream5();
+	{<<1{stream5}} = 8'hd6;
+endfunction
+function [7:0] stream6();
+	{<<1{stream6}} = 8'hd6;
+endfunction
+function [7:0] stream7();
+	{<<1{stream7}} = 8'hd6;
+endfunction
+function [7:0] stream8();
+	{<<1{stream8}} = 8'hd6;
+endfunction
+
+initial begin
+	$t(stream5());
+	$t(stream6());
+	$t(stream7());
+	$t(stream8());
+end
+
 endmodule

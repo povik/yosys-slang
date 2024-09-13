@@ -23,6 +23,7 @@ namespace slang {
 		class Statement;
 		class SignalEventControl;
 		class ProceduralBlockSymbol;
+		class StreamingConcatenationExpression;
 	};
 };
 
@@ -39,7 +40,7 @@ struct SignalEvalContext {
 	ProceduralVisitor *procedural;
 
 	ast::EvalContext const_;
-	RTLIL::SigSpec lvalue;
+	const ast::Expression *lvalue = nullptr;
 
 	struct Frame {
 		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
@@ -58,6 +59,8 @@ struct SignalEvalContext {
 	void create_local(const ast::Symbol *symbol);
 	void pop_frame();
 	RTLIL::Wire *wire(const ast::Symbol &symbol);
+
+	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs);
 
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
 	RTLIL::SigSpec operator()(ast::Symbol const &symbol);
