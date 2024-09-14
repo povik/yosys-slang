@@ -1445,7 +1445,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	RTLIL::SigSpec ret;
 	size_t repl_count;
 
-	if (!disable_const_folding ||
+	if (/* flag for testing */ !ignore_ast_constants ||
 			expr.kind == ast::ExpressionKind::IntegerLiteral ||
 			expr.kind == ast::ExpressionKind::RealLiteral ||
 			expr.kind == ast::ExpressionKind::UnbasedUnsizedIntegerLiteral ||
@@ -1762,7 +1762,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 					UpdateTiming implicit;
 					// TODO: better scope here
 					ProceduralVisitor visitor(netlist, nullptr, implicit, ProceduralVisitor::ContinuousAssign);
-					visitor.eval.disable_const_folding = disable_const_folding;
+					visitor.eval.ignore_ast_constants = ignore_ast_constants;
 					ret = visitor.handle_call(call);
 
 					RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
@@ -2729,7 +2729,7 @@ struct TestSlangExprPass : Pass {
 		PopulateNetlist populate(netlist, settings);
 
 		SignalEvalContext amended_eval(netlist);
-		amended_eval.disable_const_folding = true;
+		amended_eval.ignore_ast_constants = true;
 
 		int ntests = 0;
 		int nfailures = 0;

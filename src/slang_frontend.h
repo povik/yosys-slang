@@ -71,7 +71,7 @@ struct SignalEvalContext {
 	SignalEvalContext(NetlistContext &netlist, ProceduralVisitor &procedural);
 
 	// for testing
-	bool disable_const_folding = false;
+	bool ignore_ast_constants = false;
 };
 
 struct RTLILBuilder {
