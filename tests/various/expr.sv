@@ -153,4 +153,7 @@ initial begin
 	$t(stream8());
 end
 
+// nested streaming
+initial $t(byte_t'({>>3{4'h6, {>>2{4'h7}}}}));
+
 endmodule

@@ -1414,7 +1414,15 @@ RTLIL::SigSpec SignalEvalContext::streaming(ast::StreamingConcatenationExpressio
 
 	for (auto stream : expr.streams()) {
 		require(*stream.operand, !stream.withExpr);
-		cat = {cat, in_lhs ? lhs(*stream.operand) : (*this)(*stream.operand)};
+		auto& op = *stream.operand;
+		RTLIL::SigSpec item;
+
+		if (op.kind == ast::ExpressionKind::Streaming)
+			item = streaming(op.as<ast::StreamingConcatenationExpression>(), in_lhs);
+		else
+			item = in_lhs ? lhs(*stream.operand) : (*this)(*stream.operand);
+
+		cat = {cat, item};
 	}
 
 	require(expr, expr.getSliceSize() <= std::numeric_limits<int>::max());
