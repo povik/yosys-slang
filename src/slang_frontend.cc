@@ -2256,41 +2256,40 @@ public:
 		}
 	}
 
-	void handle(const ast::InstanceBodySymbol &sym)
+	void add_internal_wires(const ast::InstanceBodySymbol &body)
 	{
-		RTLIL::Module *mod = netlist.canvas;
+		body.visit(ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
+			if (!sym.getType().isFixedSize())
+				return;
 
-		auto wadd = ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
-			if (sym.getType().isFixedSize()) {
-				if (sym.kind == ast::SymbolKind::Variable
-						|| sym.kind == ast::SymbolKind::Net
-						|| sym.kind == ast::SymbolKind::FormalArgument) {
+			if (sym.kind != ast::SymbolKind::Variable
+					&& sym.kind != ast::SymbolKind::Net
+					&& sym.kind != ast::SymbolKind::FormalArgument)
+				return;
 
-					if (sym.kind == ast::SymbolKind::Variable
-							&& sym.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic)
-						return;
+			if (sym.kind == ast::SymbolKind::Variable
+					&& sym.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic)
+				return;
 
-					std::string kind{ast::toString(sym.kind)};
-					log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
+			std::string kind{ast::toString(sym.kind)};
+			log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
 
-					if (is_inferred_memory(sym)) {
-						RTLIL::Memory *m = new RTLIL::Memory;
-						transfer_attrs(sym, m);
-						m->name = netlist.id(sym);
-						m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
-						auto range = sym.getType().getFixedRange();
-						m->start_offset = range.lower();
-						m->size = range.width();
-						netlist.canvas->memories[m->name] = m;
-						netlist.emitted_mems[m->name] = {};
+			if (is_inferred_memory(sym)) {
+				RTLIL::Memory *m = new RTLIL::Memory;
+				transfer_attrs(sym, m);
+				m->name = netlist.id(sym);
+				m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
+				auto range = sym.getType().getFixedRange();
+				m->start_offset = range.lower();
+				m->size = range.width();
+				netlist.canvas->memories[m->name] = m;
+				netlist.emitted_mems[m->name] = {};
 
-						log_debug("Memory inferred for variable %s (size: %d, width: %d)\n",
-								  log_id(m->name), m->size, m->width);
-					} else {
-						auto w = mod->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
-						transfer_attrs(sym, w);
-					}
-				}
+				log_debug("Memory inferred for variable %s (size: %d, width: %d)\n",
+						  log_id(m->name), m->size, m->width);
+			} else {
+				auto w = netlist.canvas->addWire(netlist.id(sym), sym.getType().getBitstreamWidth());
+				transfer_attrs(sym, w);
 			}
 		}, [&](auto&, const ast::InstanceSymbol&) {
 			/* do not descend into other modules */
@@ -2299,8 +2298,12 @@ public:
 			if (sym.isUninstantiated)
 				return;
 			visitor.visitDefault(sym);
-		});
-		sym.visit(wadd);
+		}));
+	}
+
+	void handle(const ast::InstanceBodySymbol &sym)
+	{
+		add_internal_wires(sym);
 
 		auto varinit = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
 			slang::ConstantValue initval = nullptr;
@@ -2744,6 +2747,7 @@ struct TestSlangExprPass : Pass {
 
 		NetlistContext netlist(d, *compilation, *top);
 		PopulateNetlist populate(netlist, settings);
+		populate.add_internal_wires(top->body);
 
 		SignalEvalContext amended_eval(netlist);
 		amended_eval.ignore_ast_constants = true;
