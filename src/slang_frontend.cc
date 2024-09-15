@@ -2178,11 +2178,25 @@ public:
 				RTLIL::SigSpec signal;
 				if (expr.kind == ast::ExpressionKind::Assignment) {
 					auto &assign = expr.as<ast::AssignmentExpression>();
-					require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument ||
-								(assign.right().kind == ast::ExpressionKind::Conversion &&
-								 assign.right().as<ast::ConversionExpression>().operand().kind == ast::ExpressionKind::EmptyArgument));
+					ast::Expression const *right = &assign.right();
+
 					signal = netlist.eval.lhs(assign.left());
 					assert_nonstatic_free(signal);
+
+					while (right->kind == ast::ExpressionKind::Conversion) {
+						auto &conv = right->as<ast::ConversionExpression>();
+
+						// assign converted value to the target
+						RTLIL::Wire *temporary = netlist.canvas->addWire(NEW_ID,
+												conv.operand().type->getBitstreamWidth());
+						netlist.canvas->connect(signal, netlist.eval.apply_conversion(conv, temporary));
+
+						// set pre-converted value for new target
+						signal = temporary;
+						right = &conv.operand();
+					};
+
+					log_assert(right->kind == ast::ExpressionKind::EmptyArgument);
 				} else {
 					signal = netlist.eval(expr);
 				}
