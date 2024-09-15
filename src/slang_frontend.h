@@ -24,6 +24,7 @@ namespace slang {
 		class SignalEventControl;
 		class ProceduralBlockSymbol;
 		class StreamingConcatenationExpression;
+		class ConversionExpression;
 	};
 };
 
@@ -60,6 +61,7 @@ struct SignalEvalContext {
 	void pop_frame();
 	RTLIL::Wire *wire(const ast::Symbol &symbol);
 
+	RTLIL::SigSpec apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op);
 	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs);
 
 	RTLIL::SigSpec operator()(ast::Expression const &expr);

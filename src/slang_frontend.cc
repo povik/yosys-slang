@@ -1437,6 +1437,24 @@ RTLIL::SigSpec SignalEvalContext::streaming(ast::StreamingConcatenationExpressio
 	}
 }
 
+RTLIL::SigSpec SignalEvalContext::apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op)
+{
+	const ast::Type &from = conv.operand().type->getCanonicalType();
+	const ast::Type &to = conv.type->getCanonicalType();
+
+	log_assert(op.size() == from.getBitstreamWidth());
+
+	if (from.isIntegral() && to.isIntegral()) {
+		op.extend_u0((int) to.getBitWidth(), to.isSigned());
+		return op;
+	} else if (from.isBitstreamType() && to.isBitstreamType()) {
+		require(conv, from.getBitstreamWidth() == to.getBitstreamWidth());
+		return op;
+	} else {
+		unimplemented(conv);
+	}
+}
+
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
 	log_assert(expr.kind != ast::ExpressionKind::Streaming);
@@ -1612,18 +1630,17 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Conversion:
 		{
 			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
-			const ast::Type &from = conv.operand().type->getCanonicalType();
-			const ast::Type &to = conv.type->getCanonicalType();
-			if (from.isIntegral() && to.isIntegral()) {
-				ret = (*this)(conv.operand());
-				ret.extend_u0((int) to.getBitWidth(), to.isSigned());
-			} else if (from.isBitstreamType() && to.isBitstreamType()) {
-				require(expr, from.getBitstreamWidth() == to.getBitstreamWidth());
-				ret = (*this)(conv.operand());
-			} else if (conv.operand().kind == ast::ExpressionKind::Streaming &&
-					to.isBitstreamType()) {
+			if (conv.operand().kind != ast::ExpressionKind::Streaming) {
+				ret = apply_conversion(conv, (*this)(conv.operand()));
+			} else {
+				const ast::Type &to = conv.type->getCanonicalType();
+				log_assert(to.isBitstreamType());
+
+				// evaluate the bitstream
 				auto &stream_expr = conv.operand().as<ast::StreamingConcatenationExpression>();
 				RTLIL::SigSpec stream = streaming(stream_expr, false);
+
+				// pad to fit target size
 				log_assert(stream.size() <= expr.type->getBitstreamWidth());
 				ret = {stream, RTLIL::SigSpec(RTLIL::S0, expr.type->getBitstreamWidth() - stream.size())};
 			}
