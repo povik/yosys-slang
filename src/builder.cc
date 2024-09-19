@@ -131,6 +131,10 @@ SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s) {
 SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b,
 							bool b_signed, int result_width)
 {
+	if (a.is_fully_const() && b.is_fully_const())
+		return RTLIL::const_shift(a.as_const(), b.as_const(),
+								  a_signed, b_signed, result_width);
+
 	if (b.is_fully_const() && b.size() < 24) {
 		log_assert(!a.empty());
 		int shift_amount = b.as_int(b_signed);
