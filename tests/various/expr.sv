@@ -156,4 +156,12 @@ end
 // nested streaming
 initial $t(byte_t'({>>3{4'h6, {>>2{4'h7}}}}));
 
+function automatic [7:0] f();
+    logic [4:0] data[2] = '{12, 43};
+	logic [4:0] a, b;
+	'{ a, b } = data;
+	return {a, b};
+endfunction
+initial $t(f());
+
 endmodule

@@ -62,6 +62,7 @@ struct SignalEvalContext {
 	RTLIL::Wire *wire(const ast::Symbol &symbol);
 
 	RTLIL::SigSpec apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op);
+	RTLIL::SigSpec apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec val);
 	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs);
 
 	RTLIL::SigSpec operator()(ast::Expression const &expr);

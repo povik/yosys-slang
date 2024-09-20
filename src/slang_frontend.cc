@@ -697,6 +697,31 @@ public:
 			do_simple_assign(assign.sourceRange.start(), lvalue,
 							 rvalue.extract_end(rvalue.size() - lvalue.size()), blocking);
 			return;
+		} else if (raw_lexpr->kind == ast::ExpressionKind::SimpleAssignmentPattern) {
+			// break down into individual assignments
+			auto& pattern_lexpr = raw_lexpr->as<ast::SimpleAssignmentPatternExpression>();
+
+			int nbits_remaining = rvalue.size();
+			for (auto el : pattern_lexpr.elements()) {
+				log_assert(el->kind == ast::ExpressionKind::Assignment);
+				auto &inner_assign = el->as<ast::AssignmentExpression>();
+
+				const ast::Expression *rsymbol = &inner_assign.right();
+				while (rsymbol->kind == ast::ExpressionKind::Conversion)
+					rsymbol = &rsymbol->as<ast::ConversionExpression>().operand();
+				log_assert(rsymbol->kind == ast::ExpressionKind::EmptyArgument);
+				log_assert(rsymbol->type->isBitstreamType());
+				int relem_width = rsymbol->type->getBitstreamWidth();
+
+				log_assert(nbits_remaining >= relem_width);
+				RTLIL::SigSpec relem = rvalue.extract(nbits_remaining - relem_width, relem_width);
+				nbits_remaining -= relem_width;
+
+				assign_rvalue(inner_assign, eval.apply_nested_conversion(inner_assign.right(), relem));
+			}
+
+			log_assert(nbits_remaining == 0);
+			return;
 		}
 
 		bool finished_etching = false;
@@ -1483,6 +1508,19 @@ RTLIL::SigSpec SignalEvalContext::apply_conversion(const ast::ConversionExpressi
 		return op;
 	} else {
 		unimplemented(conv);
+	}
+}
+
+RTLIL::SigSpec SignalEvalContext::apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec op)
+{
+	if (expr.kind == ast::ExpressionKind::EmptyArgument) {
+		return op;
+	} else if (expr.kind == ast::ExpressionKind::Conversion) {
+		auto &conv = expr.as<ast::ConversionExpression>();
+		RTLIL::SigSpec value = apply_nested_conversion(conv.operand(), op);
+		return apply_conversion(conv, value);
+	} else {
+		log_abort();
 	}
 }
 
