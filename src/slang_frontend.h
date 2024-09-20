@@ -116,7 +116,9 @@ struct RTLILBuilder {
 	}
 };
 
+struct SynthesisSettings;
 struct NetlistContext : RTLILBuilder {
+	SynthesisSettings &settings;
 	ast::Compilation &compilation;
 	const slang::SourceManager &source_mgr();
 
@@ -145,6 +147,7 @@ struct NetlistContext : RTLILBuilder {
 	Yosys::dict<const ast::Scope*, std::string, Yosys::hash_ptr_ops> scopes_remap;
 
 	NetlistContext(RTLIL::Design *design,
+		SynthesisSettings &settings,
 		ast::Compilation &compilation,
 		const ast::InstanceSymbol &instance);
 
@@ -156,7 +159,8 @@ struct NetlistContext : RTLILBuilder {
 	NetlistContext(const NetlistContext&) = delete;
 	NetlistContext& operator=(const NetlistContext&) = delete;
 	NetlistContext(NetlistContext&& other)
-		: compilation(other.compilation), realm(other.realm), eval(*this)
+		: settings(other.settings), compilation(other.compilation),
+		  realm(other.realm), eval(*this)
 	{
 		log_assert(other.eval.procedural == nullptr);
 		log_assert(other.eval.lvalue == nullptr);

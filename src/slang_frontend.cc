@@ -1898,8 +1898,8 @@ public:
 		}
 	} initial_eval;
 
-	PopulateNetlist(NetlistContext &netlist, SynthesisSettings &settings)
-		: netlist(netlist), settings(settings), initial_eval(&netlist.compilation, netlist.canvas) {}
+	PopulateNetlist(NetlistContext &netlist)
+		: netlist(netlist), settings(netlist.settings), initial_eval(&netlist.compilation, netlist.canvas) {}
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
@@ -2582,9 +2582,10 @@ RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
 
 NetlistContext::NetlistContext(
 		RTLIL::Design *design,
+		SynthesisSettings &settings,
 		ast::Compilation &compilation,
 		const ast::InstanceSymbol &instance)
-	: compilation(compilation), realm(instance.body), eval(*this)
+	: settings(settings), compilation(compilation), realm(instance.body), eval(*this)
 {
 	canvas = design->addModule(module_type_id(instance));
 	transfer_attrs(instance.body.getDefinition(), canvas);
@@ -2593,7 +2594,7 @@ NetlistContext::NetlistContext(
 NetlistContext::NetlistContext(
 		NetlistContext &other,
 		const ast::InstanceSymbol &instance)
-	: NetlistContext(other.canvas->design, other.compilation, instance)
+	: NetlistContext(other.canvas->design, other.settings, other.compilation, instance)
 {
 }
 
@@ -2688,11 +2689,11 @@ struct SlangFrontend : Frontend {
 			{
 				std::vector<NetlistContext> queue;
 				for (auto instance : compilation->getRoot().topInstances)
-					queue.emplace_back(design, *compilation, *instance);
+					queue.emplace_back(design, settings, *compilation, *instance);
 
 				for (int i = 0; i < (int) queue.size(); i++) {
 					NetlistContext &netlist = queue[i];
-					PopulateNetlist populate(netlist, settings);
+					PopulateNetlist populate(netlist);
 					netlist.realm.visit(populate);
 					std::move(populate.deferred_modules.begin(),
 						populate.deferred_modules.end(), std::back_inserter(queue));
@@ -2859,8 +2860,8 @@ struct TestSlangExprPass : Pass {
 		global_diagclient = driver.diagClient.get();
 		global_diagclient->clear();
 
-		NetlistContext netlist(d, *compilation, *top);
-		PopulateNetlist populate(netlist, settings);
+		NetlistContext netlist(d, settings, *compilation, *top);
+		PopulateNetlist populate(netlist);
 		populate.add_internal_wires(top->body);
 
 		SignalEvalContext amended_eval(netlist);
