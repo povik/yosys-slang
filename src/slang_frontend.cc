@@ -35,6 +35,22 @@ struct SynthesisSettings {
 	std::optional<bool> no_proc;
 	std::optional<bool> compat_mode;
 	std::optional<bool> keep_hierarchy;
+	std::optional<bool> best_effort_hierarchy;
+
+	enum HierMode {
+		NONE,
+		BEST_EFFORT,
+		ALL
+	};
+
+	HierMode hierarchy_mode()
+	{
+		if (keep_hierarchy.value_or(false))
+			return ALL;
+		if (best_effort_hierarchy.value_or(false))
+			return BEST_EFFORT;
+		return NONE;
+	}
 
 	void addOptions(slang::CommandLine &cmdLine) {
 		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
@@ -43,6 +59,8 @@ struct SynthesisSettings {
 					"Be relaxed about the synthesis semantics of some language constructs");
 		cmdLine.add("--keep-hierarchy", keep_hierarchy,
 					"Keep hierarchy (experimental; may crash)");
+		cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
+					"Keep hierarchy in a 'best effort' mode");
 	}
 };
 
@@ -2167,7 +2185,36 @@ public:
 
 	void handle(const ast::InstanceSymbol &sym)
 	{
-		if (/* should dissolve */ !settings.keep_hierarchy.value_or(false)) {
+		bool should_dissolve;
+
+		switch (settings.hierarchy_mode()) {
+		case SynthesisSettings::NONE:
+			should_dissolve = true;
+			break;
+		case SynthesisSettings::BEST_EFFORT: {
+				should_dissolve = false;
+				for (auto *conn : sym.getPortConnections()) {
+					switch (conn->port.kind) {
+					case ast::SymbolKind::Port:
+					case ast::SymbolKind::MultiPort:
+						break;
+					default:
+						should_dissolve = true;
+						break;
+					}
+				}
+
+				if (!sym.isModule())
+					should_dissolve = true;
+
+				break;
+			}
+		case SynthesisSettings::ALL:
+			should_dissolve = false;
+			break;
+		}
+
+		if (should_dissolve) {
 			sym.body.visit(*this);
 
 			for (auto *conn : sym.getPortConnections()) {
