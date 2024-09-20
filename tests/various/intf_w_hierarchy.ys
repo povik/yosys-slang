@@ -1,0 +1,5 @@
+read_slang --dump-ast --keep-hierarchy intf_w_hierarchy.sv
+hierarchy -top top
+flatten
+chformal -lower
+sat -verify -enable_undef -prove-asserts -show-public
