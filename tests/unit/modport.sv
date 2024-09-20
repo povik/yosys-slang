@@ -4,11 +4,11 @@ interface bus;
 	modport secondary(input b, output a);
 endinterface
 
-module m1(bus intf);
+module m1(bus.primary intf);
 	assign intf.b = !intf.a;
 endmodule
 
-module m2(bus intf, input logic s);
+module m2(bus.secondary intf, input logic s);
 	assign intf.a = s;
 	always_comb assert(intf.b === !s);
 endmodule
