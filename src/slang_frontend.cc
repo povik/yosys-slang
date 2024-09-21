@@ -36,6 +36,7 @@ struct SynthesisSettings {
 	std::optional<bool> compat_mode;
 	std::optional<bool> keep_hierarchy;
 	std::optional<bool> best_effort_hierarchy;
+	std::optional<bool> ignore_timing;
 
 	enum HierMode {
 		NONE,
@@ -61,6 +62,8 @@ struct SynthesisSettings {
 					"Keep hierarchy (experimental; may crash)");
 		cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
 					"Keep hierarchy in a 'best effort' mode");
+		cmdLine.add("--ignore-timing", ignore_timing,
+		            "Ignore delays for synthesis");
 	}
 };
 
@@ -1236,6 +1239,14 @@ public:
 		}
 	}
 
+	void handle(const ast::TimedStatement &stmt)
+	{
+		if (netlist.settings.ignore_timing.value_or(false))
+			stmt.stmt.visit(*this);
+		else
+			unimplemented(stmt);
+	}
+
 	void handle(const ast::Statement &stmt)
 	{
 		unimplemented(stmt);
@@ -1854,8 +1865,8 @@ public:
 		RTLIL::Module *mod;
 		int print_priority;
 
-		InitialEvalVisitor(ast::Compilation *compilation, RTLIL::Module *mod)
-			: SlangInitial::EvalVisitor(compilation), mod(mod), print_priority(0) {}
+		InitialEvalVisitor(ast::Compilation *compilation, RTLIL::Module *mod, bool ignore_timing=false)
+			: SlangInitial::EvalVisitor(compilation, ignore_timing), mod(mod), print_priority(0) {}
 
 		void handleDisplay(const slang::ast::CallExpression &call, const std::vector<slang::ConstantValue> &args) {
 			auto cell = mod->addCell(NEW_ID, ID($print));
@@ -1899,7 +1910,7 @@ public:
 	} initial_eval;
 
 	PopulateNetlist(NetlistContext &netlist)
-		: netlist(netlist), settings(netlist.settings), initial_eval(&netlist.compilation, netlist.canvas) {}
+		: netlist(netlist), settings(netlist.settings), initial_eval(&netlist.compilation, netlist.canvas, netlist.settings.ignore_timing.value_or(false)) {}
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
