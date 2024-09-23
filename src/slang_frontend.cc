@@ -1425,6 +1425,30 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	return ret;
 }
 
+RTLIL::SigSpec SignalEvalContext::connection_lhs(ast::AssignmentExpression const &assign)
+{
+	const ast::Expression *rsymbol = &assign.right();
+
+	if (rsymbol->kind == ast::ExpressionKind::EmptyArgument) {
+		// early path
+		RTLIL::SigSpec ret = lhs(assign.left());
+		assert_nonstatic_free(ret);
+		return ret;
+	}
+
+	while (rsymbol->kind == ast::ExpressionKind::Conversion)
+		rsymbol = &rsymbol->as<ast::ConversionExpression>().operand();
+	log_assert(rsymbol->kind == ast::ExpressionKind::EmptyArgument);
+	log_assert(rsymbol->type->isBitstreamType());
+
+	RTLIL::SigSpec ret = netlist.canvas->addWire(NEW_ID, rsymbol->type->getBitstreamWidth());
+	netlist.GroupConnect(
+		lhs(assign.left()),
+		apply_nested_conversion(assign.right(), ret)
+	);
+	return ret;
+}
+
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 {
 	switch (symbol.kind) {
@@ -2322,9 +2346,7 @@ public:
 						RTLIL::SigSpec signal;
 						if (expr.kind == ast::ExpressionKind::Assignment) {
 							auto &assign = expr.as<ast::AssignmentExpression>();
-							require(expr, assign.right().kind == ast::ExpressionKind::EmptyArgument);
-							signal = netlist.eval.lhs(assign.left());
-							assert_nonstatic_free(signal);
+							signal = netlist.eval.connection_lhs(assign);
 						} else {
 							signal = netlist.eval(expr);
 						}

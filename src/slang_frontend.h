@@ -25,6 +25,7 @@ namespace slang {
 		class ProceduralBlockSymbol;
 		class StreamingConcatenationExpression;
 		class ConversionExpression;
+		class AssignmentExpression;
 	};
 };
 
@@ -65,10 +66,26 @@ struct SignalEvalContext {
 	RTLIL::SigSpec apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec val);
 	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs);
 
+	// Evaluates the given symbols/expressions to their value in this context
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
 	RTLIL::SigSpec operator()(ast::Symbol const &symbol);
-	RTLIL::SigSpec lhs(ast::Expression const &expr);
+
+	// Evaluates the given expression, inserts an extra sign bit if need
+	// be so that the result can be interpreted as a signed value 
 	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
+
+	// Describes the given LHS expression as a sequence of wirebits
+	//
+	// This method is a helper used to evaluate both procedural and non-procedural
+	// assignments. Not all expressions (not even all LHS-viable expressions)
+	// are in simple correspondence to wirebits, and as such they cannot be
+	// processed by this method and require special handling elsewhere.
+	RTLIL::SigSpec lhs(ast::Expression const &expr);
+
+	// Evaluate non-procedural connection LHS for connections expressed in
+	// terms of an assignment of `EmptyArgument`. This is a pattern found in
+	// the AST in module instance connections or for pattern assignments.
+	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
 
 	SignalEvalContext(NetlistContext &netlist);
 	SignalEvalContext(NetlistContext &netlist, ProceduralVisitor &procedural);
