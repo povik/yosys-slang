@@ -21,6 +21,6 @@ module b3(output logic signed [3:0] y);
 endmodule
 
 module a3(output logic [7:0] y);
-	b2 sb(.y(y));
-	always_comb assert(y == 8'h0d);
+	b3 sb(.y(y));
+	always_comb assert(y == 8'hfd);
 endmodule
