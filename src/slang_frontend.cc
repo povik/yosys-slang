@@ -1019,12 +1019,22 @@ public:
 
 	void handle(const ast::CaseStatement &stmt)
 	{
-		require(stmt, stmt.condition == ast::CaseStatementCondition::Normal ||
-					  stmt.condition == ast::CaseStatementCondition::WildcardJustZ ||
-					  stmt.condition == ast::CaseStatementCondition::Inside);
-		bool match_z = stmt.condition == ast::CaseStatementCondition::WildcardJustZ;
-		RTLIL::SigSpec dispatch = eval(stmt.expr);
+		bool match_x, match_z;
+		using Condition = ast::CaseStatementCondition;
+		switch (stmt.condition) {
+		case Condition::WildcardJustZ:
+			match_x = false;
+			match_z = true;
+			break;
+		case Condition::WildcardXOrZ:
+			match_x = match_z = true;
+			break;
+		default:
+			match_x = match_z = false;
+			break;
+		}
 
+		RTLIL::SigSpec dispatch = eval(stmt.expr);
 		SwitchHelper b(current_case, vstate,
 					   stmt.condition == ast::CaseStatementCondition::Inside ?
 					   RTLIL::SigSpec(RTLIL::S1) : dispatch);
@@ -1059,8 +1069,12 @@ public:
 				RTLIL::SigSpec compare = eval(*expr);
 				log_assert(compare.size() == dispatch.size());
 				require(stmt, !match_z || compare.is_fully_const());
-				if (match_z)
-					compare.replace(RTLIL::Sz, RTLIL::Sa);
+				for (int i = 0; i < compare.size(); i++) {
+					if (compare[i] == RTLIL::Sz && match_z)
+						compare[i] = RTLIL::Sa;
+					if (compare[i] == RTLIL::Sx && match_x)
+						compare[i] = RTLIL::Sa;
+				}
 				compares.push_back(compare);
 			}
 			require(stmt, !compares.empty());
