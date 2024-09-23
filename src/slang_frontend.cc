@@ -134,6 +134,7 @@ template<typename T>
 }
 #define require(obj, property) { if (!(property)) unimplemented_(obj, __FILE__, __LINE__, #property); }
 #define unimplemented(obj) { slang_frontend::unimplemented_(obj, __FILE__, __LINE__, NULL); }
+#define ast_invariant(obj, property) require(obj, property)
 
 };
 
@@ -686,6 +687,8 @@ public:
 
 	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
 	{
+		require(assign, !assign.timingControl || netlist.settings.ignore_timing.value_or(false));
+
 		bool blocking = !assign.isNonBlocking();
 		const ast::Expression *raw_lexpr = &assign.left();
 		RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
@@ -1441,6 +1444,7 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 
 RTLIL::SigSpec SignalEvalContext::connection_lhs(ast::AssignmentExpression const &assign)
 {
+	ast_invariant(assign, !assign.timingControl);
 	const ast::Expression *rsymbol = &assign.right();
 
 	if (rsymbol->kind == ast::ExpressionKind::EmptyArgument) {
@@ -1588,6 +1592,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		{
 			auto &assign = expr.as<ast::AssignmentExpression>();
 			require(expr, procedural != nullptr);
+			require(expr, !assign.timingControl || netlist.settings.ignore_timing.value_or(false));
 			const ast::Expression *lvalue_save = lvalue;
 			lvalue = &assign.left();
 			procedural->assign_rvalue(assign, ret = (*this)(assign.right()));
@@ -2413,7 +2418,9 @@ public:
 
 	void handle(const ast::ContinuousAssignSymbol &sym)
 	{
+		require(sym, !sym.getDelay() || settings.ignore_timing.value_or(false));
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
+		ast_invariant(expr, !expr.timingControl);
 		RTLIL::SigSpec lhs = netlist.eval.lhs(expr.left());
 		assert_nonstatic_free(lhs);
 		netlist.canvas->connect(lhs, netlist.eval(expr.right()));		
