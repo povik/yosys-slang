@@ -1,0 +1,3 @@
+read_slang --keep-hierarchy top_attr.sv
+select -assert-mod-count 3 A:top
+select -assert-mod-count 3 top* A:top %i

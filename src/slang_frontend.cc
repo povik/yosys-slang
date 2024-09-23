@@ -2737,8 +2737,10 @@ struct SlangFrontend : Frontend {
 
 			{
 				std::vector<NetlistContext> queue;
-				for (auto instance : compilation->getRoot().topInstances)
+				for (auto instance : compilation->getRoot().topInstances) {
 					queue.emplace_back(design, settings, *compilation, *instance);
+					queue.back().canvas->attributes[ID::top] = 1;
+				}
 
 				for (int i = 0; i < (int) queue.size(); i++) {
 					NetlistContext &netlist = queue[i];
