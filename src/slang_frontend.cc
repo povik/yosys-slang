@@ -1035,6 +1035,11 @@ public:
 
 			stmt->visit(*this);
 		}
+
+		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
+			it->exit_branch();
+			it->finish(netlist);
+		}
 	}
 
 	void handle(const ast::ConditionalStatement &cond)

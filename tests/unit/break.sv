@@ -102,3 +102,19 @@ module test_break07 (bits, encoded);
     output logic[2:0] encoded;
     priority_encoder2 #(8) test_7_inst (.*);
 endmodule
+
+module test_break08;
+    wire tie_down = 0;
+    logic out;
+
+    always_comb begin
+        for (int i = 0; i < 1; i++) begin
+            out = 1;
+            if (!tie_down)
+                break;
+            out = 0;
+        end
+    end
+
+    always_comb assert(out == 1);
+endmodule
