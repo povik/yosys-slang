@@ -547,6 +547,8 @@ public:
 		Switch *sw;
 		VariableState &vstate;
 		VariableState::Map save_map;
+		std::vector<std::pair<Case *, RTLIL::SigSig>> branch_updates;
+		bool entered = false, finished = false;
 
 		SwitchHelper(Case *&current_case, VariableState &vstate, RTLIL::SigSpec signal)
 			: parent(current_case), current_case(current_case), vstate(vstate)
@@ -554,20 +556,41 @@ public:
 			sw = parent->add_switch(signal);
 		}
 
-		std::vector<std::pair<Case *, RTLIL::SigSig>> branch_updates;
+		~SwitchHelper()
+		{
+			log_assert(!entered);
+			log_assert(branch_updates.empty() || finished);
+		}
+
+		SwitchHelper(const SwitchHelper&) = delete;
+		SwitchHelper& operator=(const SwitchHelper&) = delete;
+		SwitchHelper(SwitchHelper&& other)
+			: parent(other.parent), current_case(other.current_case),
+			  sw(other.sw), vstate(other.vstate), entered(other.entered),
+			  finished(other.finished)
+		{
+			branch_updates.swap(other.branch_updates);
+			save_map.swap(other.save_map);
+			other.entered = false;
+			other.finished = false;
+		}
 
 		void enter_branch(std::vector<RTLIL::SigSpec> compare)
 		{
 			vstate.save(save_map);
+			log_assert(!entered);
 			log_assert(current_case == parent);
 			current_case = sw->add_case(compare);
+			entered = true;
 		}
 
 		void exit_branch()
 		{
+			log_assert(entered);
 			log_assert(current_case != parent);
 			Case *this_case = current_case;
 			current_case = parent;
+			entered = false;
 			auto updates = vstate.restore(save_map);
 			branch_updates.push_back(std::make_pair(this_case, updates));
 		}
@@ -623,6 +646,8 @@ public:
 					done += chunk.size();
 				}
 			}
+
+			finished = true;
 		}
 	};
 
