@@ -726,6 +726,14 @@ public:
 			log_assert(nbits_remaining == 0);
 			return;
 		}
+		assign_rvalue_inner(assign, raw_lexpr, raw_rvalue, raw_mask, blocking);
+	}
+
+	void assign_rvalue_inner(const ast::AssignmentExpression &assign, const ast::Expression *raw_lexpr,
+							 RTLIL::SigSpec raw_rvalue, RTLIL::SigSpec raw_mask, bool blocking)
+	{
+		log_assert(raw_mask.size() == (int) raw_lexpr->type->getBitstreamWidth());
+		log_assert(raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
 
 		bool finished_etching = false;
 		bool memory_write = false;
@@ -776,12 +784,24 @@ public:
 					raw_lexpr = &acc.value();
 				}
 				break;
+			case ast::ExpressionKind::Concatenation:
+				{
+					const auto &concat = raw_lexpr->as<ast::ConcatenationExpression>();
+					int base = raw_mask.size(), len;
+					for (auto op : concat.operands()) {
+						require(concat, op->type->isBitstreamType());
+						base -= (len = op->type->getBitstreamWidth());
+						log_assert(base >= 0);
+						assign_rvalue_inner(assign, op, raw_rvalue.extract(base, len), raw_mask.extract(base, len), blocking);
+					}
+					log_assert(base == 0);
+					return;
+				}
+				break;
 			default:
 				finished_etching = true;
 				break;
 			}
-			if (raw_mask.size() != (int) raw_lexpr->type->getBitstreamWidth())
-				unimplemented(assign);
 			log_assert(raw_mask.size() == (int) raw_lexpr->type->getBitstreamWidth());
 			log_assert(raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
 		}
