@@ -33,6 +33,9 @@ namespace diag {
 	slang::DiagCode MemoryNotInferred(slang::DiagSubsystem::Netlist, 1020);
 	slang::DiagCode NoteUsageBlame(slang::DiagSubsystem::Netlist, 1021);
 
+	slang::DiagCode UnrollLimitExhausted(slang::DiagSubsystem::Netlist, 1022);
+	slang::DiagCode NoteLoopContributes(slang::DiagSubsystem::Netlist, 1023);
+
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
 	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
@@ -86,6 +89,12 @@ namespace diag {
 
 		engine.setSeverity(unsynthesizable, slang::DiagnosticSeverity::Error);
 		engine.setSeverity(sanity, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(UnrollLimitExhausted, "unroll limit of {} exhausted [--unroll-limit=]");
+		engine.setSeverity(UnrollLimitExhausted, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(NoteLoopContributes, "loop contributes to unroll tally");
+		engine.setSeverity(NoteLoopContributes, slang::DiagnosticSeverity::Note);
 	}
 };
 };

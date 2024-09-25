@@ -31,6 +31,8 @@ extern slang::DiagCode ComplexLatchLHS;
 extern slang::DiagCode BadMemoryExpr;
 extern slang::DiagCode MemoryNotInferred;
 extern slang::DiagCode NoteUsageBlame;
+extern slang::DiagCode UnrollLimitExhausted;
+extern slang::DiagCode NoteLoopContributes;
 void setup_messages(slang::DiagnosticEngine &engine);
 };
 };

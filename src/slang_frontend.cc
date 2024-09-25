@@ -37,6 +37,7 @@ struct SynthesisSettings {
 	std::optional<bool> keep_hierarchy;
 	std::optional<bool> best_effort_hierarchy;
 	std::optional<bool> ignore_timing;
+	std::optional<int> unroll_limit_;
 
 	enum HierMode {
 		NONE,
@@ -53,6 +54,10 @@ struct SynthesisSettings {
 		return NONE;
 	}
 
+	int unroll_limit() {
+		return unroll_limit_.value_or(4000);
+	}
+
 	void addOptions(slang::CommandLine &cmdLine) {
 		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
 		cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
@@ -64,6 +69,8 @@ struct SynthesisSettings {
 					"Keep hierarchy in a 'best effort' mode");
 		cmdLine.add("--ignore-timing", ignore_timing,
 		            "Ignore delays for synthesis");
+		cmdLine.add("--unroll-limit", unroll_limit_,
+		            "Set unrolling limit (default: 4000)", "<limit>");
 	}
 };
 
@@ -404,7 +411,58 @@ std::string format_wchunk(RTLIL::SigChunk chunk)
 		return Yosys::stringf("%s[%d:%d]", chunk.wire->name.c_str(), chunk.offset, chunk.offset + chunk.width);
 }
 
-struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false> {
+class UnrollLimitTracking {
+	const ast::Scope *diag_scope;
+	int limit;
+	int unrolling = 0;
+	int unroll_counter = 0;
+	Yosys::pool<const ast::Statement *, Yosys::hash_ptr_ops> loops;
+	bool error_issued = false;
+
+public:
+	UnrollLimitTracking(const ast::Scope *diag_scope, int limit)
+		: diag_scope(diag_scope), limit(limit) {}
+
+	~UnrollLimitTracking() {
+		log_assert(!unrolling);
+	}
+
+	void enter_unrolling() {
+		if (!unrolling++) {
+			unroll_counter = 0;
+			error_issued = false;
+			loops.clear();
+		}
+	}
+
+	void exit_unrolling() {
+		unrolling--;
+		log_assert(unrolling >= 0);
+	}
+
+	bool unroll_tick(const ast::Statement *symbol) {
+		if (error_issued)
+			return false;
+
+		loops.insert(symbol);
+
+		if (++unroll_counter > limit) {
+			auto &diag = diag_scope->addDiag(diag::UnrollLimitExhausted, symbol->sourceRange);
+			diag << limit;
+			for (auto other_loop : loops) {
+				if (other_loop == symbol)
+					continue;
+				diag.addNote(diag::NoteLoopContributes, other_loop->sourceRange);
+			}
+			error_issued = true;
+			return false;
+		}
+
+		return true;
+	}
+};
+
+struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false>, public UnrollLimitTracking {
 public:
 	const ast::Scope *diag_scope;
 
@@ -428,7 +486,9 @@ public:
 
 	// TODO: revisit diag_scope
 	ProceduralVisitor(NetlistContext &netlist, const ast::Scope *diag_scope, UpdateTiming &timing, Mode mode)
-			: diag_scope(diag_scope), netlist(netlist), eval(netlist, *this), timing(timing), mode(mode) {
+			: UnrollLimitTracking(diag_scope, netlist.settings.unroll_limit()),
+			  diag_scope(diag_scope), netlist(netlist), eval(netlist, *this),
+			  timing(timing), mode(mode) {
 		eval.push_frame();
 
 		root_case = new Case;
@@ -1157,12 +1217,11 @@ public:
 	}
 
 	void handle(const ast::WhileLoopStatement &stmt) {
-		int ncycles = 0;
-
 		RTLIL::Wire *break_ = add_nonstatic(NEW_ID_SUFFIX("break"), 1);
 		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
 
 		std::vector<SwitchHelper> sw_stack;
+		enter_unrolling();
 		while (true) {
 			RTLIL::SigSpec cv = netlist.ReduceBool(eval(stmt.cond));
 			RTLIL::SigSpec break_rv = substitute_rvalue(break_);
@@ -1187,8 +1246,10 @@ public:
 			stmt.body.visit(*this);
 			eval.pop_frame();
 
-			ncycles++;
+			if (!unroll_tick(&stmt))
+				break;
 		}
+		exit_unrolling();
 
 		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
 			it->exit_branch();
@@ -1202,8 +1263,6 @@ public:
 		for (auto init : stmt.initializers)
 			eval(*init);
 
-		int ncycles = 0;
-
 		if (!stmt.stopExpr) {
 			diag_scope->addDiag(diag::MissingStopCondition, stmt.sourceRange.start());
 			return;
@@ -1213,6 +1272,7 @@ public:
 		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
 
 		std::vector<SwitchHelper> sw_stack;
+		enter_unrolling();
 		while (true) {
 			RTLIL::SigSpec cv = netlist.ReduceBool(eval(*stmt.stopExpr));
 
@@ -1247,8 +1307,10 @@ public:
 			for (auto step : stmt.steps)
 				eval(*step);
 
-			ncycles++;
+			if (!unroll_tick(&stmt))
+				break;
 		}
+		exit_unrolling();
 
 		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
 			it->exit_branch();
