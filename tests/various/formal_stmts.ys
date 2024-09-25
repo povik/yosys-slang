@@ -1,0 +1,7 @@
+read_slang formal_stmts.sv
+
+select -assert-count 3 t:$check
+dump m_assert
+select -assert-count 1 m_assert/t:$check r:FLAVOR=assert %i
+select -assert-count 1 m_assume/t:$check r:FLAVOR=assume %i
+select -assert-count 1 m_cover/t:$check r:FLAVOR=cover %i

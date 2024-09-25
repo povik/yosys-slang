@@ -943,9 +943,24 @@ public:
 
 	void handle(const ast::ImmediateAssertionStatement &stmt)
 	{
+		std::string flavor;
+		switch (stmt.assertionKind) {
+		case ast::AssertionKind::Assert:
+			flavor = "assert";
+			break;
+		case ast::AssertionKind::Assume:
+			flavor = "assume";
+			break;
+		case ast::AssertionKind::CoverProperty:
+			flavor = "cover";
+			break;
+		default:
+			unimplemented(stmt);
+		}
+
 		auto cell = netlist.canvas->addCell(NEW_ID, ID($check));
 		set_effects_trigger(cell);
-		cell->setParam(ID::FLAVOR, std::string("assert"));
+		cell->setParam(ID::FLAVOR, flavor);
 		cell->setParam(ID::FORMAT, std::string(""));
 		cell->setParam(ID::ARGS_WIDTH, 0);
 		cell->setParam(ID::PRIORITY, --effects_priority);
