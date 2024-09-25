@@ -2351,6 +2351,9 @@ public:
 			break;
 		}
 
+		if (sym.isInterface())
+			should_dissolve = true;
+
 		if (should_dissolve) {
 			sym.body.visit(*this);
 
@@ -2445,8 +2448,11 @@ public:
 							default:
 								unimplemented(port);
 							}
-							log_assert(port.internalSymbol);
-							cell->setPort(wire->name, netlist.wire(*port.internalSymbol));
+							ast_invariant(port, port.internalSymbol);
+							if (netlist.scopes_remap.count(&modport))
+								cell->setPort(wire->name, netlist.wire(port));
+							else
+								cell->setPort(wire->name, netlist.wire(*port.internalSymbol));
 						}));
 						break;
 					}
@@ -2456,10 +2462,6 @@ public:
 					
 				}
 				transfer_attrs(sym, cell);
-
-			} else if (sym.isInterface()) {
-				log_assert(sym.getPortConnections().empty());
-				sym.body.visit(*this);
 			} else {
 				unimplemented(sym);
 			}
