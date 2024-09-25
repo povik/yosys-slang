@@ -20,9 +20,27 @@ To a user, the error messages can be cryptic and expose details about the inner 
 
 If you wish to sponsor the project's development, and prioritize certain features, please get in touch.
 
-`yosys-slang` is on the [CHIPS Alliance sv-tests dashboard](https://chipsalliance.github.io/sv-tests-results/) where failing test cases and their error messages (with useful line numbers and AST dumps!) can be browsed.
+## Compatibility
 
-## Building (provisional instructions)
+yosys-slang can parse a number of premier open-source IPs, including:
+
+ * [Black Parrot](https://github.com/black-parrot/black-parrot/)
+
+ * [BSC Core Tile](https://github.com/bsc-loca/core_tile/)
+
+ * [OpenHW Group's CV32E40P](https://github.com/openhwgroup/cv32e40p)
+
+ * [Ibex RISC-V Core](https://github.com/lowRISC/ibex)
+
+ * [OpenTitan: Open source silicon root of trust](https://github.com/lowRISC/opentitan)
+
+ * [RSD RISC-V Out-of-Order Superscalar Processor](https://github.com/rsd-devel/rsd/)
+
+For details see the [compat suite repository](https://github.com/povik/yosys-slang-compat-suite) which documents sample command lines.
+
+yosys-slang is on the [CHIPS Alliance sv-tests dashboard](https://chipsalliance.github.io/sv-tests-results/) where failing test cases and their error messages (with useful line numbers and AST dumps!) can be browsed. Note some tests on the sv-tests dashboard are misconfigured for testing a synthesis tool.
+
+## Building
 
 *Prerequisities:*
 
