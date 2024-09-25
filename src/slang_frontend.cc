@@ -37,6 +37,7 @@ struct SynthesisSettings {
 	std::optional<bool> keep_hierarchy;
 	std::optional<bool> best_effort_hierarchy;
 	std::optional<bool> ignore_timing;
+	std::optional<bool> ignore_initial;
 	std::optional<int> unroll_limit_;
 
 	enum HierMode {
@@ -69,6 +70,8 @@ struct SynthesisSettings {
 					"Keep hierarchy in a 'best effort' mode");
 		cmdLine.add("--ignore-timing", ignore_timing,
 		            "Ignore delays for synthesis");
+		cmdLine.add("--ignore-initial", ignore_initial,
+		            "Ignore initial blocks for synthesis");
 		cmdLine.add("--unroll-limit", unroll_limit_,
 		            "Set unrolling limit (default: 4000)", "<limit>");
 	}
@@ -2305,6 +2308,9 @@ public:
 	}
 
 	void handle_initial_process(const ast::ProceduralBlockSymbol &, const ast::Statement &body) {
+		if (settings.ignore_initial.value_or(false))
+			return;
+
 		auto result = body.visit(initial_eval);
 		if (result != ast::Statement::EvalResult::Success) {
 			for (auto& diag : initial_eval.context.getAllDiagnostics())
