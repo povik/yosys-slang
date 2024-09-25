@@ -18,7 +18,9 @@ struct InferredMemoryDetector :
 					symbol.getType().isUnpackedArray() &&
 					symbol.getType().hasFixedRange() &&
 					/* non four-state types have implicit init; we don't support meminit yet */
-					symbol.getType().isFourState())
+					symbol.getType().isFourState() &&
+					symbol.getParentScope()->getContainingInstance() &&
+					symbol.getParentScope()->getContainingInstance()->parentInstance->isModule())
 				memory_candidates.insert(&symbol);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol &symbol) {
 			if (symbol.isUninstantiated)
