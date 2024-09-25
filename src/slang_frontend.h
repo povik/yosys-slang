@@ -47,7 +47,8 @@ struct SignalEvalContext {
 	struct Frame {
 		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
 		const ast::SubroutineSymbol *subroutine;
-		RTLIL::Wire* disable;
+		RTLIL::Wire* disable = nullptr;
+		RTLIL::Wire* break_ = nullptr; // for kind==LoopBody
 		enum {
 			Implicit,
 			LoopBody,
@@ -57,7 +58,7 @@ struct SignalEvalContext {
 
 	std::vector<Frame> frames;
 
-	void push_frame(const ast::SubroutineSymbol *subroutine=nullptr, RTLIL::Wire *disable=nullptr);
+	Frame &push_frame(const ast::SubroutineSymbol *subroutine=nullptr);
 	void create_local(const ast::Symbol *symbol);
 	void pop_frame();
 	RTLIL::Wire *wire(const ast::Symbol &symbol);

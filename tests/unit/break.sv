@@ -118,3 +118,25 @@ module test_break08;
 
     always_comb assert(out == 1);
 endmodule
+
+module test_break09(logic [2:0] span);
+    logic [7:0] mask1, mask2;
+
+    always_comb begin
+        mask1 = 0;
+        for (int i = 0; i < span && i < 8; i++)
+            mask1[i] = 1;
+    end
+
+    always_comb begin
+        mask2 = 0;
+        for (int i = 0; i < 8; i++)
+            if (i < span)
+                mask2[i] = 1;
+    end
+
+    always_comb begin
+        if (^span !== 'x)
+            assert(mask1 === mask2);
+    end
+endmodule

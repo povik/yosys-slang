@@ -1159,31 +1159,31 @@ public:
 	void handle(const ast::WhileLoopStatement &stmt) {
 		int ncycles = 0;
 
-		RTLIL::Wire *disable = add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
-		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
+		RTLIL::Wire *break_ = add_nonstatic(NEW_ID_SUFFIX("break"), 1);
+		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
 
 		std::vector<SwitchHelper> sw_stack;
 		while (true) {
 			RTLIL::SigSpec cv = netlist.ReduceBool(eval(stmt.cond));
-			RTLIL::SigSpec disable_rv = substitute_rvalue(disable);
-			RTLIL::SigSpec joint_disable = netlist.LogicOr(netlist.LogicNot(cv), disable_rv);
+			RTLIL::SigSpec break_rv = substitute_rvalue(break_);
+			RTLIL::SigSpec joint_break = netlist.LogicOr(netlist.LogicNot(cv), break_rv);
 
-			if (!joint_disable.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(current_case, vstate, joint_disable);
+			if (!joint_break.is_fully_const()) {
+				auto &b = sw_stack.emplace_back(current_case, vstate, joint_break);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S0});
 				current_case->statement = &stmt.body;
 
 				// From a semantical POV the following is a no-op, but it allows us to
 				// do more constant folding.
-				do_simple_assign(slang::SourceLocation::NoLocation, disable, RTLIL::S0, true);
-			} else if (joint_disable.as_bool()) {
+				do_simple_assign(slang::SourceLocation::NoLocation, break_, RTLIL::S0, true);
+			} else if (joint_break.as_bool()) {
 				break;
 			} else {
-				log_assert(!joint_disable.as_bool());
+				log_assert(!joint_break.as_bool());
 			}
 
-			eval.push_frame(nullptr, disable);
+			eval.push_frame(nullptr).break_ = break_;
 			stmt.body.visit(*this);
 			eval.pop_frame();
 
@@ -1209,40 +1209,39 @@ public:
 			return;
 		}
 
-		RTLIL::Wire *disable = add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
-		do_simple_assign(stmt.sourceRange.start(), disable, RTLIL::S0, true);
+		RTLIL::Wire *break_ = add_nonstatic(NEW_ID_SUFFIX("break"), 1);
+		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
 
 		std::vector<SwitchHelper> sw_stack;
 		while (true) {
-			RTLIL::SigSpec cv = eval(*stmt.stopExpr);
+			RTLIL::SigSpec cv = netlist.ReduceBool(eval(*stmt.stopExpr));
+
 			if (!cv.is_fully_const()) {
-				auto& diag = diag_scope->addDiag(diag::ForLoopIndeterminate, stmt.sourceRange);
-				if (ncycles)
-					diag.addNote(diag::NoteUnrollCycles, slang::SourceLocation::NoLocation) << ncycles;
+				auto &b = sw_stack.emplace_back(current_case, vstate, cv);
+				b.sw->statement = &stmt;
+				b.enter_branch({RTLIL::S1});
+				current_case->statement = &stmt.body;
+			} else if (!cv.as_bool()) {
 				break;
+			} else {
+				log_assert(cv.as_bool());
 			}
 
-			if (!cv.as_const().as_bool())
-				break;
-
-			eval.push_frame(nullptr, disable);
+			eval.push_frame(nullptr).break_ = break_;
 			stmt.body.visit(*this);
 			eval.pop_frame();
 
-			RTLIL::SigSpec disable_rv = substitute_rvalue(disable);
-			if (!disable_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(current_case, vstate, disable_rv);
+			RTLIL::SigSpec break_rv = substitute_rvalue(break_);
+
+			if (!break_rv.is_fully_const()) {
+				auto &b = sw_stack.emplace_back(current_case, vstate, break_rv);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S0});
 				current_case->statement = &stmt.body;
-
-				// From a semantical POV the following is a no-op, but it allows us to
-				// do more constant folding.
-				do_simple_assign(slang::SourceLocation::NoLocation, disable, RTLIL::S0, true);
-			} else if (disable_rv.as_bool()) {
+			} else if (break_rv.as_bool()) {
 				break;
 			} else {
-				log_assert(!disable_rv.as_bool());
+				log_assert(!break_rv.as_bool());
 			}
 
 			for (auto step : stmt.steps)
@@ -1296,10 +1295,23 @@ public:
 
 	void handle(const ast::BreakStatement &brk)
 	{
-		log_assert(eval.frames.back().kind == Frame::LoopBody);
-		log_assert(eval.frames.back().disable != nullptr);
+		log_assert(!eval.frames.empty());
+		auto &frame = eval.frames.back();
+		log_assert(frame.kind == Frame::LoopBody);
+		log_assert(frame.disable != nullptr && frame.break_ != nullptr);
 
-		do_simple_assign(brk.sourceRange.start(), eval.frames.back().disable, RTLIL::S1, true);
+		do_simple_assign(brk.sourceRange.start(), frame.disable, RTLIL::S1, true);
+		do_simple_assign(brk.sourceRange.start(), frame.break_, RTLIL::S1, true);
+	}
+
+	void handle(const ast::ContinueStatement &brk)
+	{
+		log_assert(!eval.frames.empty());
+		auto &frame = eval.frames.back();
+		log_assert(frame.kind == Frame::LoopBody);
+		log_assert(frame.disable != nullptr && frame.break_ != nullptr);
+
+		do_simple_assign(brk.sourceRange.start(), frame.disable, RTLIL::S1, true);
 	}
 
 	void handle(const ast::ReturnStatement &stmt)
@@ -1350,7 +1362,7 @@ public:
 	}
 };
 
-void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLIL::Wire *disable)
+SignalEvalContext::Frame &SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 {
 	if (subroutine) {
 		std::string hier;
@@ -1364,19 +1376,15 @@ void SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine, RTLI
 	auto &frame = frames.emplace_back();
 	frame.subroutine = subroutine;
 	if (frames.size() == 1) {
-		log_assert(!subroutine && !disable);
+		log_assert(!subroutine);
 		frame.kind = Frame::Implicit;
-		frame.disable = nullptr;
 	} else {
-		if (!disable) {
-			log_assert(procedural);
-			frame.disable = procedural->add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
-			procedural->do_simple_assign(slang::SourceLocation::NoLocation, frame.disable, RTLIL::S0, true);
-		} else {
-			frame.disable = disable;
-		}
-		frame.kind = subroutine != nullptr ? Frame::FunctionBody : Frame::LoopBody;
+		frame.disable = procedural->add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
+		procedural->do_simple_assign(slang::SourceLocation::NoLocation,
+									 frame.disable, RTLIL::S0, true);
+		frame.kind = (subroutine != nullptr) ? Frame::FunctionBody : Frame::LoopBody;
 	}
+	return frame;
 }
 
 void SignalEvalContext::create_local(const ast::Symbol *symbol)
