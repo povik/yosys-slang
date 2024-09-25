@@ -210,6 +210,9 @@ jobs:
           cd compat-suite
           git submodule init ${{ matrix.ip }}
           git submodule update --init --recursive --depth 1 ${{ matrix.ip }}
+      - if: ${{ matrix.ip == 'opentitan' }}
+        run: |
+          pip3 install --user -r compat-suite/opentitan/python-requirements.txt --require-hashes
       - name: Run script
         run: |
           cd compat-suite
