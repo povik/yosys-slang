@@ -1416,9 +1416,7 @@ RTLIL::Wire *SignalEvalContext::wire(const ast::Symbol &symbol)
 		}
 		require(symbol, false && "not found");
 	} else {
-		RTLIL::Wire *wire = netlist.canvas->wire(netlist.id(symbol));
-		log_assert(wire);
-		return wire;
+		return netlist.wire(symbol);
 	}
 }
 
