@@ -202,6 +202,57 @@ SigSpec RTLILBuilder::Not(SigSpec a)
 	return canvas->Not(NEW_ID, a);
 }
 
+namespace ThreeValued {
+	int AND(int a, int b)
+	{
+		if (a < 0 || b < 0)
+			return -1;
+		if (a > 0 && b > 0)
+			return 1;
+		return 0;
+	}
+
+	int NOT(int lit)
+	{
+		return -lit;
+	}
+
+	int OR(int a, int b)
+	{
+		return NOT(AND(NOT(a), NOT(b)));
+	}
+
+	int XOR(int a, int b)
+	{
+		return OR(AND(a, NOT(b)), AND(NOT(a), b));
+	}
+
+	int XNOR(int a, int b)
+	{
+		return NOT(OR(AND(a, NOT(b)), AND(NOT(a), b)));
+	}
+
+	int CARRY(int a, int b, int c)
+	{
+		if (c > 0)
+			return OR(a, b);
+		else if (c < -1)
+			return AND(a, b);
+
+		return OR(AND(a, b), AND(c, OR(a, b)));
+	}
+
+	int convert(RTLIL::SigBit bit)
+	{
+		if (bit == RTLIL::S1)
+			return 1;
+		else if (bit == RTLIL::S0)
+			return -1;
+		else
+			return 0;
+	}
+};
+
 SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 						   bool a_signed, bool b_signed, int y_width)
 {
@@ -233,6 +284,33 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 		OP(shr)
 		OP(pow)
 #undef OP
+	}
+
+	if (op.in(ID($le), ID($lt), ID($gt), ID($ge)) && !a.empty() && !b.empty()) {
+		int carry = op.in(ID($le), ID($ge)) ? -1 : 1;
+		int al, bl;
+		// Defer to three-valued evaluation over a representation of the operators.
+		// This is a bit much, but I'm writing this tired and don't trust doing it
+		// another way.
+		int width = std::max(a.size(), b.size());
+		for (int i = 0; i < width; i++) {
+			RTLIL::SigBit abit = i < a.size() ? a[i] : (a_signed ? a.msb() : RTLIL::S0);
+			RTLIL::SigBit bbit = i < b.size() ? b[i] : (b_signed ? b.msb() : RTLIL::S0);
+			al = ThreeValued::convert(abit);
+			bl = ThreeValued::convert(bbit);
+			if (op.in(ID($gt), ID($ge)))
+				std::swap(al, bl);
+			if (i != width - 1)
+				carry = ThreeValued::CARRY(al, ThreeValued::NOT(bl), carry);
+		}
+		int result = ThreeValued::XOR(carry, ThreeValued::XNOR(al, bl));
+		if (result < 0)
+			return SigSpec(RTLIL::S0, y_width);
+		if (result > 0) {
+			SigSpec ret = {RTLIL::S1};
+			ret.extend_u0(y_width);
+			return ret;
+		}
 	}
 
 	if (op == ID($logic_and)) {
