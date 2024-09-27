@@ -39,6 +39,7 @@ struct SynthesisSettings {
 	std::optional<bool> ignore_timing;
 	std::optional<bool> ignore_initial;
 	std::optional<int> unroll_limit_;
+	std::optional<bool> extern_modules;
 
 	enum HierMode {
 		NONE,
@@ -74,6 +75,10 @@ struct SynthesisSettings {
 		            "Ignore initial blocks for synthesis");
 		cmdLine.add("--unroll-limit", unroll_limit_,
 		            "Set unrolling limit (default: 4000)", "<limit>");
+		cmdLine.add("--extern-modules", extern_modules,
+		            "Import as an instantiable blackbox any module which was previously"
+		            "loaded into the current design by a Yosys command; this allows composing"
+		            "hiearchy of SystemVerilog and non-SystemVerilog modules");
 	}
 };
 
@@ -2405,8 +2410,51 @@ public:
 			netlist.canvas->connect(internal_signal, signal);
 	}
 
+	static bool has_blackbox_attribute(const ast::DefinitionSymbol &sym)
+	{
+		for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
+			if (attr->name == "blackbox"sv && !attr->getValue().isFalse())
+				return true;
+		}
+		return false;
+	}
+
 	void handle(const ast::InstanceSymbol &sym)
 	{
+		// blackboxes get special handling no matter the hierarchy mode
+		if (sym.isModule() && has_blackbox_attribute(sym.body.getDefinition())) {
+			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
+
+			for (auto *conn : sym.getPortConnections()) {
+				switch (conn->port.kind) {
+				case ast::SymbolKind::Port: {
+					if (!conn->getExpression())
+						continue;
+					auto &expr = *conn->getExpression();
+					RTLIL::SigSpec signal;
+					if (expr.kind == ast::ExpressionKind::Assignment) {
+							auto &assign = expr.as<ast::AssignmentExpression>();
+						signal = netlist.eval.connection_lhs(assign);
+					} else {
+						signal = netlist.eval(expr);
+					}
+					cell->setPort(id(conn->port.name), signal);
+					break;
+				}
+				default:
+					unimplemented(sym);
+				}
+			}
+
+			sym.body.visit(ast::makeVisitor([&](auto&, const ast::ParameterSymbol &symbol) {
+				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), convert_const(symbol.getValue()));
+			}, [&](auto&, const ast::InstanceSymbol&) {
+				// no-op
+			}));
+			transfer_attrs(sym, cell);
+			return;
+		}
+
 		bool should_dissolve;
 
 		switch (settings.hierarchy_mode()) {
@@ -2888,6 +2936,9 @@ struct SlangFrontend : Frontend {
 				log_error("Parsing failed\n");
 
 			auto compilation = driver.createCompilation();
+
+			if (settings.extern_modules.value_or(false))
+				import_blackboxes_from_rtlil(*compilation, design);
 
 			if (settings.dump_ast.value_or(false)) {
 				slang::JsonWriter writer;

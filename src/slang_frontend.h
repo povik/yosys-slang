@@ -192,4 +192,7 @@ struct NetlistContext : RTLILBuilder {
 	}
 };
 
+// blackboxes.cc
+extern void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *source);
+
 };
