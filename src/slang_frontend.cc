@@ -76,9 +76,9 @@ struct SynthesisSettings {
 		cmdLine.add("--unroll-limit", unroll_limit_,
 		            "Set unrolling limit (default: 4000)", "<limit>");
 		cmdLine.add("--extern-modules", extern_modules,
-		            "Import as an instantiable blackbox any module which was previously"
-		            "loaded into the current design by a Yosys command; this allows composing"
-		            "hiearchy of SystemVerilog and non-SystemVerilog modules");
+		            "Import as an instantiable blackbox any module which was previously "
+		            "loaded into the current design by a Yosys command; this allows composing "
+		            "hierarchy of SystemVerilog and non-SystemVerilog modules");
 	}
 };
 
