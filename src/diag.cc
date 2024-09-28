@@ -23,8 +23,6 @@ namespace diag {
 	slang::DiagCode NoteProcessDriver(slang::DiagSubsystem::Netlist, 1013);
 	slang::DiagCode AlwaysFFBadTiming(slang::DiagSubsystem::Netlist, 1014);
 
-	slang::DiagCode ForLoopIndeterminate(slang::DiagSubsystem::Netlist, 1015);
-	slang::DiagCode NoteUnrollCycles(slang::DiagSubsystem::Netlist, 1016);
 	slang::DiagCode MissingStopCondition(slang::DiagSubsystem::Netlist, 1017);
 
 	slang::DiagCode ComplexLatchLHS(slang::DiagSubsystem::Netlist, 1018);
@@ -67,11 +65,6 @@ namespace diag {
 
 		engine.setMessage(AlwaysFFBadTiming, "timing control does not model a flip-flop");
 		engine.setSeverity(AlwaysFFBadTiming, slang::DiagnosticSeverity::Error);
-
-		engine.setMessage(ForLoopIndeterminate, "could not evaluate stop condition when performing loop unrolling");
-		engine.setSeverity(ForLoopIndeterminate, slang::DiagnosticSeverity::Error);
-		engine.setMessage(NoteUnrollCycles, "after {} unrolled cycles");
-		engine.setSeverity(NoteUnrollCycles, slang::DiagnosticSeverity::Note);
 
 		engine.setMessage(MissingStopCondition, "stop condition is missing; loop cannot be unrolled");
 		engine.setSeverity(MissingStopCondition, slang::DiagnosticSeverity::Error);
