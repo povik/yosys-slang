@@ -31,6 +31,7 @@ extern slang::DiagCode MemoryNotInferred;
 extern slang::DiagCode NoteUsageBlame;
 extern slang::DiagCode UnrollLimitExhausted;
 extern slang::DiagCode NoteLoopContributes;
+extern slang::DiagCode NonconstWildcardEq;
 void setup_messages(slang::DiagnosticEngine &engine);
 };
 };

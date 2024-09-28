@@ -164,4 +164,21 @@ function automatic [7:0] f();
 endfunction
 initial $t(f());
 
+initial begin
+	$t(4'b0110 ==? 4'b0z10);
+	$t(4'b0010 ==? 4'b0z10);
+	$t(4'b1110 ==? 4'b0z10);
+	$t(4'b0101 ==? 4'bzz01);
+	$t(4'b1001 ==? 4'bzz01);
+	$t(4'b1011 ==? 4'bzz01);
+	$t(4'bzzzz ==? 4'b0000);
+	$t(4'b0110 ==? 4'b0x10);
+	$t(4'b0010 ==? 4'b0x10);
+	$t(4'b1110 ==? 4'b0x10);
+	$t(4'b0101 ==? 4'bxx01);
+	$t(4'b1001 ==? 4'bxx01);
+	$t(4'b1011 ==? 4'bxx01);
+	$t(4'bxxxx ==? 4'b0000);
+end
+
 endmodule

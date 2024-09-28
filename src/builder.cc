@@ -351,6 +351,7 @@ SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 		OP(reduce_and)
 		OP(reduce_xor)
 		OP(reduce_xnor)
+		OP(reduce_bool)
 #undef OP
 	}
 

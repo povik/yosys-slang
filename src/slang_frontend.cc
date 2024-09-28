@@ -1831,6 +1831,29 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			RTLIL::SigSpec left = (*this)(biop.left());
 			RTLIL::SigSpec right = (*this)(biop.right());
 
+			bool invert;
+			switch (biop.op) {
+			case ast::BinaryOperator::WildcardEquality:
+				invert = false;
+				if (0) {
+			case ast::BinaryOperator::WildcardInequality:
+				invert = true;
+				}
+				if (!right.is_fully_const()) {
+					// TODO: scope
+					netlist.realm.addDiag(diag::NonconstWildcardEq, expr.sourceRange);
+					ret = netlist.canvas->addWire(NEW_ID, expr.type->getBitstreamWidth());
+					return ret;
+				}
+				return netlist.Unop(
+					invert ? ID($logic_not) : ID($reduce_bool),
+					netlist.EqWildcard(left, right),
+					false, expr.type->getBitstreamWidth()
+				);
+			default:
+				break;
+			}
+
 			bool a_signed = biop.left().type->isSigned();
 			bool b_signed = biop.right().type->isSigned();
 
@@ -1853,8 +1876,6 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			case ast::BinaryOperator::GreaterThan:		type = ID($gt); break;
 			case ast::BinaryOperator::LessThanEqual:	type = ID($le); break;
 			case ast::BinaryOperator::LessThan:			type = ID($lt); break;
-			//case ast::BinaryOperator::WildcardEquality;
-			//case ast::BinaryOperator::WildcardInequality;
 			case ast::BinaryOperator::LogicalAnd:	type = ID($logic_and); break;
 			case ast::BinaryOperator::LogicalOr:	type = ID($logic_or); break;
 			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = netlist.LogicNot(left); a_signed = false; break;

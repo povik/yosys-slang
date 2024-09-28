@@ -34,6 +34,8 @@ namespace diag {
 	slang::DiagCode UnrollLimitExhausted(slang::DiagSubsystem::Netlist, 1022);
 	slang::DiagCode NoteLoopContributes(slang::DiagSubsystem::Netlist, 1023);
 
+	slang::DiagCode NonconstWildcardEq(slang::DiagSubsystem::Netlist, 1023);
+
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
 	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
@@ -88,6 +90,9 @@ namespace diag {
 
 		engine.setMessage(NoteLoopContributes, "loop contributes to unroll tally");
 		engine.setSeverity(NoteLoopContributes, slang::DiagnosticSeverity::Note);
+
+		engine.setMessage(NonconstWildcardEq, "wildcard equality unsynthesizable with non-constant right operand");
+		engine.setSeverity(NonconstWildcardEq, slang::DiagnosticSeverity::Error);
 	}
 };
 };
