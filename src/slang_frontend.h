@@ -31,6 +31,13 @@ namespace slang {
 
 namespace slang_frontend {
 
+using Yosys::log;
+using Yosys::log_error;
+using Yosys::log_warning;
+using Yosys::log_id;
+using Yosys::log_signal;
+using Yosys::ys_debug;
+using Yosys::ceil_log2;
 namespace RTLIL = ::Yosys::RTLIL;
 namespace ast = ::slang::ast;
 
@@ -194,5 +201,14 @@ struct NetlistContext : RTLILBuilder {
 
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *source);
+
+// abort_helpers.cc
+[[noreturn]] void unimplemented_(const ast::Symbol &obj, const char *file, int line, const char *condition);
+[[noreturn]] void unimplemented_(const ast::Expression &obj, const char *file, int line, const char *condition);
+[[noreturn]] void unimplemented_(const ast::Statement &obj, const char *file, int line, const char *condition);
+[[noreturn]] void unimplemented_(const ast::TimingControl &obj, const char *file, int line, const char *condition);
+#define require(obj, property) { if (!(property)) unimplemented_(obj, __FILE__, __LINE__, #property); }
+#define unimplemented(obj) { slang_frontend::unimplemented_(obj, __FILE__, __LINE__, NULL); }
+#define ast_invariant(obj, property) require(obj, property)
 
 };

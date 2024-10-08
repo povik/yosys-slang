@@ -82,14 +82,6 @@ struct SynthesisSettings {
 	}
 };
 
-using Yosys::log;
-using Yosys::log_error;
-using Yosys::log_warning;
-using Yosys::log_id;
-using Yosys::log_signal;
-using Yosys::ys_debug;
-using Yosys::ceil_log2;
-
 namespace RTLIL = Yosys::RTLIL;
 namespace ID = Yosys::RTLIL::ID;
 namespace ast = slang::ast;
@@ -127,29 +119,6 @@ std::string format_src(const T &obj)
 			(int) sm->getLineNumber(sr.end()), (int) sm->getColumnNumber(sr.end()));
 	}
 }
-
-template<typename T>
-[[noreturn]] void unimplemented_(const T &obj, const char *file, int line, const char *condition)
-{
-	slang::JsonWriter writer;
-	writer.setPrettyPrint(true);
-	ast::ASTSerializer serializer(*global_compilation, writer);
-	serializer.serialize(obj);
-	std::cout << writer.view() << std::endl;
-	auto loc = source_location(obj);
-	log_assert(loc.start().buffer() == loc.end().buffer());
-	std::string_view source_text = global_sourcemgr->getSourceText(loc.start().buffer());
-	int col_no = global_sourcemgr->getColumnNumber(loc.start());
-	const char *line_start = source_text.data() + loc.start().offset() - col_no + 1;
-	const char *line_end = line_start;
-	while (*line_end && *line_end != '\n' && *line_end != '\r') line_end++;
-	std::cout << "Source line " << format_src(obj) << ": " << std::string_view(line_start, line_end) << std::endl;
-	log_error("Feature unimplemented at %s:%d, see AST and code line dump above%s%s%s\n",
-			  file, line, condition ? " (failed condition \"" : "", condition ? condition : "", condition ? "\")" : "");
-}
-#define require(obj, property) { if (!(property)) unimplemented_(obj, __FILE__, __LINE__, #property); }
-#define unimplemented(obj) { slang_frontend::unimplemented_(obj, __FILE__, __LINE__, NULL); }
-#define ast_invariant(obj, property) require(obj, property)
 
 };
 
