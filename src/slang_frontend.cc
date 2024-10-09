@@ -805,16 +805,9 @@ public:
 				{
 					auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
 					Addressing addr(eval, sel);
-					log_assert(addr.stride == (int) (sel.value().type->getBitstreamWidth() / addr.range.width()));
-					int stride = sel.value().type->getBitstreamWidth() / addr.range.width();
 					int wider_size = sel.value().type->getBitstreamWidth();
-					if (stride == 1) {
-						raw_mask = addr.shift_up(raw_mask, false, wider_size);
-						raw_rvalue = addr.shift_up(raw_rvalue, true, wider_size);
-					} else {
-						raw_mask = addr.embed(raw_mask, wider_size, stride, RTLIL::S0);
-						raw_rvalue = addr.embed(raw_rvalue, wider_size, stride, RTLIL::Sx);
-					}
+					raw_mask = addr.shift_up(raw_mask, false, wider_size);
+					raw_rvalue = addr.shift_up(raw_rvalue, true, wider_size);
 					raw_lexpr = &sel.value();
 				}
 				break;
@@ -1899,10 +1892,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
 			Addressing addr(*this, sel);
-			if (addr.stride == 1)		
-				ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
-			else
-				ret = addr.extract((*this)(sel.value()), sel.type->getBitstreamWidth());
+			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:

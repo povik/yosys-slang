@@ -96,9 +96,8 @@ struct Addressing {
 			stride = 1;
 	}
 
-	Signal shift_up(Signal val, bool oor_undef, int output_len)
+	Signal shift_up_bitwise(Signal val, bool oor_undef, int output_len)
 	{
-		log_assert(stride == 1);
 		int shifted_len = output_len;
 		Signal val2 = val, shifted;
 
@@ -118,6 +117,33 @@ struct Addressing {
 			return shifted.extract_end(-base_offset);
 		else
 			return shifted;
+	}
+
+	Signal shift_up(Signal val, bool oor_undef, int output_len)
+	{
+		if (raw_signal.is_fully_def()) {
+			return embed(val, output_len, stride, oor_undef ? RTLIL::Sx : RTLIL::S0);
+		} else if (stride == 1) {
+			return shift_up_bitwise(val, oor_undef, output_len);
+		} else {
+			Signal ret(RTLIL::Sm, output_len);
+
+			for (int i = 0; i < stride; i++) {
+				Signal fin, fout;
+
+				for (int j = i; j < val.size(); j += stride)
+					fin.append(val[j]);
+
+				fout = shift_up_bitwise(fin, oor_undef, (output_len - i + stride - 1) / stride);
+				for (int j = 0; j < fout.size(); j++)
+					ret[j * stride + i] = fout[j];
+			}
+
+			for (auto bit : ret)
+				log_assert(bit != RTLIL::Sm);
+
+			return ret;
+		}
 	}
 
 	Signal raw_demux(Signal val, int from, int to)
@@ -234,9 +260,8 @@ struct Addressing {
 			std::max(0, -base_offset + val.size() / stride), output_len);
 	}
 
-	Signal shift_down(Signal val, int output_len)
+	Signal shift_down_bitwise(Signal val, int output_len)
 	{
-		log_assert(stride == 1);
 		int shifted_len = output_len;
 		Signal val2 = val, shifted;
 
@@ -251,6 +276,33 @@ struct Addressing {
 			return shifted.extract_end(base_offset);
 		else
 			return shifted;
+	}
+
+	Signal shift_down(Signal val, int output_len)
+	{
+		if (raw_signal.is_fully_def()) {
+			return extract(val, output_len);
+		} else if (stride == 1) {
+			return shift_down_bitwise(val, output_len);
+		} else {
+			Signal ret(RTLIL::Sm, output_len);
+
+			for (int i = 0; i < stride; i++) {
+				Signal fin, fout;
+
+				for (int j = i; j < val.size(); j += stride)
+					fin.append(val[j]);
+
+				fout = shift_down_bitwise(fin, (output_len - i + stride - 1) / stride);
+				for (int j = 0; j < fout.size(); j++)
+					ret[j * stride + i] = fout[j];
+			}
+
+			for (auto bit : ret)
+				log_assert(bit != RTLIL::Sm);
+
+			return ret;
+		}
 	}
 
 	Signal extract(Signal val, int width)
