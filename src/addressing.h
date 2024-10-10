@@ -309,8 +309,16 @@ struct Addressing {
 	{
 		ast_invariant(expr, raw_signal.is_fully_def());
 		int offset = raw_signal.as_const().as_int(true) + base_offset;
-		require(expr, offset >= 0 && offset * stride + width <= val.size());
-		return val.extract(offset * stride, width);
+
+		Signal ret;
+		ret.append(Signal(RTLIL::Sx, std::clamp(-offset * stride, 0, width)));
+		int start = std::clamp(offset * stride, 0, val.size());
+		int end = std::clamp(offset * stride + width, 0, val.size());
+		ret.append(val.extract(start, end - start));
+		ret.append(Signal(RTLIL::Sx, std::clamp(width - (-offset * stride + val.size()), 0, width)));
+		log_assert(ret.size() == width);
+
+		return ret;
 	}
 
 	Signal embed(Signal val, int output_len, int stride, RTLIL::State padding)
