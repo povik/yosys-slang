@@ -328,8 +328,9 @@ struct Addressing {
 
 		Signal ret;
 		ret.append(Signal(padding, std::clamp(offset * stride, 0, output_len)));
-		int val_offset = std::clamp(-offset * stride, 0, val.size());
-		ret.append(val.extract(val_offset, std::clamp(output_len - offset * stride, 0, val.size() - val_offset)));
+		int start = std::clamp(-offset * stride, 0, val.size());
+		int end = std::clamp(-offset * stride + output_len, 0, val.size());
+		ret.append(val.extract(start, end - start));
 		ret.append(Signal(padding, std::clamp(output_len - offset * stride - val.size(), 0, output_len)));
 		log_assert(ret.size() == output_len);
 
