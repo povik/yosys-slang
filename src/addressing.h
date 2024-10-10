@@ -307,7 +307,7 @@ struct Addressing {
 
 	Signal extract(Signal val, int width)
 	{
-		require(expr, raw_signal.is_fully_def());
+		ast_invariant(expr, raw_signal.is_fully_def());
 		int offset = raw_signal.as_const().as_int(true) + base_offset;
 		require(expr, offset >= 0 && offset * stride + width <= val.size());
 		return val.extract(offset * stride, width);
@@ -315,10 +315,17 @@ struct Addressing {
 
 	Signal embed(Signal val, int output_len, int stride, RTLIL::State padding)
 	{
-		require(expr, raw_signal.is_fully_def());
+		ast_invariant(expr, raw_signal.is_fully_def());
 		int offset = raw_signal.as_const().as_int(true) + base_offset;
-		require(expr, offset >= 0 && offset * stride + val.size() <= output_len);
-		return {Signal(padding, output_len - offset * stride - val.size()), val, {Signal(padding, offset * stride)}};
+
+		Signal ret;
+		ret.append(Signal(padding, std::clamp(offset * stride, 0, output_len)));
+		int val_offset = std::clamp(-offset * stride, 0, val.size());
+		ret.append(val.extract(val_offset, std::clamp(output_len - offset * stride, 0, val.size() - val_offset)));
+		ret.append(Signal(padding, std::clamp(output_len - offset * stride - val.size(), 0, output_len)));
+		log_assert(ret.size() == output_len);
+
+		return ret;
 	}
 };
 
