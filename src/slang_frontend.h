@@ -199,6 +199,9 @@ struct NetlistContext : RTLILBuilder {
 	}
 };
 
+// slang_frontend.cc
+extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
+
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *source);
 

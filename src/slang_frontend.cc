@@ -2544,33 +2544,71 @@ public:
 					}
 					case ast::SymbolKind::InterfacePort: {
 						require(sym, conn->getIfaceConn().second != nullptr && "must be a modport");
-						const ast::ModportSymbol &modport = *conn->getIfaceConn().second;
-						submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
-																		submodule.id(conn->port).str();
 
-						modport.visit(ast::makeVisitor([&](auto&, const ast::ModportPortSymbol &port) {
-							auto wire = submodule.add_wire(port);
-							log_assert(wire);
-							switch (port.direction) {
-							case ast::ArgumentDirection::In:
-								wire->port_input = true;
-								break;
-							case ast::ArgumentDirection::Out:
-								wire->port_output = true;
-								break;
-							case ast::ArgumentDirection::InOut:
-								wire->port_input = true;
-								wire->port_output = true;
-								break;
-							default:
-								unimplemented(port);
+						const ast::Symbol &iface_instance = *conn->getIfaceConn().first;
+						const ast::ModportSymbol &ref_modport = *conn->getIfaceConn().second;
+
+						const ast::Scope *iface_scope;
+						switch (iface_instance.kind) {
+						case ast::SymbolKind::InstanceArray:
+							iface_scope = static_cast<const ast::Scope *>(
+											&iface_instance.as<ast::InstanceArraySymbol>());
+							break;
+						case ast::SymbolKind::Instance:
+							iface_scope = static_cast<const ast::Scope *>(
+											&iface_instance.as<ast::InstanceSymbol>().body);
+							break;
+						default:
+							log_abort();
+							break;
+						}
+
+						// Failing this condition is a dead giveaway the iface_instance symbol
+						// is a placeholder made up by slang as a result of slicing. We shouldn't
+						// try supporting that case until slang#1152 is fixed which hopefully
+						// gives us more clarity into what the right handling is.
+						require(sym, iface_instance.getParentScope())
+
+						iface_instance.visit(ast::makeVisitor(
+							[&](auto &visitor, const ast::ModportSymbol &modport) {
+								// To support interface arrays, we need to match all the modports
+								// below iface_instance with the same name as ref_modport
+								if (!modport.name.compare(ref_modport.name)) {
+									submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
+															submodule.id(conn->port).str() + \
+															hierpath_relative_to(iface_scope, modport.getParentScope());
+									visitor.visitDefault(modport);
+								}
+							},
+							[&](auto&, const ast::ModportPortSymbol &port) {
+								auto wire = submodule.add_wire(port);
+								log_assert(wire);
+								switch (port.direction) {
+								case ast::ArgumentDirection::In:
+									wire->port_input = true;
+									break;
+								case ast::ArgumentDirection::Out:
+									wire->port_output = true;
+									break;
+								case ast::ArgumentDirection::InOut:
+									wire->port_input = true;
+									wire->port_output = true;
+									break;
+								default:
+									unimplemented(port);
+								}
+								ast_invariant(port, port.internalSymbol);
+
+								const ast::Scope *parent = port.getParentScope();
+								ast_invariant(port, parent->asSymbol().kind == ast::SymbolKind::Modport);
+								const ast::ModportSymbol &modport = parent->asSymbol().as<ast::ModportSymbol>();
+
+								if (netlist.scopes_remap.count(&modport))
+									cell->setPort(wire->name, netlist.wire(port));
+								else
+									cell->setPort(wire->name, netlist.wire(*port.internalSymbol));
 							}
-							ast_invariant(port, port.internalSymbol);
-							if (netlist.scopes_remap.count(&modport))
-								cell->setPort(wire->name, netlist.wire(port));
-							else
-								cell->setPort(wire->name, netlist.wire(*port.internalSymbol));
-						}));
+						));
 						break;
 					}
 					default:
@@ -2817,6 +2855,82 @@ static void build_hierpath2(NetlistContext &netlist,
 	} else if (symbol->kind == ast::SymbolKind::StatementBlock) {
 		s << "$" << (int) symbol->getIndex() << ".";
 	}
+}
+
+static bool build_hierpath3(const ast::Scope *relative_to,
+							std::ostringstream &s, const ast::Scope *scope)
+{
+	log_assert(scope);
+
+	if (relative_to == scope)
+		return false;
+
+	const ast::Symbol *symbol = &scope->asSymbol();
+
+	if (symbol->kind == ast::SymbolKind::InstanceBody)
+		symbol = symbol->as<ast::InstanceBodySymbol>().parentInstance;
+	if (symbol->kind == ast::SymbolKind::CheckerInstanceBody)
+		symbol = symbol->as<ast::CheckerInstanceBodySymbol>().parentInstance;
+
+	bool pending;
+	if (auto parent = symbol->getParentScope()) {
+		pending = build_hierpath3(relative_to, s, parent);
+	} else {
+		log_abort();
+	}
+
+	if ((symbol->kind == ast::SymbolKind::GenerateBlockArray ||
+			symbol->kind == ast::SymbolKind::GenerateBlock ||
+			symbol->kind == ast::SymbolKind::Instance ||
+			symbol->kind == ast::SymbolKind::CheckerInstance ||
+			!symbol->name.empty() ||
+			symbol->kind == ast::SymbolKind::StatementBlock) &&
+			pending) {
+		s << ".";
+		pending = false;
+	}
+
+	if (symbol->kind == ast::SymbolKind::GenerateBlockArray) {
+		auto &array = symbol->as<ast::GenerateBlockArraySymbol>();
+		s << array.getExternalName();
+	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
+		auto &block = symbol->as<ast::GenerateBlockSymbol>();
+		if (auto index = block.arrayIndex) {
+			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]"; 
+		} else {
+			s << block.getExternalName();
+		}
+
+		pending = true;
+	} else if (symbol->kind == ast::SymbolKind::Instance ||
+			   symbol->kind == ast::SymbolKind::CheckerInstance) {
+		s << symbol->name;
+
+		auto &inst = symbol->as<ast::InstanceSymbolBase>();
+		if (!inst.arrayPath.empty()) {
+            for (size_t i = 0; i < inst.arrayPath.size(); i++)
+            	s << "[" << inst.arrayPath[i] << "]";
+		}
+
+		pending = true;
+	} else if (!symbol->name.empty()) {
+		s << symbol->name;
+
+		pending = true;
+	} else if (symbol->kind == ast::SymbolKind::StatementBlock) {
+		s << "$" << (int) symbol->getIndex();
+
+		pending = true;
+	}
+
+	return pending;
+}
+
+std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope)
+{
+	std::ostringstream path;
+	build_hierpath3(relative_to, path, scope);
+	return path.str();
 }
 
 RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
