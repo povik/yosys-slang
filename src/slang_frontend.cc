@@ -758,7 +758,7 @@ public:
 		if (raw_lexpr->kind == ast::ExpressionKind::Streaming) {
 			auto& stream_lexpr = raw_lexpr->as<ast::StreamingConcatenationExpression>();
 			RTLIL::SigSpec lvalue = eval.streaming(stream_lexpr, true);
-			log_assert(rvalue.size() >= lvalue.size()); // should have been checked by slang
+			ast_invariant(assign, rvalue.size() >= lvalue.size());
 			do_simple_assign(assign.sourceRange.start(), lvalue,
 							 rvalue.extract_end(rvalue.size() - lvalue.size()), blocking);
 			return;
