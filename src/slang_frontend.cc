@@ -1477,7 +1477,7 @@ RTLIL::Wire *SignalEvalContext::wire(const ast::Symbol &symbol)
 
 RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 {
-	log_assert(expr.kind != ast::ExpressionKind::Streaming);
+	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
 	require(expr, expr.type->isFixedSize());
 	RTLIL::SigSpec ret;
 
@@ -1559,8 +1559,8 @@ RTLIL::SigSpec SignalEvalContext::connection_lhs(ast::AssignmentExpression const
 
 	while (rsymbol->kind == ast::ExpressionKind::Conversion)
 		rsymbol = &rsymbol->as<ast::ConversionExpression>().operand();
-	log_assert(rsymbol->kind == ast::ExpressionKind::EmptyArgument);
-	log_assert(rsymbol->type->isBitstreamType());
+	ast_invariant(assign, rsymbol->kind == ast::ExpressionKind::EmptyArgument);
+	ast_invariant(assign, rsymbol->type->isBitstreamType());
 
 	RTLIL::SigSpec ret = netlist.canvas->addWire(NEW_ID, rsymbol->type->getBitstreamWidth());
 	netlist.GroupConnect(
@@ -1671,7 +1671,7 @@ RTLIL::SigSpec SignalEvalContext::apply_nested_conversion(const ast::Expression 
 
 RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 {
-	log_assert(expr.kind != ast::ExpressionKind::Streaming);
+	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
 	require(expr, expr.type->isVoid() || expr.type->isFixedSize());
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
@@ -1870,14 +1870,14 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				ret = apply_conversion(conv, (*this)(conv.operand()));
 			} else {
 				const ast::Type &to = conv.type->getCanonicalType();
-				log_assert(to.isBitstreamType());
+				ast_invariant(conv, to.isBitstreamType());
 
 				// evaluate the bitstream
 				auto &stream_expr = conv.operand().as<ast::StreamingConcatenationExpression>();
 				RTLIL::SigSpec stream = streaming(stream_expr, false);
 
 				// pad to fit target size
-				log_assert(stream.size() <= expr.type->getBitstreamWidth());
+				ast_invariant(conv, stream.size() <= (int) expr.type->getBitstreamWidth());
 				ret = {stream, RTLIL::SigSpec(RTLIL::S0, expr.type->getBitstreamWidth() - stream.size())};
 			}
 		}
@@ -2023,7 +2023,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		}
 		break;
 	case ast::ExpressionKind::LValueReference:
-		log_assert(lvalue != nullptr);
+		ast_invariant(expr, lvalue != nullptr);
 		ret = (*this)(*lvalue);
 		break;
 	default:
@@ -2037,7 +2037,7 @@ done:
 
 RTLIL::SigSpec SignalEvalContext::eval_signed(ast::Expression const &expr)
 {
-	require(expr, expr.type);
+	log_assert(expr.type);
 
 	if (expr.type->isNumeric() && !expr.type->isSigned())
 		return {RTLIL::S0, (*this)(expr)};
