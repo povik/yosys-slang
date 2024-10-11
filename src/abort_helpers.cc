@@ -10,6 +10,10 @@
 #include "slang/ast/Expression.h"
 #include "slang/ast/Statements.h"
 #include "slang/ast/TimingControl.h"
+#include "slang/ast/types/Type.h"
+#include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/ParameterSymbols.h"
+#include "slang/ast/symbols/CompilationUnitSymbols.h"
 
 #include "slang_frontend.h"
 
@@ -67,6 +71,42 @@ template<typename T>
 [[noreturn]] void unimplemented_(const ast::TimingControl &obj, const char *file, int line, const char *condition)
 {
 	unimplemented__(obj, file, line, condition);
+}
+
+[[noreturn]] void wire_missing_(NetlistContext &netlist, const ast::Symbol &symbol, const char *file, int line) {
+	std::string hier;
+	netlist.realm.getHierarchicalPath(hier);
+	log("While generating the netlist content of HDL instance %s\n\tof module %s\n",
+		hier.c_str(), std::string{netlist.realm.getDefinition().name}.c_str());
+	std::string params;
+	for (auto param : netlist.realm.getParameters()) {
+		params += " " + std::string{param->symbol.name};
+		switch (param->symbol.kind) {
+		case ast::SymbolKind::Parameter:
+			params += "=" + param->symbol.as<ast::ParameterSymbol>().getValue().toString();
+			break;
+		case ast::SymbolKind::TypeParameter:
+			params += "=" + param->symbol.as<ast::TypeParameterSymbol>().getTypeAlias().toString();
+			break;
+		default:
+			params += "=<unknown>";
+			break;
+		}
+	}
+	log("\twith parameters%s\n", params.c_str());
+	std::string hier2;
+	symbol.getHierarchicalPath(hier2);
+	log("\twire for symbol %s is missing\n\t(id %s)\n", hier2.c_str(), log_id(netlist.id(symbol)));
+	log("remapped scopes:\n");
+	for (auto pair : netlist.scopes_remap) {
+		std::string hier3;
+		pair.first->asSymbol().getHierarchicalPath(hier3);
+		log(" %s -> %s\n", hier3.c_str(), pair.second.c_str());
+	}
+	if (netlist.scopes_remap.empty()) {
+		log(" (none)\n");
+	}
+	log_error("Internal frontend error at %s:%d, see details above\n", file, line);
 }
 
 };

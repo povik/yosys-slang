@@ -2837,6 +2837,8 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
 {
 	RTLIL::Wire *wire = canvas->wire(id(symbol));
+	if (!wire)
+		wire_missing(*this, symbol);
 	log_assert(wire);
 	return wire;
 }
