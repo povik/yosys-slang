@@ -2628,9 +2628,20 @@ public:
 		require(sym, !sym.getDelay() || settings.ignore_timing.value_or(false));
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
 		ast_invariant(expr, !expr.timingControl);
+
+		RTLIL::SigSpec rvalue = netlist.eval(expr.right());
+
+		if (expr.left().kind == ast::ExpressionKind::Streaming) {
+			auto& stream_lexpr = expr.left().as<ast::StreamingConcatenationExpression>();
+			RTLIL::SigSpec lvalue = netlist.eval.streaming(stream_lexpr, true);
+			ast_invariant(expr, rvalue.size() >= lvalue.size());
+			netlist.canvas->connect(lvalue, rvalue);
+			return;
+		}
+
 		RTLIL::SigSpec lhs = netlist.eval.lhs(expr.left());
 		assert_nonstatic_free(lhs);
-		netlist.canvas->connect(lhs, netlist.eval(expr.right()));		
+		netlist.canvas->connect(lhs, rvalue);
 	}
 
 	void handle(const ast::GenerateBlockSymbol &sym)

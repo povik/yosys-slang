@@ -39,3 +39,8 @@ module r5;
 			acc += data[s][i+:8];
 	end
 endmodule
+
+module r6;
+	logic a, b;
+	assign {>>{ a }} = b;
+endmodule
