@@ -58,7 +58,7 @@ namespace diag {
 		engine.setMessage(IfElseAloadMismatch, "condition cannot be matched to any signal from the event list");
 
 		engine.setMessage(LatchNotInferred, "latch not inferred for variable '{}' driven from always_latch procedure");
-		engine.setSeverity(LatchNotInferred, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(LatchNotInferred, slang::DiagnosticSeverity::Warning);
 
 		engine.setMessage(MissingAload, "asynchronous load value missing for variable '{}'");
 		engine.setSeverity(MissingAload, slang::DiagnosticSeverity::Warning);
