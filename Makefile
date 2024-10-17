@@ -26,7 +26,8 @@ configure-slang:
 		-DSLANG_USE_MIMALLOC=OFF \
 		-DCMAKE_CXX_FLAGS="-fPIC" \
 		-DCMAKE_DISABLE_FIND_PACKAGE_Boost=ON \
-		-DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON
+		-DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON \
+		-DCMAKE_INSTALL_LIBDIR=lib
 
 build/slang/.configured:
 	$(MAKE) configure-slang
