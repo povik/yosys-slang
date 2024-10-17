@@ -46,8 +46,6 @@ yosys-slang is on the [CHIPS Alliance sv-tests dashboard](https://chipsalliance.
 
  * Yosys installed
 
- * [libfmt](https://github.com/fmtlib/fmt)
-
  * Usual toolchains, CMake
 
 Check out the repository including the submodule, e.g. with
