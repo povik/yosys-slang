@@ -2273,18 +2273,14 @@ public:
 					RTLIL::SigSpec aload_chunk = driven_chunk;
 					aload_chunk.replace(aloads[0].values);
 
-					RTLIL::SigSpec aldff_d, aldff_q, aldff_aload;
-					RTLIL::SigSpec dffe_d, dffe_q; // fallback
+					RTLIL::SigSpec aldff_q;
+					RTLIL::SigSpec dffe_q; // fallback
 
 					for (int i = 0; i < driven_chunk.size(); i++) {
-						if (aload_chunk[i] != driven_chunk[i]) {
-							aldff_d.append(staging_chunk[i]);
+						if (RTLIL::SigSpec(aload_chunk)[i] != RTLIL::SigSpec(driven_chunk)[i])
 							aldff_q.append(driven_chunk[i]);
-							aldff_aload.append(aload_chunk[i]);
-						} else {
-							dffe_d.append(staging_chunk[i]);
+						else
 							dffe_q.append(driven_chunk[i]);
-						}
 					}
 
 					if (!aldff_q.empty()) {
