@@ -2277,10 +2277,10 @@ public:
 					RTLIL::SigSpec dffe_q; // fallback
 
 					for (int i = 0; i < driven_chunk.size(); i++) {
-						if (RTLIL::SigSpec(aload_chunk)[i] != RTLIL::SigSpec(driven_chunk)[i])
-							aldff_q.append(driven_chunk[i]);
+						if (aload_chunk[i] != RTLIL::SigSpec(driven_chunk)[i])
+							aldff_q.append(RTLIL::SigSpec(driven_chunk)[i]);
 						else
-							dffe_q.append(driven_chunk[i]);
+							dffe_q.append(RTLIL::SigSpec(driven_chunk)[i]);
 					}
 
 					if (!aldff_q.empty()) {
