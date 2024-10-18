@@ -2253,40 +2253,49 @@ public:
 			visitor.copy_case_tree_into(proc->root_case);
 
 			RTLIL::SigSpec driven = visitor.all_driven();
-			for (RTLIL::SigSpec driven_chunk : driven.chunks()) {
+			for (RTLIL::SigChunk driven_chunk : driven.chunks()) {
+				log_assert(netlist.wire_hdl_types.count(driven_chunk.wire));
+
 				RTLIL::SigSpec staging_chunk = driven_chunk;
 				staging_chunk.replace(visitor.vstate.visible_assignments);
 
 				RTLIL::Cell *cell;
 				if (aloads.empty()) {
-					cell = netlist.canvas->addDff(NEW_ID,
-											timing.triggers[0].signal, staging_chunk, driven_chunk,
-											timing.triggers[0].edge_polarity);
-					transfer_attrs(symbol, cell);
+					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, netlist.wire_hdl_types.at(driven_chunk.wire))) {
+						cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + name),
+												timing.triggers[0].signal,
+												staging_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
+												named_chunk,
+												timing.triggers[0].edge_polarity);
+						transfer_attrs(symbol, cell);	
+					}
 				} else if (aloads.size() == 1) {
 					RTLIL::SigSpec aload_chunk = driven_chunk;
 					aload_chunk.replace(aloads[0].values);
 
-					RTLIL::SigSpec aldff_d, aldff_q, aldff_aload;
-					RTLIL::SigSpec dffe_d, dffe_q; // fallback
+					RTLIL::SigSpec aldff_q;
+					RTLIL::SigSpec dffe_q; // fallback
 
 					for (int i = 0; i < driven_chunk.size(); i++) {
-						if (aload_chunk[i] != driven_chunk[i]) {
-							aldff_d.append(staging_chunk[i]);
-							aldff_q.append(driven_chunk[i]);
-							aldff_aload.append(aload_chunk[i]);
-						} else {
-							dffe_d.append(staging_chunk[i]);
-							dffe_q.append(driven_chunk[i]);
-						}
+						if (aload_chunk[i] != RTLIL::SigSpec(driven_chunk)[i])
+							aldff_q.append(RTLIL::SigSpec(driven_chunk)[i]);
+						else
+							dffe_q.append(RTLIL::SigSpec(driven_chunk)[i]);
 					}
 
 					if (!aldff_q.empty()) {
-						cell = netlist.canvas->addAldff(NEW_ID,
-												timing.triggers[0].signal, aloads[0].trigger,
-												aldff_d, aldff_q, aldff_aload,
-												timing.triggers[0].edge_polarity, aloads[0].trigger_polarity);
-						transfer_attrs(symbol, cell);
+						for (auto driven_chunk2 : aldff_q.chunks())
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, netlist.wire_hdl_types.at(driven_chunk.wire))) {
+							cell = netlist.canvas->addAldff(netlist.canvas->uniquify("$driver$" + name),
+													timing.triggers[0].signal,
+													aloads[0].trigger,
+													staging_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
+													named_chunk,
+													aload_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
+													timing.triggers[0].edge_polarity,
+													aloads[0].trigger_polarity);
+							transfer_attrs(symbol, cell);
+						}
 					}
 
 					if (!dffe_q.empty()) {
@@ -2294,11 +2303,17 @@ public:
 						diag << std::string(log_signal(dffe_q));
 						diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 
-						cell = netlist.canvas->addDffe(NEW_ID,
-												timing.triggers[0].signal, aloads[0].trigger,
-												dffe_d, dffe_q,
-												timing.triggers[0].edge_polarity, !aloads[0].trigger_polarity);
-						transfer_attrs(symbol, cell);
+						for (auto driven_chunk2 : dffe_q.chunks())
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, netlist.wire_hdl_types.at(driven_chunk.wire))) {
+							cell = netlist.canvas->addDffe(netlist.canvas->uniquify("$driver$" + name),
+													timing.triggers[0].signal,
+													aloads[0].trigger,
+													staging_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
+													named_chunk,
+													timing.triggers[0].edge_polarity,
+													!aloads[0].trigger_polarity);
+							transfer_attrs(symbol, cell);
+						}
 					}
 				} else {
 					log_abort();
@@ -2956,6 +2971,7 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
 	transfer_attrs(symbol, w);
+	wire_hdl_types[w] = &symbol.getType();
 	return w;
 }
 

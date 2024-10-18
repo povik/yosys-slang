@@ -172,6 +172,8 @@ struct NetlistContext : RTLILBuilder {
 	// Used to implement modports on uncollapsed levels of hierarchy
 	Yosys::dict<const ast::Scope*, std::string, Yosys::hash_ptr_ops> scopes_remap;
 
+	Yosys::dict<RTLIL::Wire *, const ast::Type *, Yosys::hash_ptr_ops> wire_hdl_types;
+
 	NetlistContext(RTLIL::Design *design,
 		SynthesisSettings &settings,
 		ast::Compilation &compilation,
@@ -194,6 +196,7 @@ struct NetlistContext : RTLILBuilder {
 
 		emitted_mems.swap(other.emitted_mems);
 		scopes_remap.swap(other.scopes_remap);
+		wire_hdl_types.swap(other.wire_hdl_types);
 		canvas = other.canvas;
 		other.canvas = nullptr;
 	}
@@ -216,5 +219,9 @@ extern void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design
 
 [[noreturn]] void wire_missing_(NetlistContext &netlist, const ast::Symbol &symbol, const char *file, int line);
 #define wire_missing(netlist, symbol) { wire_missing_(netlist, symbol, __FILE__, __LINE__); }
+
+// naming.cc
+typedef std::pair<RTLIL::SigChunk, std::string> NamedChunk;
+std::vector<NamedChunk> generate_subfield_names(RTLIL::SigChunk chunk, const ast::Type *type);
 
 };
