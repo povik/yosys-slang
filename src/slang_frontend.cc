@@ -3025,6 +3025,46 @@ struct SlangFrontend : Frontend {
 		log("%s\n", driver.cmdLine.getHelpText("Slang-based SystemVerilog frontend").c_str());
 	}
 
+	std::optional<std::string> read_heredoc(std::vector<std::string> &args)
+	{
+		std::string eot;
+
+		if (!args.empty() && args.back().compare(0, 2, "<<") == 0) {
+			eot = args.back().substr(2);
+			args.pop_back();
+		} else if (args.size() >= 2 && args[args.size() - 2] == "<<") {
+			eot = args.back();
+			args.pop_back();
+			args.pop_back();
+		} else {
+			return {};
+		}
+
+		if (eot.empty())
+			log_error("Missing EOT marker for reading a here-document\n");
+
+		std::string buffer;
+		bool in_script = current_script_file != nullptr;
+
+		while (true) {
+			char line[4096];
+			if (!fgets(line, sizeof(line), in_script ? current_script_file : stdin))
+				log_error("Unexpected EOF reading a here-document\n");
+
+			const char *p = line;
+			while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+				p++;
+
+			if (!strncmp(p, eot.data(), eot.size()) &&
+				(*(p + eot.size()) == '\r' || *(p + eot.size()) == '\n'))
+				break;
+			else
+				buffer += line;
+		}
+
+		return buffer;
+	}
+
 	void execute(std::istream *&f, std::string filename, std::vector<std::string> args, RTLIL::Design *design) override
 	{
 		(void) f;
@@ -3037,6 +3077,11 @@ struct SlangFrontend : Frontend {
 		settings.addOptions(driver.cmdLine);
 		diag::setup_messages(driver.diagEngine);
 		{
+			if (auto heredoc = read_heredoc(args)) {
+				auto buffer = driver.sourceManager.assignText("<inlined>", std::string_view{heredoc.value()});
+				driver.sourceLoader.addBuffer(buffer);
+			}
+
 			std::vector<char *> c_args;
 			for (auto arg : args) {
 				char *c = new char[arg.size() + 1];
