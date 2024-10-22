@@ -67,7 +67,7 @@ std::vector<NamedChunk> generate_subfield_names(RTLIL::SigChunk chunk, const ast
 
 	int sum = 0;
 	for (auto pair : ret)
-		sum += ret.first.width;
+		sum += pair.first.width;
 	log_assert(sum == chunk.width);
 
 	return ret;
