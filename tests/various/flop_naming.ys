@@ -1,0 +1,57 @@
+design -reset
+read_slang <<EOF
+module top(input wire clk, input wire [3:0] d, output reg [3:0] q);
+	typedef struct packed {
+        logic [4:0] field0;
+        logic [3:0] field1;
+    } test_t;
+
+    test_t a, b;
+
+	always_ff @(posedge clk)
+		a <= b;
+endmodule
+EOF
+select -assert-count 2 t:$*ff*
+select -assert-any t:$*ff* c:$driver$a.field1 %i
+select -assert-any t:$*ff* c:$driver$a.field0 %i
+
+design -reset
+read_slang <<EOF
+module top(input wire clk, input wire [3:0] d, output reg [3:0] q);
+	typedef struct packed {
+        logic [4:0] field0;
+        logic [3:0] field1;
+    } test_t;
+
+    test_t a, b;
+
+	always_ff @(posedge clk)
+		a[6:2] <= b[6:2];
+endmodule
+EOF
+select -assert-count 2 t:$*ff*
+select -assert-any t:$*ff* c:$driver$a.field1[3:2] %i
+select -assert-any t:$*ff* c:$driver$a.field1[3:2] %i
+
+design -reset
+read_slang <<EOF
+module top(input wire clk, input wire [3:0] d, output reg [3:0] q);
+	typedef struct packed {
+        logic [4:0] field0;
+        logic [3:0] field1;
+    } test_t;
+
+    test_t a[3], b[3];
+
+	always_ff @(posedge clk)
+		a <= b;
+endmodule
+EOF
+select -assert-count 6 t:$*ff*
+select -assert-any t:$*ff* c:$driver$a[2].field1 %i
+select -assert-any t:$*ff* c:$driver$a[2].field0 %i
+select -assert-any t:$*ff* c:$driver$a[1].field1 %i
+select -assert-any t:$*ff* c:$driver$a[1].field0 %i
+select -assert-any t:$*ff* c:$driver$a[0].field1 %i
+select -assert-any t:$*ff* c:$driver$a[0].field0 %i
