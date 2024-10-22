@@ -64,6 +64,12 @@ std::vector<NamedChunk> generate_subfield_names(RTLIL::SigChunk chunk, const ast
 
 	std::vector<NamedChunk> ret;
 	subfield_names(chunk, 0, type, RTLIL::unescape_id(chunk.wire->name.str()), ret);
+
+	int sum = 0;
+	for (auto pair : ret)
+		sum += pair.first.width;
+	log_assert(sum == chunk.width);
+
 	return ret;
 }
 
