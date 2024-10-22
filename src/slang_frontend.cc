@@ -153,16 +153,16 @@ static const RTLIL::IdString module_type_id(const ast::InstanceSymbol &sym)
 
 static const RTLIL::Const convert_svint(const slang::SVInt &svint)
 {
-	RTLIL::Const ret;
-	ret.bits.reserve(svint.getBitWidth());
+	std::vector<RTLIL::State> bits;
+	bits.reserve(svint.getBitWidth());
 	for (int i = 0; i < (int) svint.getBitWidth(); i++)
 	switch (svint[i].value) {
-	case 0: ret.bits.push_back(RTLIL::State::S0); break;
-	case 1: ret.bits.push_back(RTLIL::State::S1); break;
-	case slang::logic_t::X_VALUE: ret.bits.push_back(RTLIL::State::Sx); break;
-	case slang::logic_t::Z_VALUE: ret.bits.push_back(RTLIL::State::Sz); break;
+	case 0: bits.push_back(RTLIL::State::S0); break;
+	case 1: bits.push_back(RTLIL::State::S1); break;
+	case slang::logic_t::X_VALUE: bits.push_back(RTLIL::State::Sx); break;
+	case slang::logic_t::Z_VALUE: bits.push_back(RTLIL::State::Sz); break;
 	}
-	return ret;
+	return bits;
 }
 
 static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
@@ -178,14 +178,15 @@ static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 	if (constval.isInteger()) {
 		return convert_svint(constval.integer());
 	} else if (constval.isUnpacked()) {
-		RTLIL::Const ret;
+		std::vector<RTLIL::State> bits;
+		bits.reserve(constval.getBitstreamWidth());
 		// TODO: is this right?
 		for (auto &el : constval.elements()) {
 			auto piece = convert_const(el);
-			ret.bits.insert(ret.bits.begin(), piece.bits.begin(), piece.bits.end());
+			bits.insert(bits.begin(), piece.begin(), piece.end());
 		}
-		log_assert(ret.size() == (int) constval.getBitstreamWidth());
-		return ret;
+		log_assert(bits.size() == constval.getBitstreamWidth());
+		return bits;
 	} else if (constval.isString()) {
 		RTLIL::Const ret = convert_svint(constval.convertToInt().integer());
 		ret.flags |= RTLIL::CONST_FLAG_STRING;
@@ -326,13 +327,13 @@ struct UpdateTiming {
 		} else {
 			params[ID::TRG_ENABLE] = true;
 			params[ID::TRG_WIDTH] = triggers.size();
-			RTLIL::Const pol;
+			std::vector<RTLIL::State> pol_bits;
 			RTLIL::SigSpec trg_signals;
 			for (auto trigger : triggers) {
-				pol.bits.push_back(trigger.edge_polarity ? RTLIL::S1 : RTLIL::S0);
+				pol_bits.push_back(trigger.edge_polarity ? RTLIL::S1 : RTLIL::S0);
 				trg_signals.append(trigger.signal);
 			}
-			params[ID::TRG_POLARITY] = pol;
+			params[ID::TRG_POLARITY] = RTLIL::Const(pol_bits);
 			cell->setPort(ID::TRG, trg_signals);
 		}
 	}
