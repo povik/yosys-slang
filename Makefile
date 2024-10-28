@@ -66,7 +66,7 @@ build/slang.so: $(OBJS)
 	@echo "   LINK $@"
 	@$(YOSYS_CONFIG) --exec --cxx --cxxflags --ldflags -g -o $@ \
 		-shared $^ --ldlibs \
-		-Lbuild/slang_install/lib \
-		-lsvlang -lfmt
+		build/slang_install/lib/libsvlang.a \
+		build/slang_install/lib/libfmt.a
 
 .PHONY: build configure-slang build-slang clean-slang clean-objects clean clean-all
