@@ -1,4 +1,4 @@
-[submodule "slang"]
+[submodule "third_party/slang"]
 	path = third_party/slang
 	url = https://github.com/povik/slang.git
 [submodule "tests/third_party/yosys"]
