@@ -884,7 +884,7 @@ public:
 			}
 			int portid = netlist.emitted_mems[id].num_wr_ports++;
 			memwr->setParam(ID::PORTID, portid);
-			RTLIL::Const mask(RTLIL::S0, portid);
+			std::vector<RTLIL::State> mask(portid, RTLIL::S0);
 			for (auto prev : preceding_memwr) {
 				log_assert(prev->type == ID($memwr_v2));
 				if (prev->getParam(ID::MEMID) == memwr->getParam(ID::MEMID)) {
@@ -3223,12 +3223,9 @@ struct UndrivenPass : Pass {
 				if (!wire->attributes.count(ID::init) || wire->port_input)
 					continue;
 
-				Const init = wire->attributes[ID::init];
-				while (init.size() < wire->width)
-					init.bits.push_back(RTLIL::Sx);
-
+				Const &init = wire->attributes[ID::init];
 				for (int i = 0; i < wire->width; i++)
-				if (!driven.check(SigBit(wire, i)) && (init[i] == RTLIL::S1 || init[i] == RTLIL::S0))
+				if (!driven.check(SigBit(wire, i)) && i < init.size() && (init[i] == RTLIL::S1 || init[i] == RTLIL::S0))
 					module->connect(SigBit(wire, i), init[i]);
 			}
 		}
