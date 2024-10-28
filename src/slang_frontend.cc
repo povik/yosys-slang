@@ -1644,7 +1644,7 @@ RTLIL::SigSpec SignalEvalContext::apply_conversion(const ast::ConversionExpressi
 	const ast::Type &from = conv.operand().type->getCanonicalType();
 	const ast::Type &to = conv.type->getCanonicalType();
 
-	log_assert(op.size() == from.getBitstreamWidth());
+	log_assert(op.size() == (int) from.getBitstreamWidth());
 
 	if (from.isIntegral() && to.isIntegral()) {
 		op.extend_u0((int) to.getBitWidth(), to.isSigned());
