@@ -38,6 +38,7 @@ initial begin
 	$t(~^3'd0);
 	$t(~^3'd1);
 	$t(~^3'd3);
+	$t(+(3'd3));
 end
 
 // binary

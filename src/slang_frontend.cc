@@ -1768,6 +1768,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			RTLIL::IdString type;
 			switch (unop.op) {
 			case ast::UnaryOperator::Minus: type = ID($neg); break;
+			case ast::UnaryOperator::Plus: type = ID($pos); break;
 			case ast::UnaryOperator::LogicalNot: type = ID($logic_not); break;
 			case ast::UnaryOperator::BitwiseNot: type = ID($not); break;
 			case ast::UnaryOperator::BitwiseOr: type = ID($reduce_or); break;

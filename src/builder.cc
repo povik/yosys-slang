@@ -344,6 +344,7 @@ SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 {
 	if (a.is_fully_const()) {
 #define OP(type) if (op == ID($##type)) return RTLIL::const_##type(a.as_const(), {}, a_signed, false, y_width);
+		OP(pos)
 		OP(neg)
 		OP(logic_not)
 		OP(not)
