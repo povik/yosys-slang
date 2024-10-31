@@ -34,7 +34,7 @@ namespace diag {
 	slang::DiagCode UnrollLimitExhausted(slang::DiagSubsystem::Netlist, 1022);
 	slang::DiagCode NoteLoopContributes(slang::DiagSubsystem::Netlist, 1023);
 
-	slang::DiagCode NonconstWildcardEq(slang::DiagSubsystem::Netlist, 1023);
+	slang::DiagCode NonconstWildcardEq(slang::DiagSubsystem::Netlist, 1024);
 
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
