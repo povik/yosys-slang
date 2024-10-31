@@ -36,6 +36,20 @@ namespace diag {
 
 	slang::DiagCode NonconstWildcardEq(slang::DiagSubsystem::Netlist, 1024);
 
+	slang::DiagCode AssertionUnsupported(slang::DiagSubsystem::Netlist, 1025);
+	slang::DiagCode LangFeatureUnsupported(slang::DiagSubsystem::Netlist, 1026);
+	slang::DiagCode UnsupportedLhs(slang::DiagSubsystem::Netlist, 1027);
+	slang::DiagCode ArgumentTypeUnsupported(slang::DiagSubsystem::Netlist, 1028);
+	slang::DiagCode MultiportUnsupported(slang::DiagSubsystem::Netlist, 1029);
+	slang::DiagCode UnsupportedBlackboxConnection(slang::DiagSubsystem::Netlist, 1030);
+	slang::DiagCode UnsupportedPortDirection(slang::DiagSubsystem::Netlist, 1031);
+	slang::DiagCode ModportRequired(slang::DiagSubsystem::Netlist, 1032);
+	slang::DiagCode FixedSizeRequired(slang::DiagSubsystem::Netlist, 1033);
+	slang::DiagCode AloadOne(slang::DiagSubsystem::Netlist, 1034);
+	slang::DiagCode BadInlinedPortConnection(slang::DiagSubsystem::Netlist, 1035);
+	slang::DiagCode NoParamsOnUnkBboxes(slang::DiagSubsystem::Netlist, 1037);
+	slang::DiagCode ConnNameRequiredOnUnkBboxes(slang::DiagSubsystem::Netlist, 1038);
+
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
 	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
@@ -91,8 +105,47 @@ namespace diag {
 		engine.setMessage(NoteLoopContributes, "loop contributes to unroll tally");
 		engine.setSeverity(NoteLoopContributes, slang::DiagnosticSeverity::Note);
 
-		engine.setMessage(NonconstWildcardEq, "wildcard equality unsynthesizable with non-constant right operand");
+		engine.setMessage(NonconstWildcardEq, "wildcard equality unsynthesizable with non-constant right-hand operand");
 		engine.setSeverity(NonconstWildcardEq, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(AssertionUnsupported, "unsupported assertion statement");
+		engine.setSeverity(AssertionUnsupported, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(LangFeatureUnsupported, "unsupported language feature");
+		engine.setSeverity(LangFeatureUnsupported, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(UnsupportedLhs, "unsupported assignment target expression");
+		engine.setSeverity(UnsupportedLhs, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(ArgumentTypeUnsupported, "unsupported argument type: {}");
+		engine.setSeverity(ArgumentTypeUnsupported, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(MultiportUnsupported, "multiports unsupported on kept module boundary");
+		engine.setSeverity(MultiportUnsupported, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(UnsupportedBlackboxConnection, "{} port on blackbox instance unsupported");
+		engine.setSeverity(UnsupportedBlackboxConnection, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(UnsupportedPortDirection, "port direction '{}' on kept module boundary unsupported");
+		engine.setSeverity(UnsupportedPortDirection, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(ModportRequired, "interface port on kept module boundary must be a modport");
+		engine.setSeverity(ModportRequired, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(FixedSizeRequired, "expression of type {} with dynamic size unsupported for synthesis");
+		engine.setSeverity(FixedSizeRequired, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(AloadOne, "multiple asynchronous loads unsupported");
+		engine.setSeverity(AloadOne, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(BadInlinedPortConnection, "direction '{}' on inlined port connection unsupported");
+		engine.setSeverity(BadInlinedPortConnection, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(NoParamsOnUnkBboxes, "parameters on unknown blackboxes unsupported");
+		engine.setSeverity(NoParamsOnUnkBboxes, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(ConnNameRequiredOnUnkBboxes, "port name required in connections on unknown blackboxes");
+		engine.setSeverity(ConnNameRequiredOnUnkBboxes, slang::DiagnosticSeverity::Error);
 	}
 };
 };
