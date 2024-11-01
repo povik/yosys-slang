@@ -40,6 +40,7 @@ struct SynthesisSettings {
 	std::optional<bool> ignore_initial;
 	std::optional<int> unroll_limit_;
 	std::optional<bool> extern_modules;
+	std::optional<bool> no_implicit_memories;
 
 	enum HierMode {
 		NONE,
@@ -79,6 +80,8 @@ struct SynthesisSettings {
 		            "Import as an instantiable blackbox any module which was previously "
 		            "loaded into the current design with a Yosys command; this allows composing "
 		            "hierarchy of SystemVerilog and non-SystemVerilog modules");
+		cmdLine.add("--no-implicit-memories", no_implicit_memories,
+					"Require a memory style attribute to consider a variable for memory inference");
 	}
 };
 
@@ -3218,6 +3221,7 @@ struct SlangFrontend : Frontend {
 			global_diagclient->clear();
 
 			InferredMemoryDetector mem_detect;
+			mem_detect.no_implicit = settings.no_implicit_memories.value_or(false);
 			compilation->getRoot().visit(mem_detect);
 			memory_candidates = mem_detect.memory_candidates;
 

@@ -11,6 +11,7 @@ struct InferredMemoryDetector :
 		public TimingPatternInterpretor,
 		public ast::ASTVisitor<InferredMemoryDetector, true, true> {
 	Yosys::pool<const ast::Symbol *> memory_candidates;
+	bool no_implicit = false;
 
 	void handle(const ast::RootSymbol &root) {
 		auto first_pass = ast::makeVisitor([&](auto&, const ast::VariableSymbol &symbol) {
@@ -19,6 +20,7 @@ struct InferredMemoryDetector :
 					symbol.getType().hasFixedRange() &&
 					/* non four-state types have implicit init; we don't support meminit yet */
 					symbol.getType().isFourState() &&
+					(!no_implicit || find_user_hint(symbol)) &&
 					symbol.getParentScope()->getContainingInstance() &&
 					symbol.getParentScope()->getContainingInstance()->parentInstance->isModule())
 				memory_candidates.insert(&symbol);
