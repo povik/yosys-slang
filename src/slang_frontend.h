@@ -206,7 +206,7 @@ struct NetlistContext : RTLILBuilder {
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 
 // blackboxes.cc
-extern void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *source);
+extern void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source);
 
 // abort_helpers.cc
 [[noreturn]] void unimplemented_(const ast::Symbol &obj, const char *file, int line, const char *condition);

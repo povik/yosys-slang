@@ -5,9 +5,9 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #include "slang/ast/Compilation.h"
-#include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxPrinter.h"
+#include "slang/syntax/SyntaxTree.h"
 
 #include "kernel/rtlil.h"
 
@@ -15,38 +15,45 @@
 
 namespace slang_frontend {
 
-void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *source)
+void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source)
 {
 	using namespace slang;
 	using namespace slang::ast;
 	using namespace slang::syntax;
 	using namespace slang::parsing;
 
-	auto& unit = target.createScriptScope();
+	BumpAllocator alloc;
+
+	auto token = [&](TokenKind kind, std::string text="", bool space=false, bool eol=false) {
+		char *ptr = (char *) alloc.allocate(text.size(), 1);
+		memcpy(ptr, text.data(), text.size());
+
+		SmallVector<Trivia, 2> trivia;
+		if (space)
+			trivia.push_back(Trivia(TriviaKind::Whitespace, " "sv));
+		if (eol)
+			trivia.push_back(Trivia(TriviaKind::EndOfLine, "\n"sv));
+
+		return Token(target, kind, trivia.copy(target), std::string_view{ptr, text.size()},
+					 SourceLocation::NoLocation);
+	};
+
+	auto integer_literal = [&](int value) {
+		std::string text = std::to_string(value);
+		char *ptr = (char *) alloc.allocate(text.size(), 1);
+		memcpy(ptr, text.data(), text.size());
+
+		return Token(target, TokenKind::IntegerLiteral, {}, std::string_view{ptr, text.size()},
+					 SourceLocation::NoLocation, SVInt(value));
+	};
+
+	SmallVector<MemberSyntax*, 16> decls;
 
 	for (auto module : source->modules()) {
-		auto token = [&](TokenKind kind, std::string text="", bool space=false, bool eol=false) {
-			char *ptr = (char *) target.allocate(text.size(), 1);
-			memcpy(ptr, text.data(), text.size());
+		std::string unescaped_id = RTLIL::unescape_id(module->name);
 
-			SmallVector<Trivia, 2> trivia;
-			if (space)
-				trivia.push_back(Trivia(TriviaKind::Whitespace, " "sv));
-			if (eol)
-				trivia.push_back(Trivia(TriviaKind::EndOfLine, "\n"sv));
-
-			return Token(target, kind, trivia.copy(target), std::string_view{ptr, text.size()},
-						 SourceLocation::NoLocation);
-		};
-
-		auto integer_literal = [&](int value) {
-			std::string text = std::to_string(value);
-			char *ptr = (char *) target.allocate(text.size(), 1);
-			memcpy(ptr, text.data(), text.size());
-
-			return Token(target, TokenKind::IntegerLiteral, {}, std::string_view{ptr, text.size()},
-						 SourceLocation::NoLocation, SVInt(value));
-		};
+		if (target.tryGetDefinition(unescaped_id, *target.getRootScope()).definition)
+			continue;
 
 		SmallVector<TokenOrSyntax, 16> port_list;
 
@@ -63,17 +70,17 @@ void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *sourc
 
 			SmallVector<VariableDimensionSyntax*, 2> dims;
 			dims.push_back(
-				target.emplace<VariableDimensionSyntax>(
+				alloc.emplace<VariableDimensionSyntax>(
 					token(TokenKind::OpenBracket, "", true),
-					target.emplace<RangeDimensionSpecifierSyntax>(
-						*target.emplace<RangeSelectSyntax>(
+					alloc.emplace<RangeDimensionSpecifierSyntax>(
+						*alloc.emplace<RangeSelectSyntax>(
 							SyntaxKind::SimpleRangeSelect,
-							*target.emplace<LiteralExpressionSyntax>(
+							*alloc.emplace<LiteralExpressionSyntax>(
 								SyntaxKind::IntegerLiteralExpression,
 								integer_literal(port->width - 1)
 							),
 							Token(target, TokenKind::Colon, {}, "", SourceLocation::NoLocation),
-							*target.emplace<LiteralExpressionSyntax>(
+							*alloc.emplace<LiteralExpressionSyntax>(
 								SyntaxKind::IntegerLiteralExpression,
 								integer_literal(0)
 							)
@@ -83,23 +90,23 @@ void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *sourc
 				)
 			);
 
-			port_list.push_back(target.emplace<ImplicitAnsiPortSyntax>(
-				*target.emplace<SyntaxList<AttributeInstanceSyntax>>(nullptr),
-				*target.emplace<VariablePortHeaderSyntax>(
+			port_list.push_back(alloc.emplace<ImplicitAnsiPortSyntax>(
+				*alloc.emplace<SyntaxList<AttributeInstanceSyntax>>(nullptr),
+				*alloc.emplace<VariablePortHeaderSyntax>(
 					Token(),
 					token(direction, "", false, true),
 					Token(),
-					*target.emplace<ImplicitTypeSyntax>(
+					*alloc.emplace<ImplicitTypeSyntax>(
 						Token(),
-						*target.emplace<SyntaxList<VariableDimensionSyntax>>(
+						*alloc.emplace<SyntaxList<VariableDimensionSyntax>>(
 							dims.copy(target)
 						),
 						Token()
 					)
 				),
-				*target.emplace<DeclaratorSyntax>(
+				*alloc.emplace<DeclaratorSyntax>(
 					token(TokenKind::Identifier, RTLIL::escape_id(port->name.str()), true),
-					*target.emplace<SyntaxList<VariableDimensionSyntax>>(nullptr),
+					*alloc.emplace<SyntaxList<VariableDimensionSyntax>>(nullptr),
 					nullptr
 				)
 			));
@@ -108,16 +115,16 @@ void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *sourc
 		if (!port_list.empty())
 			port_list.pop_back();
 
-		auto header = target.emplace<ModuleHeaderSyntax>(
+		auto header = alloc.emplace<ModuleHeaderSyntax>(
 			SyntaxKind::ModuleHeader,
 			token(TokenKind::ModuleKeyword, "", false, true),
 			Token(),
 			token(TokenKind::Identifier, RTLIL::escape_id(module->name.str()), true),
-			*target.emplace<SyntaxList<PackageImportDeclarationSyntax>>(nullptr),
+			*alloc.emplace<SyntaxList<PackageImportDeclarationSyntax>>(nullptr),
 			nullptr, // parameters: todo
-			target.emplace<AnsiPortListSyntax>(
+			alloc.emplace<AnsiPortListSyntax>(
 				token(TokenKind::OpenParenthesis),
-				*target.emplace<SeparatedSyntaxList<MemberSyntax>>(port_list.copy(target)),
+				*alloc.emplace<SeparatedSyntaxList<MemberSyntax>>(port_list.copy(target)),
 				token(TokenKind::CloseParenthesis)
 			),
 			token(TokenKind::Semicolon)
@@ -126,38 +133,41 @@ void import_blackboxes_from_rtlil(ast::Compilation &target, RTLIL::Design *sourc
 		SmallVector<TokenOrSyntax, 2> attrs_spec;
 		SmallVector<AttributeInstanceSyntax*, 2> attrs;
 		attrs_spec.push_back(
-			target.emplace<AttributeSpecSyntax>(
+			alloc.emplace<AttributeSpecSyntax>(
 				token(TokenKind::Identifier, "blackbox", true),
 				nullptr
 			)
 		);
 		attrs.push_back(
-			target.emplace<AttributeInstanceSyntax>(
+			alloc.emplace<AttributeInstanceSyntax>(
 				token(TokenKind::OpenParenthesis),
 				token(TokenKind::Star),
-				*target.emplace<SeparatedSyntaxList<AttributeSpecSyntax>>(attrs_spec.copy(target)),
+				*alloc.emplace<SeparatedSyntaxList<AttributeSpecSyntax>>(attrs_spec.copy(target)),
 				token(TokenKind::Star, "", true),
 				token(TokenKind::CloseParenthesis)
 			)
 		);
 
-		auto syntax = target.emplace<ModuleDeclarationSyntax>(
+		auto syntax = alloc.emplace<ModuleDeclarationSyntax>(
 			SyntaxKind::ModuleDeclaration,
-			*target.emplace<SyntaxList<AttributeInstanceSyntax>>(attrs.copy(target)),
+			*alloc.emplace<SyntaxList<AttributeInstanceSyntax>>(attrs.copy(target)),
 			*header,
-			*target.emplace<SyntaxList<MemberSyntax>>(nullptr),
+			*alloc.emplace<SyntaxList<MemberSyntax>>(nullptr),
 			token(TokenKind::EndModuleKeyword, "", false, true),
 			nullptr
 		);
 
-		target.createDefinition(
-			unit,
-			LookupLocation::min,
-			*syntax
-		);
-
-		//std::cout << SyntaxPrinter().print(*syntax).str() << std::endl;
+		decls.push_back(syntax);
 	}
+
+	auto unit_syntax = alloc.emplace<CompilationUnitSyntax>(
+		*target.emplace<SyntaxList<MemberSyntax>>(decls.copy(target)),
+		token(TokenKind::EndOfFile, "", false, false)
+	);
+	auto tree = std::shared_ptr<SyntaxTree>(
+		new SyntaxTree(unit_syntax, mgr, std::move(alloc), &target.getDefaultLibrary(), nullptr));
+	tree->isLibraryUnit = true;
+	target.addSyntaxTree(tree);
 }
 
 };

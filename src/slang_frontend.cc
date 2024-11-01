@@ -3192,7 +3192,7 @@ struct SlangFrontend : Frontend {
 			auto compilation = driver.createCompilation();
 
 			if (settings.extern_modules.value_or(false))
-				import_blackboxes_from_rtlil(*compilation, design);
+				import_blackboxes_from_rtlil(driver.sourceManager, *compilation, design);
 
 			if (settings.dump_ast.value_or(false)) {
 				slang::JsonWriter writer;
