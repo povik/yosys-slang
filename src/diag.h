@@ -46,6 +46,7 @@ extern slang::DiagCode AloadOne;
 extern slang::DiagCode BadInlinedPortConnection;
 extern slang::DiagCode NoParamsOnUnkBboxes;
 extern slang::DiagCode ConnNameRequiredOnUnkBboxes;
+extern slang::DiagCode BboxTypeParameter;
 void setup_messages(slang::DiagnosticEngine &engine);
 };
 };

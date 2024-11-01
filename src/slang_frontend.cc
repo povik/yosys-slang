@@ -2505,6 +2505,8 @@ public:
 
 			sym.body.visit(ast::makeVisitor([&](auto&, const ast::ParameterSymbol &symbol) {
 				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), convert_const(symbol.getValue()));
+			}, [&](auto&, const ast::TypeParameterSymbol &symbol) {
+				sym.body.addDiag(diag::BboxTypeParameter, symbol.location);
 			}, [&](auto&, const ast::InstanceSymbol&) {
 				// no-op
 			}));
