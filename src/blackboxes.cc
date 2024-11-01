@@ -170,4 +170,34 @@ void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &t
 	target.addSyntaxTree(tree);
 }
 
+bool is_decl_empty_module(const slang::syntax::SyntaxNode &syntax)
+{
+	using namespace slang::syntax;
+
+	if (syntax.kind != SyntaxKind::ModuleDeclaration)
+		return false;
+
+	for (auto member : syntax.as<ModuleDeclarationSyntax>().members) {
+		switch (member->kind) {
+		case SyntaxKind::TypedefDeclaration:
+		case SyntaxKind::ForwardTypedefDeclaration:
+		case SyntaxKind::ParameterDeclaration:
+		case SyntaxKind::TypeParameterDeclaration:
+		case SyntaxKind::PortDeclaration:
+		case SyntaxKind::ImplicitAnsiPort:
+		case SyntaxKind::ExplicitAnsiPort:
+		case SyntaxKind::TimeUnitsDeclaration:
+		case SyntaxKind::FunctionDeclaration:
+		case SyntaxKind::DefParam:
+		case SyntaxKind::NetAlias:
+			break;
+
+		default:
+			return false;
+		}
+	}
+
+	return true;
+}
+
 };

@@ -41,6 +41,7 @@ struct SynthesisSettings {
 	std::optional<int> unroll_limit_;
 	std::optional<bool> extern_modules;
 	std::optional<bool> no_implicit_memories;
+	std::optional<bool> empty_blackboxes;
 
 	enum HierMode {
 		NONE,
@@ -83,6 +84,8 @@ struct SynthesisSettings {
 		            "hierarchy of SystemVerilog and non-SystemVerilog modules");
 		cmdLine.add("--no-implicit-memories", no_implicit_memories,
 					"Require a memory style attribute to consider a variable for memory inference");
+		cmdLine.add("--empty-blackboxes", empty_blackboxes,
+					"Assume empty modules are blackboxes");
 	}
 };
 
@@ -2455,19 +2458,23 @@ public:
 		}
 	}
 
-	static bool has_blackbox_attribute(const ast::DefinitionSymbol &sym)
+	bool is_blackbox(const ast::DefinitionSymbol &sym)
 	{
 		for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
 			if (attr->name == "blackbox"sv && !attr->getValue().isFalse())
 				return true;
 		}
+
+		if (settings.empty_blackboxes.value_or(false))
+			return is_decl_empty_module(*sym.getSyntax());
+
 		return false;
 	}
 
 	void handle(const ast::InstanceSymbol &sym)
 	{
 		// blackboxes get special handling no matter the hierarchy mode
-		if (sym.isModule() && has_blackbox_attribute(sym.body.getDefinition())) {
+		if (sym.isModule() && is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
 
 			for (auto *conn : sym.getPortConnections()) {

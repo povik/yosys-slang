@@ -207,6 +207,7 @@ extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast
 
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source);
+extern bool is_decl_empty_module(const slang::syntax::SyntaxNode &syntax);
 
 // abort_helpers.cc
 [[noreturn]] void unimplemented_(const ast::Symbol &obj, const char *file, int line, const char *condition);
