@@ -2,6 +2,7 @@
 SRC_DIR := $(dir $(firstword $(MAKEFILE_LIST)))
 VPATH := $(SRC_DIR)
 YOSYS_CONFIG := $(YOSYS_PREFIX)yosys-config
+CXXFLAGS :=
 SRCS = $(wildcard $(SRC_DIR)/src/*.cc)
 OBJS = $(patsubst $(SRC_DIR)/src/%.cc,build/%.o,$(SRCS))
 
@@ -58,6 +59,7 @@ build/%.o: src/%.cc build/slang_install/.built
 	@echo "    CXX $@"
 	@$(YOSYS_CONFIG) --exec --cxx --cxxflags -O3 -g -I . -MD \
 		 -c -o $@ $< -std=c++20 \
+		 $(CXXFLAGS) \
 		 -DSLANG_BOOST_SINGLE_HEADER \
 		 -Ibuild/slang_install/include
 
@@ -65,6 +67,7 @@ build/slang.so: $(OBJS)
 	@mkdir -p $(@D)
 	@echo "   LINK $@"
 	@$(YOSYS_CONFIG) --exec --cxx --cxxflags --ldflags -g -o $@ \
+		$(CXXFLAGS) \
 		-shared $^ --ldlibs \
 		build/slang_install/lib/libsvlang.a \
 		build/slang_install/lib/libfmt.a
