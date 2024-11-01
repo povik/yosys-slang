@@ -76,6 +76,7 @@ struct SynthesisSettings {
 		            "Ignore initial blocks for synthesis");
 		cmdLine.add("--unroll-limit", unroll_limit_,
 		            "Set unrolling limit (default: 4000)", "<limit>");
+		// TODO: deprecate; now on by default
 		cmdLine.add("--extern-modules", extern_modules,
 		            "Import as an instantiable blackbox any module which was previously "
 		            "loaded into the current design with a Yosys command; this allows composing "
@@ -3191,7 +3192,7 @@ struct SlangFrontend : Frontend {
 
 			auto compilation = driver.createCompilation();
 
-			if (settings.extern_modules.value_or(false))
+			if (settings.extern_modules.value_or(true))
 				import_blackboxes_from_rtlil(driver.sourceManager, *compilation, design);
 
 			if (settings.dump_ast.value_or(false)) {
