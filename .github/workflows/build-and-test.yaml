@@ -4,20 +4,13 @@ jobs:
   build:
     strategy:
       fail-fast: false
-      matrix: # copy Yosys' test build matrix (w/o macOS)
+      matrix:
         os:
           - ubuntu-latest
         compiler:
-          # oldest supported
-          - 'clang-14'
-          - 'gcc-10'
-          # newest
-          - 'clang'
-          - 'gcc'
-        include:
-          # oldest clang not available on ubuntu-latest
-          - os: ubuntu-20.04
-            compiler: 'clang-10'
+          - 'clang-18'
+          - 'gcc-11'
+          - 'gcc-13'
     runs-on: ${{ matrix.os }}
     env:
       CC_SHORT: ${{ startsWith(matrix.compiler, 'gcc') && 'gcc' || 'clang' }}
