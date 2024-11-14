@@ -800,8 +800,8 @@ public:
 	void assign_rvalue_inner(const ast::AssignmentExpression &assign, const ast::Expression *raw_lexpr,
 							 RTLIL::SigSpec raw_rvalue, RTLIL::SigSpec raw_mask, bool blocking)
 	{
-		log_assert(raw_mask.size() == (int) raw_lexpr->type->getBitstreamWidth());
-		log_assert(raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
+		ast_invariant(assign, raw_mask.size() == (int) raw_lexpr->type->getBitstreamWidth());
+		ast_invariant(assign, raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
 
 		bool finished_etching = false;
 		bool memory_write = false;
