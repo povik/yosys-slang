@@ -218,7 +218,7 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 	for (auto attr : global_compilation->getAttributes(from))
 		to->attributes[id(attr->name)] = convert_const(attr->getValue());
 }
-
+template void transfer_attrs<ast::Symbol>(ast::Symbol &from, RTLIL::AttrObject *to);
 
 #define assert_nonstatic_free(signal) \
 	for (auto bit : (signal)) \
@@ -2521,6 +2521,7 @@ public:
 				// no-op
 			}));
 			transfer_attrs(sym, cell);
+			export_blackbox_to_rtlil(netlist.compilation, sym, netlist.canvas->design);
 			return;
 		}
 

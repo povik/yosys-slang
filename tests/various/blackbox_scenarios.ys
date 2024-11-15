@@ -1,0 +1,79 @@
+# scenario 1: pre-loaded blackbox, no blackbox definition in SV sources
+# no support for parameters
+
+design -reset
+log -header Scenario 1
+log -push
+read_verilog <<EOF
+(* blackbox *)
+module foo(input wire [2:0] a, output wire b);
+endmodule
+
+(* blackbox *)
+module bar(input wire [2:0] a, output wire b);
+endmodule
+EOF
+
+read_slang --extern-modules <<EOF
+module top();
+	wire c;
+	foo foo(.a(0), .b(c));
+endmodule
+EOF
+hierarchy -check -top top
+log -pop
+
+# scenario 2: no pre-loaded blackbox, blackbox definition in SV sources
+# parameters supported, but port widths must be fixed (non-parametric)
+
+design -reset
+log -header Scenario 2
+log -push
+design -reset
+read_slang --dump-ast --top top <<EOF
+(* blackbox *)
+module foo (input wire [2:0] a, output wire b);
+	parameter ff = 2;
+endmodule
+
+module top();
+	wire c;
+	foo #(.ff(8)) foo(.a(0), .b(c));
+endmodule
+EOF
+dump
+hierarchy -check
+log -pop
+
+# scenario 3: pre-loaded blackbox, blackbox definition in SV sources
+# parameters supported, port widths can be parametric
+log -header Scenario 3
+log -push
+design -reset
+read_verilog <<EOF
+(* blackbox *)
+module foo(a, b);
+	parameter WIDTH = 3;
+	input wire [WIDTH-1:0] a;
+	output wire [WIDTH-1:0] b;
+endmodule
+EOF
+
+read_slang --extern-modules <<EOF
+(* blackbox *)
+module foo(a, b);
+	parameter WIDTH = 3;
+	input wire [WIDTH-1:0] a;
+	output wire [WIDTH-1:0] b;
+endmodule
+
+module top();
+	wire [4:0] c;
+	wire [2:0] d;
+	foo #(.WIDTH(5)) bar1(.a(0), .b(c));
+	foo #(.WIDTH(3)) bar2(.a(0), .b(d));
+endmodule
+EOF
+hierarchy -check -top top
+dump
+log -pop

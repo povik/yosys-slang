@@ -50,6 +50,7 @@ namespace diag {
 	slang::DiagCode NoParamsOnUnkBboxes(slang::DiagSubsystem::Netlist, 1037);
 	slang::DiagCode ConnNameRequiredOnUnkBboxes(slang::DiagSubsystem::Netlist, 1038);
 	slang::DiagCode BboxTypeParameter(slang::DiagSubsystem::Netlist, 1039);
+	slang::DiagCode BboxExportPortWidths(slang::DiagSubsystem::Netlist, 1040);
 
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
@@ -150,6 +151,9 @@ namespace diag {
 
 		engine.setMessage(BboxTypeParameter, "blackbox cannot have a type parameter");
 		engine.setSeverity(BboxTypeParameter, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(BboxExportPortWidths, "cannot export a blackbox definition with non-constant port widths");
+		engine.setSeverity(BboxExportPortWidths, slang::DiagnosticSeverity::Error);
 	}
 };
 };

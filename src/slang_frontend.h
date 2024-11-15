@@ -204,10 +204,12 @@ struct NetlistContext : RTLILBuilder {
 
 // slang_frontend.cc
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
+template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
 
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source);
 extern bool is_decl_empty_module(const slang::syntax::SyntaxNode &syntax);
+extern void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::InstanceSymbol &inst, RTLIL::Design *target);
 
 // abort_helpers.cc
 [[noreturn]] void unimplemented_(const ast::Symbol &obj, const char *file, int line, const char *condition);

@@ -5,6 +5,9 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #include "slang/ast/Compilation.h"
+#include "slang/ast/symbols/CompilationUnitSymbols.h"
+#include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/ASTVisitor.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
@@ -12,6 +15,7 @@
 #include "kernel/rtlil.h"
 
 #include "slang_frontend.h"
+#include "diag.h"
 
 namespace slang_frontend {
 
@@ -198,6 +202,126 @@ bool is_decl_empty_module(const slang::syntax::SyntaxNode &syntax)
 	}
 
 	return true;
+}
+
+void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::InstanceSymbol &inst, RTLIL::Design *target)
+{
+	using namespace slang::ast;
+	using namespace slang::syntax;
+
+	RTLIL::IdString name = RTLIL::escape_id(std::string{inst.body.name});
+
+	if (target->module(name)) {
+		// Module already exists on the RLTIL side -- nothing to do
+		return;
+	}
+
+	for (auto instance : comp.getRoot().topInstances) {
+		if (!instance->name.compare(inst.name)) {
+			// A top module with the same name will be added later, nothing to do
+			return;
+		}
+	}
+
+	RTLIL::Module *mod = target->addModule(name);
+	transfer_attrs<ast::Symbol>((ast::Symbol&) inst.getDefinition(), mod);
+
+	inst.body.visit(ast::makeVisitor([&](auto&, const ast::PortSymbol &port) {
+		if (!port.getSyntax() ||
+				!port.getType().isFixedSize() ||
+				!port.internalSymbol ||
+				!port.internalSymbol->getDeclaredType()) {
+			inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+		} else {
+			const DeclaredType *dt = port.internalSymbol->getDeclaredType();
+			const SyntaxNode &syntax = *dt->getTypeSyntax();
+			const SyntaxList<VariableDimensionSyntax> *dims = nullptr;
+			bool rejected = false;
+
+			if (syntax.kind == SyntaxKind::ImplicitType) {
+				auto &impl_type = syntax.as<ImplicitTypeSyntax>();
+				dims = &impl_type.dimensions;
+			} else if (IntegerTypeSyntax::isKind(syntax.kind)) {
+				auto &int_type = syntax.as<IntegerTypeSyntax>();
+				dims = &int_type.dimensions;
+			} else {
+				inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+				rejected = true;
+			}
+
+			if (dims) {
+				for (auto dim : *dims) {
+					if (!dim->specifier ||
+							dim->specifier->kind != SyntaxKind::RangeDimensionSpecifier) {
+						inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+						break;
+					}
+					auto &sel = dim->specifier->as<RangeDimensionSpecifierSyntax>().selector;
+					if (!RangeSelectSyntax::isKind(sel->kind) ||
+							!LiteralExpressionSyntax::isKind(sel->as<RangeSelectSyntax>().left->kind) ||
+							!LiteralExpressionSyntax::isKind(sel->as<RangeSelectSyntax>().right->kind)) {
+						inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+						rejected = true;
+						break;
+					}
+				}
+			}
+
+			if (!rejected && dt->getDimensionSyntax()) {
+				for (auto dim : *dt->getDimensionSyntax()) {
+					if (!dim->specifier ||
+							dim->specifier->kind != SyntaxKind::RangeDimensionSpecifier) {
+						inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+						break;
+					}
+					auto &sel = dim->specifier->as<RangeDimensionSpecifierSyntax>().selector;
+
+					if (RangeSelectSyntax::isKind(sel->kind)) {
+						auto &range = sel->as<RangeSelectSyntax>();
+						if (!LiteralExpressionSyntax::isKind(range.left->kind) ||
+								!LiteralExpressionSyntax::isKind(range.right->kind)) {
+							inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+							break;
+						}
+					} else if (BitSelectSyntax::isKind(sel->kind)) {
+						auto &bit = sel->as<BitSelectSyntax>();
+						if (!LiteralExpressionSyntax::isKind(bit.expr->kind)) {
+							inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+							break;
+						}
+					} else {
+						inst.body.addDiag(diag::BboxExportPortWidths, port.location);
+						break;
+					}
+				}
+			}
+		}
+
+		RTLIL::Wire *wire =
+			mod->addWire(RTLIL::escape_id(std::string{port.name}), port.getType().getBitstreamWidth());
+
+		switch (port.direction) {
+		case ast::ArgumentDirection::In:
+			wire->port_input = true;
+			break;
+		case ast::ArgumentDirection::Out:
+			wire->port_output = true;
+			break;
+		case ast::ArgumentDirection::InOut:
+			wire->port_input = true;
+			wire->port_output = true;
+			break;
+		default:
+			auto &diag = inst.body.addDiag(diag::UnsupportedPortDirection, port.location);
+			diag << ast::toString(port.direction);
+			break;
+		}
+
+		mod->ports.push_back(wire->name);
+		wire->port_id = mod->ports.size();
+	}, [&](auto&, const ast::ParameterSymbol &param) {
+		mod->avail_parameters(RTLIL::escape_id(std::string{param.name}));
+	}));
 }
 
 };
