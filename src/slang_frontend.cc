@@ -42,6 +42,7 @@ struct SynthesisSettings {
 	std::optional<bool> extern_modules;
 	std::optional<bool> no_implicit_memories;
 	std::optional<bool> empty_blackboxes;
+	std::optional<bool> elaborate_only;
 
 	enum HierMode {
 		NONE,
@@ -86,6 +87,8 @@ struct SynthesisSettings {
 					"Require a memory style attribute to consider a variable for memory inference");
 		cmdLine.add("--empty-blackboxes", empty_blackboxes,
 					"Assume empty modules are blackboxes");
+		cmdLine.add("--elaborate-only", elaborate_only,
+					"Do not do netlist conversion");
 	}
 };
 
@@ -3222,6 +3225,12 @@ struct SlangFrontend : Frontend {
 			if (compilation->hasIssuedErrors()) {
 				if (!driver.reportCompilation(*compilation, /* quiet */ false))
 					log_error("Compilation failed\n");
+			}
+
+			if (settings.elaborate_only.value_or(false)) {
+				if (!driver.reportCompilation(*compilation, /* quiet */ false))
+					log_error("Compilation failed\n");
+				return;
 			}
 
 			global_compilation = &(*compilation);
