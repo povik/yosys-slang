@@ -14,7 +14,7 @@ module bar(input wire [2:0] a, output wire b);
 endmodule
 EOF
 
-read_slang --extern-modules <<EOF
+read_slang <<EOF
 module top();
 	wire c;
 	foo foo(.a(0), .b(c));
@@ -30,7 +30,7 @@ design -reset
 log -header Scenario 2
 log -push
 design -reset
-read_slang --dump-ast --top top <<EOF
+read_slang <<EOF
 (* blackbox *)
 module foo (input wire [2:0] a, output wire b);
 	parameter ff = 2;
@@ -59,7 +59,7 @@ module foo(a, b);
 endmodule
 EOF
 
-read_slang --extern-modules <<EOF
+read_slang <<EOF
 (* blackbox *)
 module foo(a, b);
 	parameter WIDTH = 3;
