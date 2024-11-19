@@ -1,14 +1,14 @@
-# yosys & slang: A match made in heaven
+# yosys-slang: SystemVerilog frontend for Yosys
 
-This is a slang-based frontend for Yosys undergoing active development. You can use it to read SystemVerilog sources into Yosys.
+yosys-slang is a Yosys plugin providing a new command (`read_slang`) for loading SystemVerilog designs.
 
-## Background
+yosys-slang builds on top of the [slang](https://github.com/MikePopoloski/slang) library to provide comprehensive SystemVerilog support.
 
-This combination of software projects (Yosys and Slang) is perfect, because:
+The plugin is available prebuilt in
 
- * [Yosys](https://github.com/YosysHQ/yosys), being a great and versatile tool for synthesis and formal flows, has its native Verilog frontend in less-than-perfect shape, with significant technical debt and with no realistic outlook toward adding full SystemVerilog support.
+ * [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build) from YosysHQ, and
 
- * [slang](https://github.com/MikePopoloski/slang) is a SystemVerilog parser and elaborator with a reputation of having gotten the fundamentals right.
+ * [IIC-OSIC-TOOLS](https://github.com/iic-jku/iic-osic-tools) from Johannes Kepler University
 
 ## Status
 
