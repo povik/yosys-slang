@@ -4,7 +4,7 @@ yosys-slang is a Yosys plugin providing a new command (`read_slang`) for loading
 
 yosys-slang builds on top of the [slang](https://github.com/MikePopoloski/slang) library to provide comprehensive SystemVerilog support.
 
-The plugin is available prebuilt in
+The plugin is available prebuilt as part of
 
  * [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build) from YosysHQ, and
 
@@ -14,15 +14,9 @@ The plugin is available prebuilt in
 
 *News:* The [Microelectronics Design Center](https://dz.ethz.ch/) at ETH Zürich is now sponsoring yosys-slang development for usage in ASIC synthesis flows!
 
-yosys-slang understands some synthesizable subset of SystemVerilog. For any user input, it should either emit a correct netlist (under synthesis semantics), or produce an error. If that's not the case, that's a serious bug.
+yosys-slang understands a synthesizable subset of SystemVerilog. Please open GitHub issues for missing features and/or confusing error messages.
 
-To a user, the error messages can be cryptic and expose details about the inner workings of the frontend. Nonetheless they should point to the filename and line number with the offending input.
-
-If you wish to sponsor the project's development, and prioritize certain features, please get in touch.
-
-## Compatibility
-
-yosys-slang can parse a number of premier open-source IPs, including:
+yosys-slang can parse a number of open-source IPs, including:
 
  * [Black Parrot](https://github.com/black-parrot/black-parrot/)
 
@@ -39,6 +33,8 @@ yosys-slang can parse a number of premier open-source IPs, including:
 For details see the [compat suite repository](https://github.com/povik/yosys-slang-compat-suite) which documents sample command lines.
 
 yosys-slang is on the [CHIPS Alliance sv-tests dashboard](https://chipsalliance.github.io/sv-tests-results/) where failing test cases and their error messages (with useful line numbers and AST dumps!) can be browsed. Note some tests on the sv-tests dashboard are misconfigured for testing a synthesis tool.
+
+If you wish to sponsor the project's development, and prioritize certain features, please get in touch.
 
 ## Building
 
@@ -58,17 +54,19 @@ Then build both slang and the `build/slang.so` plugin for Yosys:
 
 Use a custom `-jN` switch to build with `N` concurrent processes instead of matching the number of cores.
 
+The built plugin is placed at `build/slang.so`. Copy this file into the Yosys plugin directory, or use a full path to this file (instead of the `slang` shorthand) when loading the plugin.
+
 ## Usage
 
 You load the plugin into Yosys on startup by passing the `-m` argument:
 
-    $ yosys -m build/slang.so
+    $ yosys -m slang
 
 Or, alternatively, you load the plugin at runtime with the `plugin` command:
 
-    plugin -i build/slang.so
+    plugin -i slang
 
-The frontend is invoked with the `read_slang` command. The command accepts standard slang options, see `help read_slang` and [slang documentation](https://www.sv-lang.com/command-line-ref.html).
+After the plugin has been loaded, the frontend is invoked with the `read_slang` command. The command accepts standard slang options, see `help read_slang` and [slang documentation](https://www.sv-lang.com/command-line-ref.html).
 
 Sample usage:
 
