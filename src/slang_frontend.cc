@@ -101,8 +101,6 @@ namespace parsing = slang::parsing;
 
 ast::Compilation *global_compilation;
 const slang::SourceManager *global_sourcemgr;
-slang::DiagnosticEngine *global_diagengine;
-slang::TextDiagnosticClient *global_diagclient;
 
 slang::SourceRange source_location(const ast::Symbol &obj)			{ return slang::SourceRange(obj.location, obj.location); }
 slang::SourceRange source_location(const ast::Expression &expr)		{ return expr.sourceRange; }
@@ -3248,9 +3246,6 @@ struct SlangFrontend : Frontend {
 
 			global_compilation = &(*compilation);
 			global_sourcemgr = compilation->getSourceManager();
-			global_diagengine = &driver.diagEngine;
-			global_diagclient = driver.diagClient.get();
-			global_diagclient->clear();
 
 			InferredMemoryDetector mem_detect;
 			mem_detect.no_implicit = settings.no_implicit_memories.value_or(false);
@@ -3426,9 +3421,6 @@ struct TestSlangExprPass : Pass {
 
 		global_compilation = &(*compilation);
 		global_sourcemgr = compilation->getSourceManager();
-		global_diagengine = &driver.diagEngine;
-		global_diagclient = driver.diagClient.get();
-		global_diagclient->clear();
 
 		NetlistContext netlist(d, settings, *compilation, *top);
 		PopulateNetlist populate(netlist);
