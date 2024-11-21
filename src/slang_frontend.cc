@@ -208,6 +208,16 @@ static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 	log_abort();
 }
 
+static const RTLIL::Const reverse_data(RTLIL::Const &orig, int width)
+{
+	std::vector<RTLIL::State> bits;
+	log_assert(orig.size() % width == 0);
+	bits.reserve(orig.size());
+	for (int i = orig.size() - width; i >= 0; i -= width)
+		bits.insert(bits.end(), orig.begin() + i, orig.begin() + i + width);
+	return bits;
+}
+
 template<typename T>
 void transfer_attrs(T &from, RTLIL::AttrObject *to)
 {
@@ -2845,9 +2855,26 @@ public:
 				log_assert(storage);
 				auto const_ = convert_const(*storage);
 				if (!const_.is_fully_undef()) {
-					auto wire = netlist.wire(sym);
-					log_assert(wire);
-					wire->attributes[RTLIL::ID::init] = const_;
+					if (is_inferred_memory(sym)) {
+						RTLIL::IdString id = netlist.id(sym);
+						RTLIL::Memory *m = netlist.canvas->memories.at(id);
+						RTLIL::Cell *meminit = netlist.canvas->addCell(NEW_ID, ID($meminit_v2));
+						int abits = 32;
+						ast_invariant(sym, m->width * m->size == const_.size());
+						meminit->setParam(ID::MEMID, id.str());
+						meminit->setParam(ID::PRIORITY, 0);
+						meminit->setParam(ID::ABITS, abits);
+						meminit->setParam(ID::WORDS, m->size);
+						meminit->setParam(ID::WIDTH, m->width);
+						meminit->setPort(ID::ADDR, m->start_offset);
+						bool little_endian = sym.getType().getFixedRange().isLittleEndian();
+						meminit->setPort(ID::DATA, little_endian ? const_ : reverse_data(const_, m->width));
+						meminit->setPort(ID::EN, RTLIL::Const(RTLIL::S1, m->width));
+					} else {
+						auto wire = netlist.wire(sym);
+						log_assert(wire);
+						wire->attributes[RTLIL::ID::init] = const_;
+					}
 				}
 			}
 		}, [&](auto&, const ast::InstanceSymbol&) {
