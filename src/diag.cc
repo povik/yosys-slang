@@ -53,7 +53,7 @@ namespace diag {
 	slang::DiagCode BboxExportPortWidths(slang::DiagSubsystem::Netlist, 1040);
 	slang::DiagCode NoteIgnoreInitial(slang::DiagSubsystem::Netlist, 1041);
 
-	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
+	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
 	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
 
@@ -61,6 +61,7 @@ namespace diag {
 	{
 		engine.setMessage(IffUnsupported, "iff qualifier will not be synthesized");
 		engine.setMessage(SignalSensitivityAmbiguous, "non-edge sensitivity on a signal will be synthesized as @* sensitivity");
+		engine.setSeverity(SignalSensitivityAmbiguous, slang::DiagnosticSeverity::Warning);
 		engine.setMessage(EdgeImplicitMixing, "mixing of implicit and edge sensitivity");
 		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control");
 		engine.setMessage(BothEdgesUnsupported, "'edge' sensitivity will not be synthesized");

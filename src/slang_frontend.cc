@@ -66,6 +66,7 @@ struct SynthesisSettings {
 	void addOptions(slang::CommandLine &cmdLine) {
 		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
 		cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
+		// TODO: deprecate; now on by default
 		cmdLine.add("--compat-mode", compat_mode,
 					"Be relaxed about the synthesis semantics of some language constructs");
 		cmdLine.add("--keep-hierarchy", keep_hierarchy,
@@ -3222,11 +3223,6 @@ struct SlangFrontend : Frontend {
 		}
 		if (!driver.processOptions())
 			log_cmd_error("Bad command\n");
-
-		if (settings.compat_mode.value_or(false)) {
-			driver.diagEngine.setSeverity(diag::SignalSensitivityAmbiguous,
-										  slang::DiagnosticSeverity::Warning);
-		}
 
 		try {
 			if (!driver.parseAllSources())
