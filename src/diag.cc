@@ -63,7 +63,7 @@ namespace diag {
 		engine.setMessage(SignalSensitivityAmbiguous, "non-edge sensitivity on a signal will be synthesized as @* sensitivity");
 		engine.setSeverity(SignalSensitivityAmbiguous, slang::DiagnosticSeverity::Warning);
 		engine.setMessage(EdgeImplicitMixing, "mixing of implicit and edge sensitivity");
-		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control");
+		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control (ignore with '--ignore-timing')");
 		engine.setMessage(BothEdgesUnsupported, "'edge' sensitivity will not be synthesized");
 		engine.setMessage(NoteSignalEvent, "signal event specified here");
 		engine.setSeverity(NoteSignalEvent, slang::DiagnosticSeverity::Note);
