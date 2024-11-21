@@ -27,6 +27,7 @@
 #include "slang/diagnostics/DeclarationsDiags.h"
 #include "slang/diagnostics/NumericDiags.h"
 
+#include "diag.h"
 #include "initial_eval.h"
 
 #include <iostream>
@@ -687,8 +688,8 @@ ER EvalVisitor::visit(const ImmediateAssertionStatement &stmt)
 
 ER EvalVisitor::visit(const TimedStatement &stmt)
 {
-	if (!ignore_timing) // call unimplemented
-		return visit(static_cast<const Statement &>(stmt));
+	if (!ignore_timing)
+		context.addDiag(slang_frontend::diag::GenericTimingUnsyn, stmt.sourceRange);
 
 	// ignore timing and visit inner statement
 	ER result = stmt.stmt.visit(*this);
