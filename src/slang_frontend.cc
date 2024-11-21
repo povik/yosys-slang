@@ -2409,8 +2409,8 @@ public:
 		if (sym.getParentScope()->getContainingInstance() != &netlist.realm)
 			return;
 
-		if (!sym.internalSymbol) {
-			// This can happen in case of a compilation error.
+		if (!sym.internalSymbol || sym.internalSymbol->name.compare(sym.name)) {
+			sym.getParentScope()->addDiag(diag::PortCorrespondence, sym.location);
 			return;
 		}
 

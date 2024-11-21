@@ -52,6 +52,7 @@ namespace diag {
 	slang::DiagCode BboxTypeParameter(slang::DiagSubsystem::Netlist, 1039);
 	slang::DiagCode BboxExportPortWidths(slang::DiagSubsystem::Netlist, 1040);
 	slang::DiagCode NoteIgnoreInitial(slang::DiagSubsystem::Netlist, 1041);
+	slang::DiagCode PortCorrespondence(slang::DiagSubsystem::Netlist, 1042);
 
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
@@ -159,6 +160,9 @@ namespace diag {
 
 		engine.setMessage(NoteIgnoreInitial, "use option '--ignore-initial' to ignore initial blocks");
 		engine.setSeverity(NoteIgnoreInitial, slang::DiagnosticSeverity::Note);
+
+		engine.setMessage(PortCorrespondence, "ports without direct correspondence to an internal net/variable unsupported");
+		engine.setSeverity(PortCorrespondence, slang::DiagnosticSeverity::Error);
 	}
 };
 };
