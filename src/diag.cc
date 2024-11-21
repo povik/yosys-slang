@@ -51,6 +51,7 @@ namespace diag {
 	slang::DiagCode ConnNameRequiredOnUnkBboxes(slang::DiagSubsystem::Netlist, 1038);
 	slang::DiagCode BboxTypeParameter(slang::DiagSubsystem::Netlist, 1039);
 	slang::DiagCode BboxExportPortWidths(slang::DiagSubsystem::Netlist, 1040);
+	slang::DiagCode NoteIgnoreInitial(slang::DiagSubsystem::Netlist, 1041);
 
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, SignalSensitivityAmbiguous, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch});
@@ -154,6 +155,9 @@ namespace diag {
 
 		engine.setMessage(BboxExportPortWidths, "cannot export a blackbox definition with non-constant port widths");
 		engine.setSeverity(BboxExportPortWidths, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(NoteIgnoreInitial, "use option '--ignore-initial' to ignore initial blocks");
+		engine.setSeverity(NoteIgnoreInitial, slang::DiagnosticSeverity::Note);
 	}
 };
 };

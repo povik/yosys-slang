@@ -48,6 +48,7 @@ extern slang::DiagCode NoParamsOnUnkBboxes;
 extern slang::DiagCode ConnNameRequiredOnUnkBboxes;
 extern slang::DiagCode BboxTypeParameter;
 extern slang::DiagCode BboxExportPortWidths;
+extern slang::DiagCode NoteIgnoreInitial;
 void setup_messages(slang::DiagnosticEngine &engine);
 };
 };

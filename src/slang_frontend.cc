@@ -2390,8 +2390,10 @@ public:
 
 		auto result = body.visit(initial_eval);
 		if (result != ast::Statement::EvalResult::Success) {
-			for (auto& diag : initial_eval.context.getAllDiagnostics())
-    			global_diagengine->issue(diag);
+			for (auto& diag_ : initial_eval.context.getAllDiagnostics())
+    			global_diagengine->issue(diag_);
+    		global_diagengine->issue(slang::Diagnostic(diag::NoteIgnoreInitial,
+													slang::SourceLocation::NoLocation));
 			auto str = global_diagclient->getString();
 			log_error("Failed to execute initial block\n%s\n",
 					  str.c_str());
