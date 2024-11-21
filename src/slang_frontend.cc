@@ -2390,15 +2390,9 @@ public:
 			return;
 
 		auto result = body.visit(initial_eval);
-		if (result != ast::Statement::EvalResult::Success) {
-			for (auto& diag_ : initial_eval.context.getAllDiagnostics())
-    			global_diagengine->issue(diag_);
-    		global_diagengine->issue(slang::Diagnostic(diag::NoteIgnoreInitial,
-													slang::SourceLocation::NoLocation));
-			auto str = global_diagclient->getString();
-			log_error("Failed to execute initial block\n%s\n",
-					  str.c_str());
-		}
+		if (result != ast::Statement::EvalResult::Success)
+    		initial_eval.context.addDiag(diag::NoteIgnoreInitial,
+    									 slang::SourceLocation::NoLocation);
 	}
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
@@ -2892,14 +2886,7 @@ public:
 		});
 		sym.visit(inittransfer);
 
-		for (auto& diag : initial_eval.context.getAllDiagnostics())
-        	global_diagengine->issue(diag);
-		auto str = global_diagclient->getString();
-		if (global_diagengine->getNumErrors())
-			log_error("%s", str.c_str());
-		else
-			log("%s", str.c_str());
-		global_diagclient->clear();
+		initial_eval.context.reportAllDiags();
 	}
 
 	void handle(const ast::UninstantiatedDefSymbol &sym)
