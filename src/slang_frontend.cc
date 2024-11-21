@@ -1556,6 +1556,19 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 											expr.type->getBitstreamWidth());
 		}
 		break;
+	case ast::ExpressionKind::SimpleAssignmentPattern:
+		{
+			const ast::SimpleAssignmentPatternExpression &pattern_expr = expr.as<ast::SimpleAssignmentPatternExpression>();
+			for (auto op : pattern_expr.elements())
+				ret = {ret, lhs(*op)};
+		}
+		break;
+	case ast::ExpressionKind::Assignment:
+		{
+			const ast::AssignmentExpression &ae = expr.as<ast::AssignmentExpression>();
+			ret = lhs(ae.left());
+		}
+		break;
 	default:
 		// TODO: scoping
 		netlist.realm.addDiag(diag::UnsupportedLhs, expr.sourceRange);
