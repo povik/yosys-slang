@@ -2,6 +2,7 @@
 SRC_DIR := $(dir $(firstword $(MAKEFILE_LIST)))
 VPATH := $(SRC_DIR)
 YOSYS_CONFIG := $(YOSYS_PREFIX)yosys-config
+PLUGINDIR:=$(shell $(YOSYS_CONFIG) --datdir)/plugins
 CXXFLAGS :=
 SRCS = $(wildcard $(SRC_DIR)/src/*.cc)
 OBJS = $(patsubst $(SRC_DIR)/src/%.cc,build/%.o,$(SRCS))
@@ -53,6 +54,10 @@ clean: clean-objects
 
 clean-all: clean clean-slang
 
+install: build/slang.so
+	mkdir -p $(PLUGINDIR)
+	cp $< $(PLUGINDIR)
+
 -include $(OBJS:.o=.d)
 build/%.o: src/%.cc build/slang_install/.built
 	@mkdir -p $(@D)
@@ -72,4 +77,4 @@ build/slang.so: $(OBJS)
 		build/slang_install/lib/libsvlang.a \
 		build/slang_install/lib/libfmt.a
 
-.PHONY: build configure-slang build-slang clean-slang clean-objects clean clean-all
+.PHONY: build configure-slang build-slang clean-slang clean-objects clean clean-all install

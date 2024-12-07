@@ -54,7 +54,7 @@ Then build both slang and the `build/slang.so` plugin for Yosys:
 
 Use a custom `-jN` switch to build with `N` concurrent processes instead of matching the number of cores.
 
-The built plugin is placed at `build/slang.so`. Copy this file into the Yosys plugin directory, or use a full path to this file (instead of the `slang` shorthand) when loading the plugin.
+The built plugin is placed at `build/slang.so`. Copy this file into the Yosys plugin directory, which can be achieved through `make install`, or use a full path to this file (instead of the `slang` shorthand) when loading the plugin.
 
 ## Usage
 
