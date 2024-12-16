@@ -12,7 +12,11 @@ The plugin is available prebuilt as part of
 
 ## Status
 
-*News:* The [Microelectronics Design Center](https://dz.ethz.ch/) at ETH Zürich is now sponsoring yosys-slang development for usage in ASIC synthesis flows!
+<a href="http://asic.ethz.ch/2024/MLEM.html"><img align="right" width="150" height="150" src="docs/mlem.jpg"></a>
+
+**News:** ETH Zürich has used yosys-slang for a chip tapeout. [Meet MLEM](http://asic.ethz.ch/2024/MLEM.html).
+
+**News:** The [Microelectronics Design Center](https://dz.ethz.ch/) at ETH Zürich is now sponsoring yosys-slang development for usage in ASIC synthesis flows!
 
 yosys-slang understands a synthesizable subset of SystemVerilog. Please open GitHub issues for missing features and/or confusing error messages.
 
