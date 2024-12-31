@@ -170,9 +170,9 @@ struct NetlistContext : RTLILBuilder {
 	Yosys::dict<RTLIL::IdString, Memory> emitted_mems;
 
 	// Used to implement modports on uncollapsed levels of hierarchy
-	Yosys::dict<const ast::Scope*, std::string, Yosys::hash_ptr_ops> scopes_remap;
+	Yosys::dict<const ast::Scope*, std::string, Yosys::hashlib::hash_ptr_ops> scopes_remap;
 
-	Yosys::dict<RTLIL::Wire *, const ast::Type *, Yosys::hash_ptr_ops> wire_hdl_types;
+	Yosys::dict<RTLIL::Wire *, const ast::Type *, Yosys::hashlib::hash_ptr_ops> wire_hdl_types;
 
 	NetlistContext(RTLIL::Design *design,
 		SynthesisSettings &settings,
