@@ -8,6 +8,13 @@
 #include "slang/ast/EvalContext.h"
 #include "kernel/rtlil.h"
 
+// work around yosys PR #4524 changing the way you ask for pointer hashing
+#if YS_HASHING_VERSION <= 0
+#define YS_HASH_PTR_OPS ,Yosys::hashlib::hash_ptr_ops
+#else
+#define YS_HASH_PTR_OPS
+#endif
+
 template<> struct Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : Yosys::hashlib::hash_ptr_ops {};
 
 namespace slang {
@@ -170,9 +177,9 @@ struct NetlistContext : RTLILBuilder {
 	Yosys::dict<RTLIL::IdString, Memory> emitted_mems;
 
 	// Used to implement modports on uncollapsed levels of hierarchy
-	Yosys::dict<const ast::Scope*, std::string, Yosys::hashlib::hash_ptr_ops> scopes_remap;
+	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
 
-	Yosys::dict<RTLIL::Wire *, const ast::Type *, Yosys::hashlib::hash_ptr_ops> wire_hdl_types;
+	Yosys::dict<RTLIL::Wire *, const ast::Type * YS_HASH_PTR_OPS> wire_hdl_types;
 
 	NetlistContext(RTLIL::Design *design,
 		SynthesisSettings &settings,

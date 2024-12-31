@@ -411,7 +411,7 @@ class UnrollLimitTracking {
 	int limit;
 	int unrolling = 0;
 	int unroll_counter = 0;
-	Yosys::pool<const ast::Statement *, Yosys::hashlib::hash_ptr_ops> loops;
+	Yosys::pool<const ast::Statement * YS_HASH_PTR_OPS> loops;
 	bool error_issued = false;
 
 public:
