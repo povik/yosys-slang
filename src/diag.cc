@@ -158,7 +158,7 @@ namespace diag {
 		engine.setMessage(BboxExportPortWidths, "cannot export a blackbox definition with non-constant port widths");
 		engine.setSeverity(BboxExportPortWidths, slang::DiagnosticSeverity::Error);
 
-		engine.setMessage(NoteIgnoreInitial, "use option '--ignore-initial' to ignore initial blocks");
+		engine.setMessage(NoteIgnoreInitial, "use option '--ignore-initial' to ignore initial procedures");
 		engine.setSeverity(NoteIgnoreInitial, slang::DiagnosticSeverity::Note);
 
 		engine.setMessage(PortCorrespondence, "ports without direct correspondence to an internal net/variable unsupported");
