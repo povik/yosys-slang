@@ -3128,6 +3128,9 @@ NetlistContext::~NetlistContext()
 
 USING_YOSYS_NAMESPACE
 
+static std::vector<std::string> default_options;
+static std::vector<std::vector<std::string>> defaults_stack;
+
 struct SlangFrontend : Frontend {
 	SlangFrontend() : Frontend("slang", "read SystemVerilog (slang)") {}
 
@@ -3197,12 +3200,18 @@ struct SlangFrontend : Frontend {
 				driver.sourceLoader.addBuffer(buffer);
 			}
 
+			args.insert(args.begin() + 1, default_options.begin(), default_options.end());
+
+			std::vector<std::unique_ptr<char[]>> c_args_guard;
 			std::vector<char *> c_args;
+
 			for (auto arg : args) {
 				char *c = new char[arg.size() + 1];
 				strcpy(c, arg.c_str());
+				c_args_guard.emplace_back(c);
 				c_args.push_back(c);
 			}
+
 			if (!driver.parseCommandLine(c_args.size(), &c_args[0]))
 				log_cmd_error("Bad command\n");
 		}
@@ -3289,6 +3298,59 @@ struct SlangFrontend : Frontend {
 		}
 	}
 } SlangFrontend;
+
+struct SlangDefaultsPass : Pass {
+	SlangDefaultsPass() : Pass("slang_defaults", "set default options for read_slang") {}
+
+	void help() override
+	{
+		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+		log("\n");
+		log("	slang_defaults -add [options]\n");
+		log("\n");
+		log("Add default options for subsequent calls to read_slang.\n");
+		log("\n");
+		log("\n");
+		log("	slang_defaults -clear\n");
+		log("\n");
+		log("Clear the list of default options to read_slang.\n");
+		log("\n");
+		log("\n");
+		log("	slang_defaults -push\n");
+		log("	slang_defaults -pop\n");
+		log("\n");
+		log("Push or pop the default option list to a stack. On -push the list isn't cleared.\n");
+		log("\n");
+	}
+
+	void execute(std::vector<std::string> args, RTLIL::Design *d) override
+	{
+		if (args.size() < 2)
+			cmd_error(args, 1, "Missing argument");
+
+		if (args[1] == "-add") {
+			default_options.insert(default_options.end(), args.begin() + 2, args.end());
+		} else {
+			if (args.size() != 2)
+				cmd_error(args, 2, "Extra argument");
+
+			if (args[1] == "-clear") {
+				default_options.clear();
+			} else if (args[1] == "-push") {
+				defaults_stack.push_back(default_options);
+			} else if (args[1] == "-pop") {
+				if (!defaults_stack.empty()) {
+					default_options.swap(defaults_stack.back());
+					defaults_stack.pop_back();
+				} else {
+					default_options.clear();
+				}
+			} else {
+				cmd_error(args, 1, "Unknown option");
+			}
+		}
+	}
+} SlangDefaultsPass;
 
 struct UndrivenPass : Pass {
 	UndrivenPass() : Pass("undriven", "assign initializers to undriven signals") {}

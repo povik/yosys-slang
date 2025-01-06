@@ -1,0 +1,44 @@
+slang_defaults -add -D HELLO
+
+read_slang <<EOF
+module top();
+`ifndef HELLO
+	initial $error("No define!");
+`endif
+endmodule
+EOF
+
+slang_defaults -clear
+
+design -reset
+read_slang <<EOF
+module top();
+`ifdef HELLO
+	initial $error("Define!");
+`endif
+endmodule
+EOF
+
+slang_defaults -add -D HELLO
+slang_defaults -push
+slang_defaults -clear
+
+design -reset
+read_slang <<EOF
+module top();
+`ifdef HELLO
+	initial $error("Define!");
+`endif
+endmodule
+EOF
+
+slang_defaults -pop
+
+design -reset
+read_slang <<EOF
+module top();
+`ifndef HELLO
+	initial $error("No define!");
+`endif
+endmodule
+EOF
