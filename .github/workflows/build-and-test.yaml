@@ -221,6 +221,7 @@ jobs:
           git submodule update --init --recursive --depth 1 ${{ matrix.ip }}
       - if: ${{ matrix.ip == 'opentitan' }}
         run: |
+          sudo apt-get install libxml2-dev libxslt-dev
           pip3 install --user -r compat-suite/opentitan/python-requirements.txt --require-hashes
       - name: Run script
         run: |
