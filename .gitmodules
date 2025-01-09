@@ -4,6 +4,3 @@
 [submodule "tests/third_party/yosys"]
 	path = tests/third_party/yosys
 	url = https://github.com/YosysHQ/yosys.git
-[submodule "tests/third_party/croc"]
-	path = tests/third_party/croc
-	url = https://github.com/pulp-platform/croc.git

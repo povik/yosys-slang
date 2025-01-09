@@ -3,7 +3,6 @@ set -ex
 TEST_DIR="$(dirname "${BASH_SOURCE[0]}")"
 PLUGIN="$(realpath "$TEST_DIR/../../build/slang.so")"
 CROC_PATH="$(realpath "$TEST_DIR/../third_party/croc/")"
-bender -d "$CROC_PATH" script flist-plus > "$TEST_DIR/croc.f"
 (cd "$TEST_DIR" &&
 	yosys -m ../../build/slang.so -s prepare.ys_ && \
 	g++ -std=c++14 -o main main.cc -I `yosys-config --datdir`/include/backends/cxxrtl/runtime \

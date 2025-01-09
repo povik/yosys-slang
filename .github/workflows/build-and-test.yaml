@@ -126,6 +126,12 @@ jobs:
     strategy:
       fail-fast: false
     needs: [build]
+    env:
+      # bender -d . script flist-plus --relative-path > croc.f
+      # /patch absolute paths in croc.f/
+      # tar --exclude='.git' --exclude='*/libs.doc/*' -cvf ../croc-checkout-250109-846ce38.tar .
+      CROC_CHECKOUT: 'croc-checkout-250111-062d1cc.tar.gz'
+      CROC_CHECKOUT_HASH: '9d8787cd495d1b5c749ebc28e866f2185a3b0009d9e52f2aab3bfddefe56fd97  croc-checkout-250111-062d1cc.tar.gz'
     steps:
       - name: Install Dependencies
         shell: bash
@@ -152,17 +158,20 @@ jobs:
         run: |
           cd tests/third_party/yosys
           sudo make install
-      - name: Pull submodules for tests
+      - name: Cache Croc checkout
+        id: cache-croc
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-croc
+        with:
+          path: tests/third_party/croc
+          key: ${{ env.CROC_CHECKOUT }}
+      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
+        name: Unpack Croc
         run: |
-          git submodule update --depth 0 -- tests/third_party/croc
-      - name: Install Bender
-        run: |
-          curl --proto '=https' --tlsv1.2 https://pulp-platform.github.io/bender/init -sSf | sh
-          sudo mv bender /usr/bin/bender
-      - name: Checkout Croc
-        run: |
-          cd tests/third_party/croc
-          make checkout
+          wget https://cutebit.org/$CROC_CHECKOUT
+          echo "$CROC_CHECKOUT_HASH" | sha256sum --check
+          tar -xvf $CROC_CHECKOUT -C tests/third_party/croc/
       - name: Install OpenOCD
         run: |
           wget https://github.com/xpack-dev-tools/openocd-xpack/releases/download/v0.12.0-4/xpack-openocd-0.12.0-4-linux-x64.tar.gz
