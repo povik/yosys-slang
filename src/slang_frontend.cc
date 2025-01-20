@@ -3337,7 +3337,7 @@ struct SlangDefaultsPass : Pass {
 		log("\n");
 	}
 
-	void execute(std::vector<std::string> args, RTLIL::Design *d) override
+	void execute(std::vector<std::string> args, [[maybe_unused]] RTLIL::Design *d) override
 	{
 		if (args.size() < 2)
 			cmd_error(args, 1, "Missing argument");
