@@ -3131,6 +3131,18 @@ USING_YOSYS_NAMESPACE
 static std::vector<std::string> default_options;
 static std::vector<std::vector<std::string>> defaults_stack;
 
+void set_option_defaults(slang::driver::Driver &driver)
+{
+	driver.options.translateOffOptions = {
+		"pragma,synthesis_off,synthesis_on",
+		"pragma,translate_off,translate_on",
+		"synopsys,synthesis_off,synthesis_on",
+		"synopsys,translate_off,translate_on",
+		"synthesis,translate_off,translate_on",
+		"xilinx,translate_off,translate_on",
+	};
+}
+
 struct SlangFrontend : Frontend {
 	SlangFrontend() : Frontend("slang", "read SystemVerilog (slang)") {}
 
@@ -3138,6 +3150,7 @@ struct SlangFrontend : Frontend {
 	{
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
+		set_option_defaults(driver);
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
 		log("%s\n", driver.cmdLine.getHelpText("Slang-based SystemVerilog frontend").c_str());
@@ -3191,6 +3204,7 @@ struct SlangFrontend : Frontend {
 
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
+		set_option_defaults(driver);
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
 		diag::setup_messages(driver.diagEngine);

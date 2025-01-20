@@ -1,8 +1,10 @@
 //
-// Derived from slang/source/ast/Statements.cpp
+// Derived from:
+//   third_party/slang/source/ast/Statements.cpp
+//   third_party/slang/source/ast/statements/MiscStatements.cpp
 //
 // Copyright (c) 2024 Martin Povišer
-// Copyright (c) 2015-2023 Michael Popoloski
+// Copyright (c) 2015-2025 Michael Popoloski
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -113,9 +115,17 @@ ER EvalVisitor::visit(const ContinueStatement&)
 
 ER EvalVisitor::visit(const DisableStatement &stmt)
 {
-	SLANG_ASSERT(!context.getDisableTarget());
-	context.setDisableTarget(&stmt.target, stmt.sourceRange);
-	return ER::Disable;
+	// Hierarchical names are disallowed in constant expressions and constant functions
+    auto& ase = stmt.target.as<ArbitrarySymbolExpression>();
+    const bool isHierarchical = ase.hierRef.target != nullptr;
+    if (isHierarchical) {
+        context.addDiag(diag::ConstEvalHierarchicalName, stmt.sourceRange) << ase.symbol->name;
+        return ER::Fail;
+    }
+
+    SLANG_ASSERT(!context.getDisableTarget());
+    context.setDisableTarget(ase.symbol, stmt.sourceRange);
+    return ER::Disable;
 }
 
 ER EvalVisitor::visit(const VariableSymbol &sym)

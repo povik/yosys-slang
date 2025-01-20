@@ -8,7 +8,7 @@
 #include "slang/text/SourceManager.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/Expression.h"
-#include "slang/ast/Statements.h"
+#include "slang/ast/Statement.h"
 #include "slang/ast/TimingControl.h"
 #include "slang/ast/types/Type.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
