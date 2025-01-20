@@ -1,12 +1,50 @@
 name: Build and test
 on: [push, pull_request]
 jobs:
+  define-matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      all_versions: ${{ steps.final.outputs.all_versions }}
+      filtered_versions: ${{ steps.final.outputs.filtered_versions }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: final
+        shell: bash
+        run: |
+          {
+            versions=$(sed -rn 's/.+Yosys installed: supported versions are \*\*(.+)\*\*/\1/gp' README.md)
+            declare -A remap
+            remap["0.44"]="yosys-0.44"
+            remap["0.45"]="0.45"
+            remap["0.46"]="0.46"
+            remap["0.47"]="0.47"
+            echo -n "all_versions=["
+            first="";
+            last="";
+            for v in $versions; do
+              if [[ -z "${remap["$v"]+x}" ]] then
+                tag="v$v";
+              else
+                tag=${remap[$v]};
+              fi
+              if [[ -z "$first" ]] then
+                first="$tag";
+              fi
+              last="$tag";
+              echo -n "\"$tag\",";
+            done
+            echo "]"
+            echo "filtered_versions=[\"$first\",\"$last\"]"
+          } >> "$GITHUB_OUTPUT"
   build:
     runs-on: ubuntu-24.04
+    needs: [define-matrix]
     strategy:
       fail-fast: false
       matrix:
-        yosys_version: ["yosys-0.44", "0.45", "0.46", "0.47", "v0.48"]
+        yosys_version: ${{ fromJSON(needs.define-matrix.outputs.all_versions) }}
     steps:
       - name: Install Dependencies
         shell: bash
@@ -85,12 +123,12 @@ jobs:
           path: build.tar
           retention-days: 1
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    needs: [build, define-matrix]
     strategy:
       matrix:
-        yosys_version: ["yosys-0.44", "0.45", "0.46", "0.47", "v0.48"]
+        yosys_version: ${{ fromJSON(needs.define-matrix.outputs.all_versions) }}
       fail-fast: false
-    needs: [build]
     steps:
       - name: Install Dependencies
         shell: bash
@@ -122,11 +160,11 @@ jobs:
           tests/run.sh
   test-croc-boot:
     runs-on: ubuntu-24.04
+    needs: [build, define-matrix]
     strategy:
       matrix:
-        yosys_version: ["yosys-0.44", "v0.48"]
+        yosys_version: ${{ fromJSON(needs.define-matrix.outputs.filtered_versions) }}
       fail-fast: false
-    needs: [build]
     env:
       # bender -d . script flist-plus --relative-path > croc.f
       # /patch absolute paths in croc.f/
@@ -186,12 +224,12 @@ jobs:
           tests/croc_boot/run.sh
   test-compat:
     runs-on: ubuntu-24.04
+    needs: [build, define-matrix]
     strategy:
       matrix:
-        yosys_version: ["yosys-0.44", "v0.48"]
+        yosys_version: ${{ fromJSON(needs.define-matrix.outputs.filtered_versions) }}
         ip: [black-parrot, bsc-core_tile, cv32e40p, ibex, opentitan, rsd]
       fail-fast: false
-    needs: [build]
     steps:
       - name: Install Dependencies
         shell: bash
