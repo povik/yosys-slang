@@ -2,9 +2,11 @@ name: Build and test
 on: [push, pull_request]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
+      matrix:
+        yosys_version: ["yosys-0.43", "yosys-0.44", "0.45", "0.46", "0.47", "v0.48"]
     steps:
       - name: Install Dependencies
         shell: bash
@@ -18,12 +20,6 @@ jobs:
       - name: Initialize submodules
         run: |
           git submodule init
-      - name: Find out Yosys revision
-        run: |
-          {
-            echo -n "YOSYS_HASH="
-            git submodule status --cached tests/third_party/yosys | awk '{print $1}'
-          } >> $GITHUB_ENV
       - name: Cache Yosys build
         id: cache-yosys
         uses: actions/cache@v4
@@ -31,11 +27,13 @@ jobs:
           cache-name: cache-yosys
         with:
           path: tests/third_party/yosys
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ env.YOSYS_HASH }}
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.yosys_version }}
       - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
         name: Pull Yosys
         run: |
-          git submodule update --depth 0 -- tests/third_party/yosys
+          git clone --depth 1 --recursive \
+            --branch ${{ matrix.yosys_version }} \
+            -- https://github.com/YosysHQ/yosys.git tests/third_party/yosys
       - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
         name: Build Yosys
         shell: bash
@@ -121,7 +119,7 @@ jobs:
         run: |
           tests/run.sh
   test-croc-boot:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
     needs: [build]
@@ -183,7 +181,7 @@ jobs:
         run: |
           tests/croc_boot/run.sh
   test-compat:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         ip: [black-parrot, bsc-core_tile, cv32e40p, ibex, opentitan, rsd]
