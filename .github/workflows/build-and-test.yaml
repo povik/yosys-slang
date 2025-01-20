@@ -31,7 +31,7 @@ jobs:
           cache-name: cache-yosys
         with:
           path: tests/third_party/yosys
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ env.YOSYS_HASH }}-patched
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ env.YOSYS_HASH }}
       - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
         name: Pull Yosys
         run: |
@@ -43,7 +43,6 @@ jobs:
           cd tests/third_party/yosys
           make config-gcc
           echo "ENABLE_ABC := 0" >> Makefile.conf
-          patch -p1 < ../cxxrtl-work-around-issue-3549.patch
           make -j6
       - name: Install Yosys
         shell: bash
@@ -130,8 +129,8 @@ jobs:
       # bender -d . script flist-plus --relative-path > croc.f
       # /patch absolute paths in croc.f/
       # tar --exclude='.git' --exclude='*/libs.doc/*' -cvf ../croc-checkout-250109-846ce38.tar .
-      CROC_CHECKOUT: 'croc-checkout-250111-062d1cc.tar.gz'
-      CROC_CHECKOUT_HASH: '9d8787cd495d1b5c749ebc28e866f2185a3b0009d9e52f2aab3bfddefe56fd97  croc-checkout-250111-062d1cc.tar.gz'
+      CROC_CHECKOUT: 'croc-checkout-250120-846ce380.tar.gz'
+      CROC_CHECKOUT_HASH: '6e7b193fe51c3fe3dad00a675c729b9e12d1fc3c72e8d06c580d92fdeba64403  croc-checkout-250120-846ce380.tar.gz'
     steps:
       - name: Install Dependencies
         shell: bash

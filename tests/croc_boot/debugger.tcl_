@@ -1,6 +1,6 @@
 adapter driver remote_bitbang
 remote_bitbang host /tmp/croc-jtag-bitbang.sock
-jtag newtap auto0 cpu -irlen 5 -expected-id 0x10000db3
+jtag newtap auto0 cpu -irlen 5 -expected-id 0x0c0c5db3
 target create auto0 riscv -chain-position auto0.cpu
 
 riscv set_ir idcode 0x1
@@ -10,7 +10,7 @@ init
 
 halt
 load_image helloworld.ihex
-reg pc 0x10000080
+reg pc 0x10000000
 resume
 halt
 if {[read_memory 0x03000008 32 1] != 7} {

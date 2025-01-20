@@ -1,9 +1,33 @@
 read_slang --top croc_soc -F ../third_party/croc/croc.f \
-		-D SYNTHESIS -D COMMON_CELLS_ASSERTS_OFF --compat-mode \
-		--allow-use-before-declare --keep-hierarchy -D TARGET_SYNTHESIS
+		-D SYNTHESIS -D COMMON_CELLS_ASSERTS_OFF \
+		--allow-use-before-declare -D TARGET_SYNTHESIS \
+		--keep-hierarchy
 hierarchy -top croc_soc
 stat
-check -assert
 prep -nomem
+async2sync
+opt -mux_undef
+setattr -mod -set keep_hierarchy 1
+
+clk2fflogic
+chtype -map $ff __ff
+
+read_verilog -icells <<EOF
+(* do_flatten *)
+module __ff (D, Q, gclk);
+parameter WIDTH = 1;
+input gclk;
+input [WIDTH-1:0] D;
+output reg [WIDTH-1:0] Q;
+$dff #(.CLK_POLARITY(1), .WIDTH(WIDTH)) dff(.D(D), .Q(Q), .CLK(gclk));
+endmodule
+EOF
+
+add -global_input gclk 1
+hierarchy -top croc_soc
+flatten
+stat
+
 bwmuxmap
-write_cxxrtl croc_soc.cc
+write_cxxrtl -noflatten -g0 croc_soc.cc
+exec -- g++ -std=c++14 -o main main.cc -I `yosys-config --datdir`/include/backends/cxxrtl/runtime -Wno-shift-count-overflow -Wno-array-bounds -O1
