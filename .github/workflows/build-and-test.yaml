@@ -6,7 +6,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        yosys_version: ["yosys-0.43", "yosys-0.44", "0.45", "0.46", "0.47", "v0.48"]
+        yosys_version: ["yosys-0.44", "0.45", "0.46", "0.47", "v0.48"]
     steps:
       - name: Install Dependencies
         shell: bash
@@ -81,12 +81,14 @@ jobs:
       - name: Store build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build.tar
+          name: build-${{ matrix.yosys_version }}.tar
           path: build.tar
           retention-days: 1
   test:
     runs-on: ubuntu-latest
     strategy:
+      matrix:
+        yosys_version: ["yosys-0.44", "0.45", "0.46", "0.47", "v0.48"]
       fail-fast: false
     needs: [build]
     steps:
@@ -105,7 +107,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: build.tar
+          name: build-${{ matrix.yosys_version }}.tar
       - name: Unpack build
         shell: bash
         run:
@@ -121,6 +123,8 @@ jobs:
   test-croc-boot:
     runs-on: ubuntu-24.04
     strategy:
+      matrix:
+        yosys_version: ["yosys-0.44", "v0.48"]
       fail-fast: false
     needs: [build]
     env:
@@ -145,7 +149,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: build.tar
+          name: build-${{ matrix.yosys_version }}.tar
       - name: Unpack build
         shell: bash
         run:
@@ -184,6 +188,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
+        yosys_version: ["yosys-0.44", "v0.48"]
         ip: [black-parrot, bsc-core_tile, cv32e40p, ibex, opentitan, rsd]
       fail-fast: false
     needs: [build]
@@ -200,7 +205,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: build.tar
+          name: build-${{ matrix.yosys_version }}.tar
       - name: Unpack build
         shell: bash
         run:
