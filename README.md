@@ -44,7 +44,7 @@ If you wish to sponsor the project's development, and prioritize certain feature
 
 *Prerequisities:*
 
- * Yosys installed: supported versions are **0.44 0.45 0.46 0.47 0.48**
+ * Yosys installed: supported versions are **0.44 0.45 0.46 0.47 0.48 0.49**
 
  * Usual toolchains, CMake
 
