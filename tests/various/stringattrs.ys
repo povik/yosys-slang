@@ -1,5 +1,5 @@
-logger -expect log "attribute \\foo1 \"bar1\"" 1
-logger -expect log "attribute \\foo2 \"bar2\"" 1
+logger -expect log bar1 1
+logger -expect log bar2 1
 
 read_slang --keep-hierarchy <<EOF
 (* blackbox *)
