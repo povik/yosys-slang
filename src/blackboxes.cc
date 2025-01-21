@@ -224,7 +224,7 @@ void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::InstanceSymbol 
 	}
 
 	RTLIL::Module *mod = target->addModule(name);
-	transfer_attrs<ast::Symbol>((ast::Symbol&) inst.getDefinition(), mod);
+	transfer_attrs<const ast::Symbol>((ast::Symbol&) inst.getDefinition(), mod);
 
 	inst.body.visit(ast::makeVisitor([&](auto&, const ast::PortSymbol &port) {
 		if (!port.getSyntax() ||
@@ -299,6 +299,7 @@ void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::InstanceSymbol 
 
 		RTLIL::Wire *wire =
 			mod->addWire(RTLIL::escape_id(std::string{port.name}), port.getType().getBitstreamWidth());
+		transfer_attrs<const ast::Symbol>(port, wire);
 
 		switch (port.direction) {
 		case ast::ArgumentDirection::In:

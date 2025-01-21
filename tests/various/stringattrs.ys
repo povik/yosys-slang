@@ -1,0 +1,18 @@
+logger -expect log "attribute \\foo1 \"bar1\"" 1
+logger -expect log "attribute \\foo2 \"bar2\"" 1
+
+read_slang --keep-hierarchy <<EOF
+(* blackbox *)
+module sm(
+	(* foo1="bar1" *)
+	input w
+);
+endmodule
+module top(
+	(* foo2="bar2" *)
+	input y
+);
+	sm sm1();
+endmodule
+EOF
+dump

@@ -239,7 +239,7 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 		}
 	}
 }
-template void transfer_attrs<ast::Symbol>(ast::Symbol &from, RTLIL::AttrObject *to);
+template void transfer_attrs<const ast::Symbol>(const ast::Symbol &from, RTLIL::AttrObject *to);
 
 #define assert_nonstatic_free(signal) \
 	for (auto bit : (signal)) \
