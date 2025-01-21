@@ -2082,7 +2082,7 @@ error:
 	}
 
 done:
-	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
+	ast_invariant(expr, ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
 }
 
