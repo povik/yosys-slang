@@ -46,6 +46,8 @@ If you wish to sponsor the project's development, and prioritize certain feature
 
  * Yosys installed: supported versions are **0.44 0.45 0.46 0.47 0.48 0.49**
 
+ * C++ compiler: GCC 11 and clang 17 are minimum supported versions
+
  * Usual toolchains, CMake
 
 Check out the repository including the submodule, e.g. with
