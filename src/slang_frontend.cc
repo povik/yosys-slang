@@ -364,7 +364,7 @@ RTLIL::SigBit inside_comparison(SignalEvalContext &eval, RTLIL::SigSpec left,
 	if (expr.kind == ast::ExpressionKind::ValueRange) {
 		const auto& vexpr = expr.as<ast::ValueRangeExpression>();
 		require(expr, vexpr.rangeKind == ast::ValueRangeKind::Simple);
-		require(expr, vexpr.left().type == vexpr.right().type);
+		ast_invariant(expr, vexpr.left().type->isMatching(*vexpr.right().type));
 		return eval.netlist.LogicAnd(
 			eval.netlist.Ge(left, eval(vexpr.left()), vexpr.left().type->isSigned()),
 			eval.netlist.Le(left, eval(vexpr.right()), vexpr.right().type->isSigned())
