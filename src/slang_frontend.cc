@@ -13,6 +13,7 @@
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
+#include "slang/syntax/AllSyntax.h"
 #include "slang/text/Json.h"
 #include "slang/util/Util.h"
 
@@ -224,8 +225,19 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 	if (!src.empty())
 		to->attributes[Yosys::ID::src] = src;
 
-	for (auto attr : global_compilation->getAttributes(from))
+	for (auto attr : global_compilation->getAttributes(from)) {
 		to->attributes[id(attr->name)] = convert_const(attr->getValue());
+
+		// slang converts string literals to integer constants per the spec;
+		// we need to dig into the syntax tree to recover the information
+		if (attr->getSyntax() &&
+			attr->getSyntax()->kind == syntax::SyntaxKind::AttributeSpec &&
+			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value &&
+			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value->expr->kind ==
+				syntax::SyntaxKind::StringLiteralExpression) {
+			to->attributes[id(attr->name)].flags |= RTLIL::CONST_FLAG_STRING;
+		}
+	}
 }
 template void transfer_attrs<ast::Symbol>(ast::Symbol &from, RTLIL::AttrObject *to);
 
