@@ -58,15 +58,18 @@ install: build/slang.so
 	mkdir -p $(PLUGINDIR)
 	cp $< $(PLUGINDIR)
 
+# Note: -Ibuild/slang_install/include must appear before --cxxflags
+# in case there's a slang install at the Yosys install prefix
 -include $(OBJS:.o=.d)
 build/%.o: src/%.cc build/slang_install/.built
 	@mkdir -p $(@D)
 	@echo "    CXX $@"
-	@$(YOSYS_CONFIG) --exec --cxx --cxxflags -O3 -g -I . -MD \
-		 -c -o $@ $< -std=c++20 \
-		 $(CXXFLAGS) \
+	@$(YOSYS_CONFIG) --exec --cxx \
 		 -DSLANG_BOOST_SINGLE_HEADER \
-		 -Ibuild/slang_install/include
+		 -Ibuild/slang_install/include \
+		 --cxxflags -O3 -g -I . -MD \
+		 -c -o $@ $< -std=c++20 \
+		 $(CXXFLAGS)
 
 build/slang.so: $(OBJS)
 	@mkdir -p $(@D)
