@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module top(input wire clk);
 
 wire #10 a;

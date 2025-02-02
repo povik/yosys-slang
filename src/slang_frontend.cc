@@ -10,6 +10,7 @@
 #include "slang/ast/SystemSubroutine.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/diagnostics/TextDiagnosticClient.h"
+#include "slang/diagnostics/CompilationDiags.h"
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
@@ -3220,6 +3221,8 @@ struct SlangFrontend : Frontend {
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
 		diag::setup_messages(driver.diagEngine);
+		// TODO: move me elsewhere
+		driver.diagEngine.setSeverity(slang::diag::MissingTimeScale, slang::DiagnosticSeverity::Ignored);
 		{
 			if (auto heredoc = read_heredoc(args)) {
 				auto buffer = driver.sourceManager.assignText("<inlined>", std::string_view{heredoc.value()});
