@@ -74,7 +74,9 @@ Or, alternatively, you load the plugin at runtime with the `plugin` command:
 
 After the plugin has been loaded, the frontend is invoked with the `read_slang` command.
 
-For a full documentation of the command options, see `help read_slang`. The command understands standard [slang options](https://www.sv-lang.com/command-line-ref.html) in addition to other options.
+For a full documentation of the command options, see `help read_slang`. The command understands standard [slang options](https://www.sv-lang.com/command-line-ref.html) except for:
+
+ * `-Wno-unknown-sys-name` / `-Wunknown-sys-name`
 
 Sample usage:
 
