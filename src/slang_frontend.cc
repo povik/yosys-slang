@@ -780,7 +780,8 @@ public:
 
 	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
 	{
-		require(assign, !assign.timingControl || netlist.settings.ignore_timing.value_or(false));
+		if (assign.timingControl && !netlist.settings.ignore_timing.value_or(false))
+				netlist.realm.addDiag(diag::GenericTimingUnsyn, assign.timingControl->sourceRange);
 
 		bool blocking = !assign.isNonBlocking();
 		const ast::Expression *raw_lexpr = &assign.left();
