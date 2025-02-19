@@ -25,7 +25,8 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 	log_assert(symbol.procedureKind == ast::ProceduralBlockKind::Always
 			|| symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
 
-	if (symbol.getBody().kind == ast::StatementKind::Block) {
+	if (symbol.getBody().kind == ast::StatementKind::Block ||
+		symbol.getBody().kind == ast::StatementKind::ConcurrentAssertion) {
 		// short-circuit for SVA
 		handle_comb_like_process(symbol, symbol.getBody());
 		return;
