@@ -25,9 +25,12 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 	log_assert(symbol.procedureKind == ast::ProceduralBlockKind::Always
 			|| symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
 
-
-	if (symbol.getBody().kind != ast::StatementKind::Timed) {
-		scope->addDiag(diag::GenericTimingUnsyn, symbol.getBody().sourceRange.start());
+	if (symbol.getBody().kind == ast::StatementKind::Block) {
+		// short-circuit for SVA
+		handle_comb_like_process(symbol, symbol.getBody());
+		return;
+	} else if (symbol.getBody().kind != ast::StatementKind::Timed) {
+		scope->addDiag(diag::UnsynthesizableFeature, symbol.getBody().sourceRange.start());
 		return;
 	}
 
@@ -97,7 +100,7 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 		log_abort();
 
 	default:
-		scope->addDiag(diag::GenericTimingUnsyn, ev->sourceRange);
+		scope->addDiag(diag::UnsynthesizableFeature, ev->sourceRange);
 		break;
 	}
 

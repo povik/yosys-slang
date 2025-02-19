@@ -40,6 +40,7 @@ struct SynthesisSettings {
 	std::optional<bool> best_effort_hierarchy;
 	std::optional<bool> ignore_timing;
 	std::optional<bool> ignore_initial;
+	std::optional<bool> ignore_assertions;
 	std::optional<int> unroll_limit_;
 	std::optional<bool> extern_modules;
 	std::optional<bool> no_implicit_memories;
@@ -79,6 +80,8 @@ struct SynthesisSettings {
 		            "Ignore delays for synthesis");
 		cmdLine.add("--ignore-initial", ignore_initial,
 		            "Ignore initial blocks for synthesis");
+		cmdLine.add("--ignore-assertions", ignore_assertions,
+		            "Ignore assertions and formal statements in input");
 		cmdLine.add("--unroll-limit", unroll_limit_,
 		            "Set unrolling limit (default: 4000)", "<limit>");
 		// TODO: deprecate; now on by default
@@ -949,6 +952,9 @@ public:
 
 	void handle(const ast::ImmediateAssertionStatement &stmt)
 	{
+		if (netlist.settings.ignore_assertions.value_or(false))
+			return;
+
 		std::string flavor;
 		switch (stmt.assertionKind) {
 		case ast::AssertionKind::Assert:
@@ -973,6 +979,12 @@ public:
 		cell->setParam(ID::PRIORITY, --effects_priority);
 		cell->setPort(ID::ARGS, {});
 		cell->setPort(ID::A, netlist.ReduceBool(eval(stmt.cond)));
+	}
+
+	void handle(const ast::ConcurrentAssertionStatement &stmt) {
+		if (!netlist.settings.ignore_assertions.value_or(false)) {
+			diag_scope->addDiag(diag::SVAUnsupported, stmt.sourceRange);
+		}
 	}
 
 	RTLIL::SigSpec handle_call(const ast::CallExpression &call)

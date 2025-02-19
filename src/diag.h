@@ -50,6 +50,8 @@ extern slang::DiagCode BboxTypeParameter;
 extern slang::DiagCode BboxExportPortWidths;
 extern slang::DiagCode NoteIgnoreInitial;
 extern slang::DiagCode PortCorrespondence;
+extern slang::DiagCode UnsynthesizableFeature;
+extern slang::DiagCode SVAUnsupported;
 void setup_messages(slang::DiagnosticEngine &engine);
 };
 };

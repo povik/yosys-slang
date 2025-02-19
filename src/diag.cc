@@ -53,9 +53,11 @@ namespace diag {
 	slang::DiagCode BboxExportPortWidths(slang::DiagSubsystem::Netlist, 1040);
 	slang::DiagCode NoteIgnoreInitial(slang::DiagSubsystem::Netlist, 1041);
 	slang::DiagCode PortCorrespondence(slang::DiagSubsystem::Netlist, 1042);
+	slang::DiagCode UnsynthesizableFeature(slang::DiagSubsystem::Netlist, 1043);
+	slang::DiagCode SVAUnsupported(slang::DiagSubsystem::Netlist, 1044);
 
 	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
-														 IfElseAloadPolarity, IfElseAloadMismatch});
+														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
 	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
 
 	void setup_messages(slang::DiagnosticEngine &engine)
@@ -163,6 +165,11 @@ namespace diag {
 
 		engine.setMessage(PortCorrespondence, "ports without direct correspondence to an internal net/variable unsupported");
 		engine.setSeverity(PortCorrespondence, slang::DiagnosticSeverity::Error);
+
+		engine.setMessage(UnsynthesizableFeature, "unsynthesizable feature");
+
+		engine.setMessage(SVAUnsupported, "SVA unsupported (ignore all assertions with '--ignore-assertions')");
+		engine.setSeverity(SVAUnsupported, slang::DiagnosticSeverity::Error);
 	}
 };
 };
