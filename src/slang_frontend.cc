@@ -2852,7 +2852,7 @@ public:
 
 		auto varinit = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
 			slang::ConstantValue initval = nullptr;
-			if (sym.getInitializer())
+			if (sym.getInitializer() && sym.lifetime == ast::VariableLifetime::Static)
 				initval = sym.getInitializer()->eval(initial_eval.context);
 			initial_eval.context.createLocal(&sym, initval);
 		}, [&](auto&, const ast::InstanceSymbol&) {
