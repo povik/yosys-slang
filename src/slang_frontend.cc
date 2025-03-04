@@ -46,6 +46,7 @@ struct SynthesisSettings {
 	std::optional<bool> no_implicit_memories;
 	std::optional<bool> empty_blackboxes;
 	std::optional<bool> elaborate_only;
+	std::optional<bool> no_default_translate_off;
 
 	enum HierMode {
 		NONE,
@@ -95,6 +96,8 @@ struct SynthesisSettings {
 					"Assume empty modules are blackboxes");
 		cmdLine.add("--elaborate-only", elaborate_only,
 					"Do not do netlist conversion");
+		cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
+					"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
 	}
 };
 
@@ -3157,16 +3160,19 @@ USING_YOSYS_NAMESPACE
 static std::vector<std::string> default_options;
 static std::vector<std::vector<std::string>> defaults_stack;
 
-void set_option_defaults(slang::driver::Driver &driver)
+void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 {
-	driver.options.translateOffOptions = {
-		"pragma,synthesis_off,synthesis_on",
-		"pragma,translate_off,translate_on",
-		"synopsys,synthesis_off,synthesis_on",
-		"synopsys,translate_off,translate_on",
-		"synthesis,translate_off,translate_on",
-		"xilinx,translate_off,translate_on",
-	};
+	if (!settings.no_default_translate_off.value_or(false)) {
+		auto &format_list = driver.options.translateOffOptions;
+		format_list.insert(format_list.end(), {
+			"pragma,synthesis_off,synthesis_on",
+			"pragma,translate_off,translate_on",
+			"synopsys,synthesis_off,synthesis_on",
+			"synopsys,translate_off,translate_on",
+			"synthesis,translate_off,translate_on",
+			"xilinx,translate_off,translate_on",
+		});
+	}
 }
 
 struct SlangFrontend : Frontend {
@@ -3176,7 +3182,6 @@ struct SlangFrontend : Frontend {
 	{
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
-		set_option_defaults(driver);
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
 		log("%s\n", driver.cmdLine.getHelpText("Slang-based SystemVerilog frontend").c_str());
@@ -3230,7 +3235,6 @@ struct SlangFrontend : Frontend {
 
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
-		set_option_defaults(driver);
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
 		diag::setup_messages(driver.diagEngine);
@@ -3257,6 +3261,8 @@ struct SlangFrontend : Frontend {
 			if (!driver.parseCommandLine(c_args.size(), &c_args[0]))
 				log_cmd_error("Bad command\n");
 		}
+
+		fixup_options(settings, driver);
 		if (!driver.processOptions())
 			log_cmd_error("Bad command\n");
 
@@ -3496,6 +3502,8 @@ struct TestSlangExprPass : Pass {
 			if (!driver.parseCommandLine(c_args.size(), &c_args[0]))
 				log_cmd_error("Bad command\n");
 		}
+
+		fixup_options(settings, driver);
 		if (!driver.processOptions())
 			log_cmd_error("Bad command\n");
 
