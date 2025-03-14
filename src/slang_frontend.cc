@@ -3291,12 +3291,14 @@ struct SlangFrontend : Frontend {
 				instance->visit(elab);
 
 			if (compilation->hasIssuedErrors()) {
-				if (!driver.reportCompilation(*compilation, /* quiet */ false))
+				driver.reportCompilation(*compilation,/* quiet */ false);
+				if (!driver.reportDiagnostics(/* quiet */ false))
 					log_error("Compilation failed\n");
 			}
 
 			if (settings.elaborate_only.value_or(false)) {
-				if (!driver.reportCompilation(*compilation, /* quiet */ false))
+				driver.reportCompilation(*compilation,/* quiet */ false);
+				if (!driver.reportDiagnostics(/* quiet */ false))
 					log_error("Compilation failed\n");
 				return;
 			}
@@ -3325,7 +3327,8 @@ struct SlangFrontend : Frontend {
 				}
 			}
 
-			if (!driver.reportCompilation(*compilation, /* quiet */ false))
+			driver.reportCompilation(*compilation,/* quiet */ false);
+			if (!driver.reportDiagnostics(/* quiet */ false))
 				log_error("Compilation failed\n");
 		} catch (const std::exception& e) {
 			log_error("Exception: %s\n", e.what());
@@ -3527,7 +3530,8 @@ struct TestSlangExprPass : Pass {
 		compilation->forceElaborate(top->body);
 
 		//if (compilation->hasIssuedErrors()) {
-			if (!driver.reportCompilation(*compilation, /* quiet */ false))
+			driver.reportCompilation(*compilation,/* quiet */ false);
+			if (!driver.reportDiagnostics(/* quiet */ false))
 				log_error("Compilation failed\n");
 		//}
 
