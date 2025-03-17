@@ -197,11 +197,13 @@ static const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 	} else if (constval.isUnpacked()) {
 		std::vector<RTLIL::State> bits;
 		bits.reserve(constval.getBitstreamWidth());
-		// TODO: is this right?
-		for (auto &el : constval.elements()) {
-			auto piece = convert_const(el);
-			bits.insert(bits.begin(), piece.begin(), piece.end());
+
+		auto elems = constval.elements();
+		for (auto it = elems.rbegin(); it != elems.rend(); it++) {
+			auto piece = convert_const(*it);
+			bits.insert(bits.end(), piece.begin(), piece.end());
 		}
+
 		log_assert(bits.size() == constval.getBitstreamWidth());
 		return bits;
 	} else if (constval.isString()) {
