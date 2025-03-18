@@ -58,10 +58,23 @@ install: build/slang.so
 	mkdir -p $(PLUGINDIR)
 	cp $< $(PLUGINDIR)
 
+# Let developers opt in to have fater rebuilds at the cost of
+# needing to make sure to run `make build-slang` if the slang
+# version changes. To enable:
+#
+# make NO_SLANG_REBUILD=1
+#
+NO_SLANG_REBUILD := 0
+ifeq ($(NO_SLANG_REBUILD),1)
+SLANG_TARGET = build/slang_install/.built
+else
+SLANG_TARGET = build-slang
+endif
+
 # Note: -Ibuild/slang_install/include must appear before --cxxflags
 # in case there's a slang install at the Yosys install prefix
 -include $(OBJS:.o=.d)
-build/%.o: src/%.cc build/slang_install/.built
+build/%.o: src/%.cc $(SLANG_TARGET)
 	@mkdir -p $(@D)
 	@echo "    CXX $@"
 	@$(YOSYS_CONFIG) --exec --cxx \
