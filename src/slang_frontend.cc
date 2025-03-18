@@ -2605,6 +2605,12 @@ public:
 					continue;
 				auto &expr = *conn->getExpression();
 
+				// Interface port connections are handled by transparent named value
+				// lookup through the port
+				if (conn->port.kind == ast::SymbolKind::InterfacePort ||
+						conn->port.kind == ast::SymbolKind::ModportPort)
+					continue;
+
 				RTLIL::SigSpec signal;
 				if (expr.kind == ast::ExpressionKind::Assignment) {
 					auto &assign = expr.as<ast::AssignmentExpression>();
