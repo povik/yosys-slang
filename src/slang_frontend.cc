@@ -45,7 +45,7 @@ struct SynthesisSettings {
 	std::optional<bool> extern_modules;
 	std::optional<bool> no_implicit_memories;
 	std::optional<bool> empty_blackboxes;
-	std::optional<bool> elaborate_only;
+	std::optional<bool> ast_compilation_only;
 	std::optional<bool> no_default_translate_off;
 
 	enum HierMode {
@@ -94,8 +94,8 @@ struct SynthesisSettings {
 					"Require a memory style attribute to consider a variable for memory inference");
 		cmdLine.add("--empty-blackboxes", empty_blackboxes,
 					"Assume empty modules are blackboxes");
-		cmdLine.add("--elaborate-only", elaborate_only,
-					"Do not do netlist conversion");
+		cmdLine.add("--ast-compilation-only", ast_compilation_only,
+					"For developers: stop after the AST is fully compiled");
 		cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
 					"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
 	}
@@ -3304,7 +3304,7 @@ struct SlangFrontend : Frontend {
 					log_error("Compilation failed\n");
 			}
 
-			if (settings.elaborate_only.value_or(false)) {
+			if (settings.ast_compilation_only.value_or(false)) {
 				driver.reportCompilation(*compilation,/* quiet */ false);
 				if (!driver.reportDiagnostics(/* quiet */ false))
 					log_error("Compilation failed\n");
