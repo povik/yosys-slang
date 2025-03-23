@@ -232,7 +232,7 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 {
 	auto src = format_src(from);
 	if (!src.empty())
-		to->attributes[Yosys::ID::src] = src;
+		to->attributes[ID::src] = src;
 
 	for (auto attr : global_compilation->getAttributes(from)) {
 		to->attributes[id(attr->name)] = convert_const(attr->getValue());
@@ -2156,12 +2156,12 @@ public:
 
 		void handleDisplay(const slang::ast::CallExpression &call, const std::vector<slang::ConstantValue> &args) {
 			auto cell = mod->addCell(NEW_ID, ID($print));
-			cell->parameters[Yosys::ID::TRG_ENABLE] = true;
-			cell->parameters[Yosys::ID::TRG_WIDTH] = 0;
-			cell->parameters[Yosys::ID::TRG_POLARITY] = {};
-			cell->parameters[Yosys::ID::PRIORITY] = print_priority--;
-			cell->setPort(Yosys::ID::EN, RTLIL::S1);
-			cell->setPort(Yosys::ID::TRG, {});
+			cell->parameters[ID::TRG_ENABLE] = true;
+			cell->parameters[ID::TRG_WIDTH] = 0;
+			cell->parameters[ID::TRG_POLARITY] = {};
+			cell->parameters[ID::PRIORITY] = print_priority--;
+			cell->setPort(ID::EN, RTLIL::S1);
+			cell->setPort(ID::TRG, {});
 			std::vector<Yosys::VerilogFmtArg> fmt_args;
 			for (int i = 0; i < (int) call.arguments().size(); i++) {
 				const ast::Expression *arg_expr = call.arguments()[i];
