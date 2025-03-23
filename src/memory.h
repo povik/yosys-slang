@@ -18,8 +18,6 @@ struct InferredMemoryDetector :
 			if (symbol.lifetime == ast::VariableLifetime::Static &&
 					symbol.getType().isUnpackedArray() &&
 					symbol.getType().hasFixedRange() &&
-					/* non four-state types have implicit init; we don't support meminit yet */
-					symbol.getType().isFourState() &&
 					(!no_implicit || find_user_hint(symbol)) &&
 					symbol.getParentScope()->getContainingInstance() &&
 					symbol.getParentScope()->getContainingInstance()->parentInstance->isModule())

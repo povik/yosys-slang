@@ -57,3 +57,10 @@ module r7(input logic [3:0] i, output logic [3:0] out);
 		out <= w_fetched;
 	end
 endmodule
+
+module r8();
+// `bit` type memories have implicit initialization
+bit _bit [7:0];
+logic _logic [7:0];
+reg _reg [7:0];
+endmodule
