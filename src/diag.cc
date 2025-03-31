@@ -117,7 +117,7 @@ namespace diag {
 		engine.setMessage(NoteDuplicateEdgeSense, "asynchronous load pattern implied by edge sensitivity on multiple signals");
 		engine.setSeverity(NoteDuplicateEdgeSense, DiagnosticSeverity::Note);
 
-		engine.setMessage(IfElseAloadPolarity, "polarity of the condition doesn't match the edge sensitivity");
+		engine.setMessage(IfElseAloadPolarity, "polarity of condition doesn't match edge sensitivity");
 		engine.setMessage(IfElseAloadMismatch, "condition cannot be matched to any signal from the event list");
 
 		engine.setMessage(LatchNotInferred, "latch not inferred for variable '{}' driven from always_latch procedure");
