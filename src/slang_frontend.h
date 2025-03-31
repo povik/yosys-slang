@@ -20,6 +20,7 @@ template<> struct Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : Yosys::h
 namespace slang {
 	struct ConstantRange;
 	class SourceManager;
+	class DiagnosticEngine;
 	namespace ast {
 		class Compilation;
 		class Symbol;
@@ -149,8 +150,23 @@ struct RTLILBuilder {
 	}
 };
 
+class DiagnosticIssuer {
+	using DiagCode = slang::DiagCode;
+	using Diagnostic = slang::Diagnostic;
+	using Diagnostics = slang::Diagnostics;
+	using SourceRange = slang::SourceRange;
+	using SourceLocation = slang::SourceLocation;
+public:
+	Diagnostic& add_diag(DiagCode code, SourceLocation location);
+	Diagnostic& add_diag(DiagCode code, SourceRange sourceRange);
+	void add_diag(Diagnostic diag);
+	void add_diagnostics(const Diagnostics &diags);
+	void report_into(slang::DiagnosticEngine &engine);
+	std::vector<Diagnostic> issued_diagnostics;
+};
+
 struct SynthesisSettings;
-struct NetlistContext : RTLILBuilder {
+struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	SynthesisSettings &settings;
 	ast::Compilation &compilation;
 	const slang::SourceManager &source_mgr();
@@ -207,6 +223,10 @@ struct NetlistContext : RTLILBuilder {
 		canvas = other.canvas;
 		other.canvas = nullptr;
 	}
+
+	Yosys::pool<const ast::Symbol *> detected_memories;
+	bool is_inferred_memory(const ast::Symbol &symbol);
+	bool is_inferred_memory(const ast::Expression &expr);
 };
 
 // slang_frontend.cc

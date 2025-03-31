@@ -10,6 +10,9 @@
 namespace slang_frontend {
 
 struct TimingPatternInterpretor {
+	TimingPatternInterpretor(DiagnosticIssuer& issuer)
+		: issuer(issuer) {};
+
 	struct AsyncBranch {
 		const ast::Expression &trigger;
 		bool polarity;
@@ -36,6 +39,8 @@ private:
 	void interpret_async_pattern(const ast::ProceduralBlockSymbol &symbol,
 								 std::vector<const ast::SignalEventControl *> triggers,
 								 const ast::Statement &body);
+
+	DiagnosticIssuer& issuer;
 };
 
 };

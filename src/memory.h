@@ -7,18 +7,24 @@
 #pragma once
 namespace slang_frontend {
 
+class DiagnosticIssuer;
 struct InferredMemoryDetector : 
 		public TimingPatternInterpretor,
-		public ast::ASTVisitor<InferredMemoryDetector, true, true> {
+		public ast::ASTVisitor<InferredMemoryDetector, true, true>,
+		public DiagnosticIssuer {
 	Yosys::pool<const ast::Symbol *> memory_candidates;
-	bool no_implicit = false;
+	std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve;
+	bool disallow_implicit = false;
+
+	InferredMemoryDetector(bool disallow_implicit, std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve)
+		: TimingPatternInterpretor((DiagnosticIssuer&) *this), should_dissolve(should_dissolve), disallow_implicit(disallow_implicit) {}
 
 	void handle(const ast::RootSymbol &root) {
 		auto first_pass = ast::makeVisitor([&](auto&, const ast::VariableSymbol &symbol) {
 			if (symbol.lifetime == ast::VariableLifetime::Static &&
 					symbol.getType().isUnpackedArray() &&
 					symbol.getType().hasFixedRange() &&
-					(!no_implicit || find_user_hint(symbol)) &&
+					(!disallow_implicit || find_user_hint(symbol)) &&
 					symbol.getParentScope()->getContainingInstance() &&
 					symbol.getParentScope()->getContainingInstance()->parentInstance->isModule())
 				memory_candidates.insert(&symbol);
@@ -70,7 +76,7 @@ struct InferredMemoryDetector :
 	{
 		std::optional<std::string_view> found_attr;
 		if (memory_candidates.count(&symbol) && (found_attr = find_user_hint(symbol))) {
-			auto &diag = symbol.getParentScope()->addDiag(diag::MemoryNotInferred, symbol.location);
+			auto &diag = add_diag(diag::MemoryNotInferred, symbol.location);
 			diag << found_attr.value();
 			diag.addNote(diag::NoteUsageBlame, loc);
 		}
@@ -191,6 +197,12 @@ struct InferredMemoryDetector :
 										const ast::Statement&)
 	{
 		// Initial processes have no influence over memory inference
+	}
+
+	void handle(const ast::InstanceSymbol& sym)
+	{
+		if (should_dissolve(sym))
+			visitDefault(sym);
 	}
 };
 

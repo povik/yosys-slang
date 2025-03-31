@@ -21,7 +21,6 @@ namespace slang_frontend {
 
 void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &symbol)
 {
-	const ast::Scope *scope = symbol.getParentScope();
 	log_assert(symbol.procedureKind == ast::ProceduralBlockKind::Always
 			|| symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
 
@@ -31,7 +30,7 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 		handle_comb_like_process(symbol, symbol.getBody());
 		return;
 	} else if (symbol.getBody().kind != ast::StatementKind::Timed) {
-		scope->addDiag(diag::UnsynthesizableFeature, symbol.getBody().sourceRange.start());
+		issuer.add_diag(diag::UnsynthesizableFeature, symbol.getBody().sourceRange.start());
 		return;
 	}
 
@@ -56,20 +55,19 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 			const auto &sigev = ev->as<ast::SignalEventControl>();
 
 			if (sigev.iffCondition)
-				scope->addDiag(diag::IffUnsupported, sigev.iffCondition->sourceRange);
+				issuer.add_diag(diag::IffUnsupported, sigev.iffCondition->sourceRange);
 
 			switch (sigev.edge) {
 			case ast::EdgeKind::None:
 				{
 					if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
-						scope->addDiag(diag::AlwaysFFBadTiming, ev->sourceRange);
+						issuer.add_diag(diag::AlwaysFFBadTiming, ev->sourceRange);
 						break;
 					}
 
 					// Report on the top timing node as that makes for nicer reports in case there
 					// are many signals in the sensitivity list
-					symbol.getParentScope()->addDiag(diag::SignalSensitivityAmbiguous,
-													 top_ast_timing->sourceRange);
+					issuer.add_diag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
 					implicit = true;
 				}
 				break;
@@ -80,7 +78,7 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 				break;
 
 			case ast::EdgeKind::BothEdges:
-				scope->addDiag(diag::BothEdgesUnsupported, sigev.sourceRange);
+				issuer.add_diag(diag::BothEdgesUnsupported, sigev.sourceRange);
 				break;
 			}
 		}
@@ -89,7 +87,7 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 	case ast::TimingControlKind::ImplicitEvent:
 		{
 			if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
-				scope->addDiag(diag::AlwaysFFBadTiming, ev->sourceRange);
+				issuer.add_diag(diag::AlwaysFFBadTiming, ev->sourceRange);
 				break;
 			}
 
@@ -101,12 +99,12 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 		log_abort();
 
 	default:
-		scope->addDiag(diag::UnsynthesizableFeature, ev->sourceRange);
+		issuer.add_diag(diag::UnsynthesizableFeature, ev->sourceRange);
 		break;
 	}
 
 	if (implicit && !triggers.empty())
-		scope->addDiag(diag::EdgeImplicitMixing, top_ast_timing->sourceRange);
+		issuer.add_diag(diag::EdgeImplicitMixing, top_ast_timing->sourceRange);
 
 	if (implicit) {
 		handle_comb_like_process(symbol, timed.stmt);
@@ -120,7 +118,6 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 {
 	log_assert(symbol.getBody().kind == ast::StatementKind::Timed);
 	const auto &timed = symbol.getBody().as<ast::TimedStatement>();
-	const ast::Scope *scope = symbol.getParentScope();
 	const ast::Statement *stmt = &body;
 
 	std::vector<AsyncBranch> found_async;
@@ -167,7 +164,7 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 				|| stmt->as<ast::ConditionalStatement>().conditions.size() != 1
 				|| stmt->as<ast::ConditionalStatement>().conditions[0].pattern
 				|| !stmt->as<ast::ConditionalStatement>().ifFalse) {
-			auto &diag = symbol.getParentScope()->addDiag(diag::ExpectingIfElseAload, stmt->sourceRange);
+			auto &diag = issuer.add_diag(diag::ExpectingIfElseAload, stmt->sourceRange);
 			diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 			return;
 		}
@@ -229,7 +226,7 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 
 		if (found != triggers.end()) {
 			if ((*found)->edge != (polarity ? ast::EdgeKind::PosEdge : ast::EdgeKind::NegEdge)) {
-				auto &diag = symbol.getParentScope()->addDiag(diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
+				auto &diag = issuer.add_diag(diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
 				diag.addNote(diag::NoteSignalEvent, (*found)->sourceRange);
 				diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 				// We raised an error. Do infer the async load anyway
@@ -246,7 +243,7 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 			continue;
 		}
 
-		auto &diag = scope->addDiag(diag::IfElseAloadMismatch, stmt->sourceRange);
+		auto &diag = issuer.add_diag(diag::IfElseAloadMismatch, stmt->sourceRange);
 		diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 		return;
 	}

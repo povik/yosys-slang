@@ -403,14 +403,12 @@ RTLIL::SigBit inside_comparison(SignalEvalContext &eval, RTLIL::SigSpec left,
 	}
 }
 
-Yosys::pool<const ast::Symbol *> memory_candidates;
-
-bool is_inferred_memory(const ast::Symbol &symbol)
+bool NetlistContext::is_inferred_memory(const ast::Symbol &symbol)
 {
-	return memory_candidates.count(&symbol);
+	return detected_memories.count(&symbol);
 }
 
-bool is_inferred_memory(const ast::Expression &expr)
+bool NetlistContext::is_inferred_memory(const ast::Expression &expr)
 {
 	return expr.kind == ast::ExpressionKind::NamedValue &&
 			is_inferred_memory(expr.as<ast::NamedValueExpression>().symbol);
@@ -428,7 +426,7 @@ std::string format_wchunk(RTLIL::SigChunk chunk)
 }
 
 class UnrollLimitTracking {
-	const ast::Scope *diag_scope;
+	NetlistContext &netlist;
 	int limit;
 	int unrolling = 0;
 	int unroll_counter = 0;
@@ -436,8 +434,8 @@ class UnrollLimitTracking {
 	bool error_issued = false;
 
 public:
-	UnrollLimitTracking(const ast::Scope *diag_scope, int limit)
-		: diag_scope(diag_scope), limit(limit) {}
+	UnrollLimitTracking(NetlistContext &netlist, int limit)
+		: netlist(netlist), limit(limit) {}
 
 	~UnrollLimitTracking() {
 		log_assert(!unrolling);
@@ -463,7 +461,7 @@ public:
 		loops.insert(symbol);
 
 		if (++unroll_counter > limit) {
-			auto &diag = diag_scope->addDiag(diag::UnrollLimitExhausted, symbol->sourceRange);
+			auto &diag = netlist.add_diag(diag::UnrollLimitExhausted, symbol->sourceRange);
 			diag << limit;
 			for (auto other_loop : loops) {
 				if (other_loop == symbol)
@@ -480,8 +478,6 @@ public:
 
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false>, public UnrollLimitTracking {
 public:
-	const ast::Scope *diag_scope;
-
 	NetlistContext &netlist;
 	SignalEvalContext eval;
 	UpdateTiming &timing;	
@@ -500,11 +496,9 @@ public:
 	std::vector<RTLIL::Cell *> preceding_memwr;
 	int effects_priority = 0;
 
-	// TODO: revisit diag_scope
-	ProceduralVisitor(NetlistContext &netlist, const ast::Scope *diag_scope, UpdateTiming &timing, Mode mode)
-			: UnrollLimitTracking(diag_scope, netlist.settings.unroll_limit()),
-			  diag_scope(diag_scope), netlist(netlist), eval(netlist, *this),
-			  timing(timing), mode(mode) {
+	ProceduralVisitor(NetlistContext &netlist, UpdateTiming &timing, Mode mode)
+			: UnrollLimitTracking(netlist, netlist.settings.unroll_limit()),
+			  netlist(netlist), eval(netlist, *this), timing(timing), mode(mode) {
 		eval.push_frame();
 
 		root_case = new Case;
@@ -789,7 +783,7 @@ public:
 	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
 	{
 		if (assign.timingControl && !netlist.settings.ignore_timing.value_or(false))
-				netlist.realm.addDiag(diag::GenericTimingUnsyn, assign.timingControl->sourceRange);
+				netlist.add_diag(diag::GenericTimingUnsyn, assign.timingControl->sourceRange);
 
 		bool blocking = !assign.isNonBlocking();
 		const ast::Expression *raw_lexpr = &assign.left();
@@ -855,7 +849,7 @@ public:
 				{
 					auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
 
-					if (is_inferred_memory(sel.value())) {
+					if (netlist.is_inferred_memory(sel.value())) {
 						finished_etching = true;
 						memory_write = true;
 						break;
@@ -911,7 +905,7 @@ public:
 		if (memory_write) {
 			log_assert(raw_lexpr->kind == ast::ExpressionKind::ElementSelect);
 			auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
-			log_assert(is_inferred_memory(sel.value()));
+			log_assert(netlist.is_inferred_memory(sel.value()));
 			require(assign, !blocking);
 
 			RTLIL::IdString id = netlist.id(sel.value().as<ast::NamedValueExpression>().symbol);
@@ -972,7 +966,7 @@ public:
 			flavor = "cover";
 			break;
 		default:
-			diag_scope->addDiag(diag::AssertionUnsupported, stmt.sourceRange);
+			netlist.add_diag(diag::AssertionUnsupported, stmt.sourceRange);
 			return;
 		}
 
@@ -988,7 +982,7 @@ public:
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt) {
 		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			diag_scope->addDiag(diag::SVAUnsupported, stmt.sourceRange);
+			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
 		}
 	}
 
@@ -1306,7 +1300,7 @@ public:
 			eval(*init);
 
 		if (!stmt.stopExpr) {
-			diag_scope->addDiag(diag::MissingStopCondition, stmt.sourceRange.start());
+			netlist.add_diag(diag::MissingStopCondition, stmt.sourceRange.start());
 			return;
 		}
 
@@ -1450,14 +1444,14 @@ public:
 	void handle(const ast::TimedStatement &stmt)
 	{
 		if (!netlist.settings.ignore_timing.value_or(false))
-			diag_scope->addDiag(diag::GenericTimingUnsyn, stmt.timing.sourceRange);
+			netlist.add_diag(diag::GenericTimingUnsyn, stmt.timing.sourceRange);
 		
 		stmt.stmt.visit(*this);
 	}
 
 	void handle(const ast::Statement &stmt)
 	{
-		diag_scope->addDiag(diag::LangFeatureUnsupported, stmt.sourceRange.start());
+		netlist.add_diag(diag::LangFeatureUnsupported, stmt.sourceRange.start());
 	}
 
 	void handle(const ast::Expression &expr)
@@ -1538,7 +1532,7 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	RTLIL::SigSpec ret;
 
 	if (!expr.type->isFixedSize()) {
-		auto &diag = netlist.realm.addDiag(diag::FixedSizeRequired, expr.sourceRange);
+		auto &diag = netlist.add_diag(diag::FixedSizeRequired, expr.sourceRange);
 		diag << expr.type->toString();
 		goto error;
 	}
@@ -1548,9 +1542,8 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	case ast::ExpressionKind::HierarchicalValue: // TODO: raise error if there's a boundary
 		{
 			const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
-			if (is_inferred_memory(symbol)) {
-				// TODO: scope
-				netlist.realm.addDiag(diag::BadMemoryExpr, expr.sourceRange);
+			if (netlist.is_inferred_memory(symbol)) {
+				netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
 				goto error;
 			}
 
@@ -1597,8 +1590,7 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 		}
 		break;
 	default:
-		// TODO: scoping
-		netlist.realm.addDiag(diag::UnsupportedLhs, expr.sourceRange);
+		netlist.add_diag(diag::UnsupportedLhs, expr.sourceRange);
 		goto error;
 	}
 
@@ -1744,7 +1736,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 
 	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
 	if (!(expr.type->isFixedSize() || expr.type->isVoid())) {
-		auto &diag = netlist.realm.addDiag(diag::FixedSizeRequired, expr.sourceRange);
+		auto &diag = netlist.add_diag(diag::FixedSizeRequired, expr.sourceRange);
 		diag << expr.type->toString();
 		goto error;
 	}
@@ -1769,7 +1761,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			ast_invariant(expr, procedural != nullptr);
 
 			if (assign.timingControl && !netlist.settings.ignore_timing.value_or(false))
-				netlist.realm.addDiag(diag::GenericTimingUnsyn, assign.timingControl->sourceRange);
+				netlist.add_diag(diag::GenericTimingUnsyn, assign.timingControl->sourceRange);
 
 			const ast::Expression *lvalue_save = lvalue;
 			lvalue = &assign.left();
@@ -1802,9 +1794,8 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::HierarchicalValue:
 		{
 			const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
-			if (is_inferred_memory(symbol)) {
-				// TODO: scope
-				netlist.realm.addDiag(diag::BadMemoryExpr, expr.sourceRange);
+			if (netlist.is_inferred_memory(symbol)) {
+				netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
 				goto error;
 			}
 
@@ -1877,8 +1868,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				invert = true;
 				}
 				if (!right.is_fully_const()) {
-					// TODO: scope
-					netlist.realm.addDiag(diag::NonconstWildcardEq, expr.sourceRange);
+					netlist.add_diag(diag::NonconstWildcardEq, expr.sourceRange);
 					ret = netlist.canvas->addWire(NEW_ID, expr.type->getBitstreamWidth());
 					return ret;
 				}
@@ -1974,7 +1964,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 
-			if (is_inferred_memory(elemsel.value())) {
+			if (netlist.is_inferred_memory(elemsel.value())) {
 				int width = elemsel.type->getBitstreamWidth();
 				RTLIL::IdString id = netlist.id(elemsel.value()
 										.as<ast::NamedValueExpression>().symbol);
@@ -2085,8 +2075,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 				} else {
 					require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
 					UpdateTiming implicit;
-					// TODO: better scope here
-					ProceduralVisitor visitor(netlist, nullptr, implicit, ProceduralVisitor::ContinuousAssign);
+					ProceduralVisitor visitor(netlist, implicit, ProceduralVisitor::ContinuousAssign);
 					visitor.eval.ignore_ast_constants = ignore_ast_constants;
 					ret = visitor.handle_call(call);
 
@@ -2102,8 +2091,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 		ret = (*this)(*lvalue);
 		break;
 	default:
-		// TODO: scope
-		netlist.realm.addDiag(diag::LangFeatureUnsupported, expr.sourceRange);
+		netlist.add_diag(diag::LangFeatureUnsupported, expr.sourceRange);
 		goto error;
 	}
 
@@ -2143,6 +2131,7 @@ struct PopulateNetlist : public TimingPatternInterpretor, public ast::ASTVisitor
 public:
 	NetlistContext &netlist;
 	SynthesisSettings &settings;
+	InferredMemoryDetector mem_detect;
 	std::vector<NetlistContext> deferred_modules;
 
 	struct InitialEvalVisitor : SlangInitial::EvalVisitor {
@@ -2181,7 +2170,7 @@ public:
 					fmt_arg.sig = convert_svint(arg.integer());
 					fmt_arg.signed_ = arg.integer().isSigned();
 				} else {
-					auto &diag = netlist.realm.addDiag(diag::ArgumentTypeUnsupported, call.sourceRange);
+					auto &diag = netlist.add_diag(diag::ArgumentTypeUnsupported, call.sourceRange);
 					diag << arg_expr->type->toString();
 					mod->remove(cell);
 					return;
@@ -2200,17 +2189,19 @@ public:
 	} initial_eval;
 
 	PopulateNetlist(NetlistContext &netlist)
-		: netlist(netlist), settings(netlist.settings), initial_eval(netlist, &netlist.compilation, netlist.canvas, netlist.settings.ignore_timing.value_or(false)) {}
+		: TimingPatternInterpretor((DiagnosticIssuer&) netlist),
+		  netlist(netlist), settings(netlist.settings),
+		  mem_detect(settings.no_implicit_memories.value_or(false), std::bind(&PopulateNetlist::should_dissolve, this, std::placeholders::_1)),
+		  initial_eval(netlist, &netlist.compilation, netlist.canvas,
+		  			   netlist.settings.ignore_timing.value_or(false)) {}
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
-		const ast::Scope *scope = symbol.getParentScope();
-
 		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
 		transfer_attrs(body, proc);
 
 		UpdateTiming implicit_timing;
-		ProceduralVisitor visitor(netlist, scope, implicit_timing, ProceduralVisitor::AlwaysProcedure);
+		ProceduralVisitor visitor(netlist, implicit_timing, ProceduralVisitor::AlwaysProcedure);
 		body.visit(visitor);
 
 		RTLIL::SigSpec all_driven = visitor.all_driven();
@@ -2243,7 +2234,7 @@ public:
 
 		if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysLatch && !cl.empty()) {
 			for (auto chunk : cl.chunks()) {
-				auto &diag = scope->addDiag(diag::LatchNotInferred, symbol.location);
+				auto &diag = netlist.add_diag(diag::LatchNotInferred, symbol.location);
 				diag << std::string(log_signal(chunk));
 			}
 		}
@@ -2267,7 +2258,7 @@ public:
 
 			visitor.root_case->aux_actions.push_back(
 						{enables, RTLIL::SigSpec(RTLIL::S0, enables.size())});
-			visitor.root_case->insert_latch_signaling(scope, signaling);
+			visitor.root_case->insert_latch_signaling(netlist, signaling);
 		}
 
 		visitor.root_case->copy_into(&proc->root_case);
@@ -2282,7 +2273,6 @@ public:
 	{
 		log_assert(symbol.getBody().kind == ast::StatementKind::Timed);
 		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
-		const ast::Scope *scope = symbol.getParentScope();
 
 		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
 		transfer_attrs(timed.stmt, proc);
@@ -2296,7 +2286,7 @@ public:
 				prologue_timing.triggers.push_back({sig, abranch.polarity, nullptr});
 			}
 		}
-		ProceduralVisitor prologue_visitor(netlist, symbol.getParentScope(), prologue_timing,
+		ProceduralVisitor prologue_visitor(netlist, prologue_timing,
 										   ProceduralVisitor::AlwaysProcedure);
 		for (auto stmt : prologue)
 			stmt->visit(prologue_visitor);
@@ -2320,7 +2310,7 @@ public:
 			branch_timing.background_enable = netlist.LogicAnd(netlist.LogicNot(prior_branch_taken), sig_depol);
 			prior_branch_taken.append(sig_depol);
 
-			ProceduralVisitor visitor(netlist, scope, branch_timing, ProceduralVisitor::AlwaysProcedure);
+			ProceduralVisitor visitor(netlist, branch_timing, ProceduralVisitor::AlwaysProcedure);
 			visitor.inherit_state(prologue_visitor);
 			abranch.body.visit(visitor);
 			visitor.copy_case_tree_into(proc->root_case);
@@ -2331,7 +2321,7 @@ public:
 		}
 
 		if (aloads.size() > 1) {
-			scope->addDiag(diag::AloadOne, timed.timing.sourceRange);
+			netlist.add_diag(diag::AloadOne, timed.timing.sourceRange);
 			return;
 		}
 
@@ -2339,7 +2329,7 @@ public:
 			UpdateTiming timing;
 			timing.background_enable = netlist.LogicNot(prior_branch_taken);
 			timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
-			ProceduralVisitor visitor(netlist, scope, timing, ProceduralVisitor::AlwaysProcedure);
+			ProceduralVisitor visitor(netlist, timing, ProceduralVisitor::AlwaysProcedure);
 			visitor.inherit_state(prologue_visitor);
 			sync_body.visit(visitor);
 			visitor.copy_case_tree_into(proc->root_case);
@@ -2391,7 +2381,7 @@ public:
 					}
 
 					if (!dffe_q.empty()) {
-						auto &diag = scope->addDiag(diag::MissingAload, aloads[0].ast_node->sourceRange);
+						auto &diag = netlist.add_diag(diag::MissingAload, aloads[0].ast_node->sourceRange);
 						diag << std::string(log_signal(dffe_q));
 						diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 
@@ -2441,7 +2431,7 @@ public:
 			return;
 
 		if (!sym.internalSymbol || sym.internalSymbol->name.compare(sym.name)) {
-			sym.getParentScope()->addDiag(diag::PortCorrespondence, sym.location);
+			netlist.add_diag(diag::PortCorrespondence, sym.location);
 			return;
 		}
 
@@ -2468,7 +2458,7 @@ public:
 		if (sym.getParentScope()->getContainingInstance() != &netlist.realm)
 			return;
 
-		netlist.realm.addDiag(diag::MultiportUnsupported, sym.location);
+		netlist.add_diag(diag::MultiportUnsupported, sym.location);
 	}
 
 	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec signal)
@@ -2492,7 +2482,7 @@ public:
 			netlist.canvas->connect(internal_signal, signal);
 		} else {
 			// TODO: better location
-			auto &diag = netlist.realm.addDiag(diag::BadInlinedPortConnection, port.location);
+			auto &diag = netlist.add_diag(diag::BadInlinedPortConnection, port.location);
 			diag << ast::toString(port.direction);
 		}
 	}
@@ -2508,6 +2498,46 @@ public:
 			return is_decl_empty_module(*sym.getSyntax());
 
 		return false;
+	}
+
+	bool should_dissolve(const ast::InstanceSymbol &sym)
+	{
+		// blackboxes are never dissolved
+		if (sym.isModule() && is_blackbox(sym.body.getDefinition()))
+			return false;
+
+		// interfaces are always dissolved
+		if (sym.isInterface())
+			return true;
+
+		// the rest depends on the hierarchy mode
+		switch (settings.hierarchy_mode()) {
+		case SynthesisSettings::NONE:
+			return true;
+		case SynthesisSettings::BEST_EFFORT: {
+			for (auto *conn : sym.getPortConnections()) {
+				switch (conn->port.kind) {
+				case ast::SymbolKind::Port:
+				case ast::SymbolKind::MultiPort:
+					break;
+				case ast::SymbolKind::InterfacePort:
+					if (!conn->getIfaceConn().second)
+						return true;
+					break;
+				default:
+					return true;
+					break;
+				}
+			}
+
+			if (!sym.isModule())
+				return true;
+
+			return false;
+			}
+		case SynthesisSettings::ALL:
+			return false;
+		}
 	}
 
 	void handle(const ast::InstanceSymbol &sym)
@@ -2539,8 +2569,7 @@ public:
 						loc = expr->sourceRange.start();
 					else
 						loc = sym.location;
-					// TODO: scope
-					auto &diag = netlist.realm.addDiag(diag::UnsupportedBlackboxConnection, loc);
+					auto &diag = netlist.add_diag(diag::UnsupportedBlackboxConnection, loc);
 					diag << (conn->port.kind == ast::SymbolKind::MultiPort ? "multi"s : "interface"s);
 					break;
 				}
@@ -2552,7 +2581,7 @@ public:
 			sym.body.visit(ast::makeVisitor([&](auto&, const ast::ParameterSymbol &symbol) {
 				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), convert_const(symbol.getValue()));
 			}, [&](auto&, const ast::TypeParameterSymbol &symbol) {
-				sym.body.addDiag(diag::BboxTypeParameter, symbol.location);
+				netlist.add_diag(diag::BboxTypeParameter, symbol.location);
 			}, [&](auto&, const ast::InstanceSymbol&) {
 				// no-op
 			}));
@@ -2561,43 +2590,7 @@ public:
 			return;
 		}
 
-		bool should_dissolve;
-
-		switch (settings.hierarchy_mode()) {
-		case SynthesisSettings::NONE:
-			should_dissolve = true;
-			break;
-		case SynthesisSettings::BEST_EFFORT: {
-				should_dissolve = false;
-				for (auto *conn : sym.getPortConnections()) {
-					switch (conn->port.kind) {
-					case ast::SymbolKind::Port:
-					case ast::SymbolKind::MultiPort:
-						break;
-					case ast::SymbolKind::InterfacePort:
-						if (!conn->getIfaceConn().second)
-							should_dissolve = true;
-						break;
-					default:
-						should_dissolve = true;
-						break;
-					}
-				}
-
-				if (!sym.isModule())
-					should_dissolve = true;
-
-				break;
-			}
-		case SynthesisSettings::ALL:
-			should_dissolve = false;
-			break;
-		}
-
-		if (sym.isInterface())
-			should_dissolve = true;
-
-		if (should_dissolve) {
+		if (should_dissolve(sym)) {
 			sym.body.visit(*this);
 
 			for (auto *conn : sym.getPortConnections()) {
@@ -2682,8 +2675,7 @@ public:
 				}
 				case ast::SymbolKind::InterfacePort: {
 					if (!conn->getIfaceConn().second) {
-						// TODO: scope
-						netlist.realm.addDiag(diag::ModportRequired, loc);
+						netlist.add_diag(diag::ModportRequired, loc);
 						continue;
 					}
 
@@ -2737,7 +2729,7 @@ public:
 								wire->port_output = true;
 								break;
 							default: {
-								auto &diag = netlist.realm.addDiag(diag::UnsupportedPortDirection, port.location);
+								auto &diag = netlist.add_diag(diag::UnsupportedPortDirection, port.location);
 								diag << ast::toString(port.direction);
 								break;
 							}
@@ -2757,7 +2749,7 @@ public:
 					break;
 				}
 				case ast::SymbolKind::MultiPort: {
-					netlist.realm.addDiag(diag::MultiportUnsupported, loc);
+					netlist.add_diag(diag::MultiportUnsupported, loc);
 					break;
 				}
 				default:
@@ -2771,7 +2763,7 @@ public:
 	void handle(const ast::ContinuousAssignSymbol &sym)
 	{
 		if (sym.getDelay() && !settings.ignore_timing.value_or(false))
-			netlist.realm.addDiag(diag::GenericTimingUnsyn, sym.getDelay()->sourceRange);
+			netlist.add_diag(diag::GenericTimingUnsyn, sym.getDelay()->sourceRange);
 
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
 		ast_invariant(expr, !expr.timingControl);
@@ -2803,6 +2795,12 @@ public:
 		visitDefault(sym);
 	}
 
+	void detect_memories(const ast::InstanceBodySymbol &body)
+	{
+		body.visit(mem_detect);
+		netlist.detected_memories = mem_detect.memory_candidates;
+	}
+
 	void add_internal_wires(const ast::InstanceBodySymbol &body)
 	{
 		body.visit(ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
@@ -2821,7 +2819,7 @@ public:
 			std::string kind{ast::toString(sym.kind)};
 			log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
 
-			if (is_inferred_memory(sym)) {
+			if (netlist.is_inferred_memory(sym)) {
 				RTLIL::Memory *m = new RTLIL::Memory;
 				transfer_attrs(sym, m);
 				m->name = netlist.id(sym);
@@ -2837,8 +2835,9 @@ public:
 			} else {
 				netlist.add_wire(sym);
 			}
-		}, [&](auto&, const ast::InstanceSymbol&) {
-			/* do not descend into other modules */
+		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+			if (should_dissolve(sym))
+				visitor.visitDefault(sym);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
 			if (sym.isUninstantiated)
@@ -2847,37 +2846,33 @@ public:
 		}));
 	}
 
-	void handle(const ast::InstanceBodySymbol &sym)
+	void initialize_var_init(const ast::InstanceBodySymbol &body)
 	{
-		add_internal_wires(sym);
-
-		auto varinit = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
+		body.visit(ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
 			slang::ConstantValue initval = nullptr;
 			if (sym.getInitializer() && sym.lifetime == ast::VariableLifetime::Static)
 				initval = sym.getInitializer()->eval(initial_eval.context);
 			initial_eval.context.createLocal(&sym, initval);
-		}, [&](auto&, const ast::InstanceSymbol&) {
-			/* do not descend into other modules */
-		}, [&](auto&, const ast::ProceduralBlockSymbol&) {
-			/* do not descend into procedural blocks */
+		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
+			if (should_dissolve(sym))
+				visitor.visitDefault(sym);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
 			if (sym.isUninstantiated)
 				return;
 			visitor.visitDefault(sym);
-		});
-		sym.visit(varinit);
+		}));
+	}
 
-		visitDefault(sym);
-
-		// now transfer the initializers from variables onto RTLIL wires
-		auto inittransfer = ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
+	void transfer_var_init(const ast::InstanceBodySymbol &body)
+	{
+		body.visit(ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
 			if (sym.getType().isFixedSize() && sym.lifetime == ast::VariableLifetime::Static) {
 				auto storage = initial_eval.context.findLocal(&sym);
 				log_assert(storage);
 				auto const_ = convert_const(*storage);
 				if (!const_.is_fully_undef()) {
-					if (is_inferred_memory(sym)) {
+					if (netlist.is_inferred_memory(sym)) {
 						RTLIL::IdString id = netlist.id(sym);
 						RTLIL::Memory *m = netlist.canvas->memories.at(id);
 						RTLIL::Cell *meminit = netlist.canvas->addCell(NEW_ID, ID($meminit_v2));
@@ -2908,21 +2903,39 @@ public:
 			if (sym.isUninstantiated)
 				return;
 			visitor.visitDefault(sym);
-		});
-		sym.visit(inittransfer);
+		}));
+	}
 
-		initial_eval.context.reportAllDiags();
+	void handle(const ast::InstanceBodySymbol &body)
+	{
+		if (&body == &netlist.realm) {
+			// This is the containing instance body for this netlist;
+			// find inferred memories
+			detect_memories(body);
+			// add all internal wires before we enter the body
+			add_internal_wires(body);
+			// Evaluate inline initializers on variables
+			initialize_var_init(body);
+			// Visit the body for the bulk of processing
+			visitDefault(body);
+			// Now transfer initializers (possibly updated from initial statements)
+			// onto RTLIL wires
+			transfer_var_init(body);
+			netlist.add_diagnostics(initial_eval.context.getAllDiagnostics());
+		} else {
+			visitDefault(body);
+		}
 	}
 
 	void handle(const ast::UninstantiatedDefSymbol &sym)
 	{
 		if (sym.isChecker()) {
-			netlist.realm.addDiag(diag::LangFeatureUnsupported, sym.location);
+			netlist.add_diag(diag::LangFeatureUnsupported, sym.location);
 			return;
 		}
 
 		if (!sym.paramExpressions.empty()) {
-			netlist.realm.addDiag(diag::NoParamsOnUnkBboxes, sym.location);
+			netlist.add_diag(diag::NoParamsOnUnkBboxes, sym.location);
 			return;
 		}
 
@@ -2935,7 +2948,7 @@ public:
 		ast_invariant(sym, port_names.size() == port_conns.size());
 		for (int i = 0; i < (int) port_names.size(); i++) {
 			if (port_names[i].empty()) {
-				netlist.realm.addDiag(diag::ConnNameRequiredOnUnkBboxes, sym.location);
+				netlist.add_diag(diag::ConnNameRequiredOnUnkBboxes, sym.location);
 				continue;
 			}
 
@@ -3281,51 +3294,48 @@ struct SlangFrontend : Frontend {
 				std::cout << writer.view() << std::endl;
 			}
 
-			auto elab = ast::makeVisitor([&](auto& visitor, const ast::InstanceBodySymbol &body) {
-				compilation->forceElaborate(body);
-				visitor.visitDefault(body);
-			});
-			for (auto instance : compilation->getRoot().topInstances)
-				instance->visit(elab);
-
-			if (compilation->hasIssuedErrors()) {
-				driver.reportCompilation(*compilation,/* quiet */ false);
-				if (!driver.reportDiagnostics(/* quiet */ false))
-					log_error("Compilation failed\n");
+			driver.reportCompilation(*compilation,/* quiet */ false);
+			if (driver.diagEngine.getNumErrors()) {
+				// Stop here should there have been any errors from AST compilation,
+				// PopulateNetlist requires a well-formed AST without error nodes
+				(void) driver.reportDiagnostics(/* quiet */ false);
+				log_error("Compilation failed\n");
+				return;
 			}
 
 			if (settings.ast_compilation_only.value_or(false)) {
-				driver.reportCompilation(*compilation,/* quiet */ false);
-				if (!driver.reportDiagnostics(/* quiet */ false))
-					log_error("Compilation failed\n");
+				(void) driver.reportDiagnostics(/* quiet */ false);
 				return;
 			}
 
 			global_compilation = &(*compilation);
 			global_sourcemgr = compilation->getSourceManager();
 
-			InferredMemoryDetector mem_detect;
-			mem_detect.no_implicit = settings.no_implicit_memories.value_or(false);
-			compilation->getRoot().visit(mem_detect);
-			memory_candidates = mem_detect.memory_candidates;
-
-			{
-				std::vector<NetlistContext> queue;
-				for (auto instance : compilation->getRoot().topInstances) {
-					queue.emplace_back(design, settings, *compilation, *instance);
-					queue.back().canvas->attributes[ID::top] = 1;
-				}
-
-				for (int i = 0; i < (int) queue.size(); i++) {
-					NetlistContext &netlist = queue[i];
-					PopulateNetlist populate(netlist);
-					netlist.realm.visit(populate);
-					std::move(populate.deferred_modules.begin(),
-						populate.deferred_modules.end(), std::back_inserter(queue));
-				}
+			std::vector<NetlistContext> queue;
+			for (auto instance : compilation->getRoot().topInstances) {
+				queue.emplace_back(design, settings, *compilation, *instance);
+				queue.back().canvas->attributes[ID::top] = 1;
 			}
 
-			driver.reportCompilation(*compilation,/* quiet */ false);
+			for (int i = 0; i < (int) queue.size(); i++) {
+				NetlistContext &netlist = queue[i];
+				PopulateNetlist populate(netlist);
+				netlist.realm.visit(populate);
+
+				slang::Diagnostics diags;
+				diags.append_range(populate.mem_detect.issued_diagnostics);
+				diags.append_range(netlist.issued_diagnostics);
+				diags.sort(driver.sourceManager);
+				for (int i = 0; i < (int) diags.size(); i++) {
+					if (i > 0 && diags[i] == diags[i - 1])
+						continue;
+					driver.diagEngine.issue(diags[i]);
+				}
+
+				std::move(populate.deferred_modules.begin(),
+					populate.deferred_modules.end(), std::back_inserter(queue));
+			}
+
 			if (!driver.reportDiagnostics(/* quiet */ false))
 				log_error("Compilation failed\n");
 		} catch (const std::exception& e) {
@@ -3527,11 +3537,12 @@ struct TestSlangExprPass : Pass {
 		auto *top = compilation->getRoot().topInstances[0];
 		compilation->forceElaborate(top->body);
 
-		//if (compilation->hasIssuedErrors()) {
-			driver.reportCompilation(*compilation,/* quiet */ false);
-			if (!driver.reportDiagnostics(/* quiet */ false))
-				log_error("Compilation failed\n");
-		//}
+		driver.reportCompilation(*compilation,/* quiet */ false);
+		if (driver.diagEngine.getNumErrors()) {
+			(void) driver.reportDiagnostics(/* quiet */ false);
+			log_error("Compilation failed\n");
+			return;
+		}
 
 		global_compilation = &(*compilation);
 		global_sourcemgr = compilation->getSourceManager();

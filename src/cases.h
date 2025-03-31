@@ -85,7 +85,7 @@ struct Case {
 	}
 
 	void insert_latch_signaling(
-			const ast::Scope *scope, Yosys::dict<RTLIL::SigBit, RTLIL::SigSig> map)
+			DiagnosticIssuer &issuer, Yosys::dict<RTLIL::SigBit, RTLIL::SigSig> map)
 	{
 		for (auto &action : actions) {
 			bool raise_complex = false;
@@ -110,7 +110,7 @@ struct Case {
 			aux_actions.push_back({enables, RTLIL::SigSpec(RTLIL::S1, enables.size())});
 
 			if (raise_complex) {
-				auto &diag = scope->addDiag(diag::ComplexLatchLHS, action.loc);
+				auto &diag = issuer.add_diag(diag::ComplexLatchLHS, action.loc);
 				lvalue.sort();
 				diag << std::string(log_signal(lvalue));
 			}
@@ -118,7 +118,7 @@ struct Case {
 
 		for (auto switch_ : switches)
 		for (auto case_ : switch_->cases)
-			case_->insert_latch_signaling(scope, map);
+			case_->insert_latch_signaling(issuer, map);
 	}
 };
 

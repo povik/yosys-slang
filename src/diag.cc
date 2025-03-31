@@ -4,6 +4,7 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "slang_frontend.h"
 #include "diag.h"
 
 namespace slang_frontend {
@@ -17,6 +18,37 @@ using DiagnosticEngine = slang::DiagnosticEngine;
 using DiagnosticSeverity = slang::DiagnosticSeverity;
 using SourceRange = slang::SourceRange;
 using SourceLocation = slang::SourceLocation;
+
+Diagnostic& DiagnosticIssuer::add_diag(DiagCode code, SourceLocation location)
+{
+	issued_diagnostics.emplace_back(code, location);
+	return issued_diagnostics.back();
+}
+
+Diagnostic& DiagnosticIssuer::add_diag(DiagCode code, SourceRange sourceRange)
+{
+	Diagnostic &diag = add_diag(code, sourceRange.start());
+	diag << sourceRange;
+	return diag;
+}
+
+void DiagnosticIssuer::add_diag(Diagnostic diag)
+{
+	issued_diagnostics.push_back(diag);
+}
+
+void DiagnosticIssuer::add_diagnostics(const Diagnostics& diagnostics)
+{
+	for (const Diagnostic& diag : diagnostics)
+		add_diag(diag);
+}
+
+void DiagnosticIssuer::report_into(DiagnosticEngine &engine)
+{
+	for (auto& diag : issued_diagnostics)
+		engine.issue(diag);
+}
+
 namespace diag {
 	DiagCode IffUnsupported(DiagSubsystem::Netlist, 1000);
 	DiagCode SignalSensitivityAmbiguous(DiagSubsystem::Netlist, 1001);
