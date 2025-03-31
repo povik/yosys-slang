@@ -111,7 +111,7 @@ jobs:
           git submodule update --depth 0 -- third_party/slang
       - name: Build yosys-slang
         run: |
-          make -j$(nproc)
+          make -j$(nproc) NO_SLANG_REBUILD=1
       - name: Pack build
         shell: bash
         run: |
