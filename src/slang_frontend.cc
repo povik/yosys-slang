@@ -2803,16 +2803,6 @@ public:
 		visitDefault(sym);
 	}
 
-	void collect_flattened_trivia(std::vector<parsing::Trivia> &collect, parsing::Token token)
-	{
-		for (auto trivia : token.trivia()) {
-			if (trivia.syntax())
-				collect_flattened_trivia(collect, trivia.syntax()->getFirstToken());
-			else
-				collect.push_back(trivia);
-		}
-	}
-
 	void add_internal_wires(const ast::InstanceBodySymbol &body)
 	{
 		body.visit(ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
