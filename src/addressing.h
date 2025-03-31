@@ -11,7 +11,7 @@ namespace slang_frontend {
 struct Addressing {
 	const ast::Expression &expr;
 
-	SignalEvalContext &eval;
+	EvalContext &eval;
 	NetlistContext &netlist;
 	slang::ConstantRange range;
 
@@ -42,7 +42,7 @@ struct Addressing {
 		}
 	}
 
-	Addressing(SignalEvalContext &eval, const ast::ElementSelectExpression &sel)
+	Addressing(EvalContext &eval, const ast::ElementSelectExpression &sel)
 		: expr(sel), eval(eval), netlist(eval.netlist)
 	{
 		require(sel, sel.value().type->hasFixedRange());
@@ -52,7 +52,7 @@ struct Addressing {
 		stride = sel.type->getBitstreamWidth();
 	}
 
-	Addressing(SignalEvalContext &eval, const ast::RangeSelectExpression &sel)
+	Addressing(EvalContext &eval, const ast::RangeSelectExpression &sel)
 		: expr(sel), eval(eval), netlist(eval.netlist)
 	{
 		require(sel, sel.value().type->hasFixedRange());

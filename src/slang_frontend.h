@@ -52,7 +52,7 @@ namespace ast = ::slang::ast;
 struct NetlistContext;
 struct ProceduralVisitor;
 
-struct SignalEvalContext {
+struct EvalContext {
 	NetlistContext &netlist;
 	ProceduralVisitor *procedural;
 
@@ -103,8 +103,8 @@ struct SignalEvalContext {
 	// the AST in module instance connections or for pattern assignments.
 	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
 
-	SignalEvalContext(NetlistContext &netlist);
-	SignalEvalContext(NetlistContext &netlist, ProceduralVisitor &procedural);
+	EvalContext(NetlistContext &netlist);
+	EvalContext(NetlistContext &netlist, ProceduralVisitor &procedural);
 
 	// for testing
 	bool ignore_ast_constants = false;
@@ -179,7 +179,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	// The background evaluation context. For procedures we will be constructing
 	// other specialized contexts.
-	SignalEvalContext eval;
+	EvalContext eval;
 
 	// Returns an ID string to use in the netlist to represent the given symbol.
 	RTLIL::IdString id(const ast::Symbol &sym);
