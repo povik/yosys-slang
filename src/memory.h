@@ -203,8 +203,14 @@ struct InferredMemoryDetector :
 
 	void handle(const ast::InstanceSymbol& sym)
 	{
-		if (should_dissolve(sym))
+		if (should_dissolve(sym)) {
 			visitDefault(sym);
+		} else {
+			for (auto *conn : sym.getPortConnections()) {
+				if (auto expr = conn->getExpression())
+					expr->visit(*this);
+			}
+		}
 	}
 };
 

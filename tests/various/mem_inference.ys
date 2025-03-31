@@ -54,3 +54,18 @@ endmodule
 EOF
 memory_collect
 select -assert-none t:$mem_v2
+
+design -reset
+read_slang --keep-hierarchy <<EOF
+module sm(output [1:0] y[2]);
+	assign y[0] = 0;
+	assign y[1] = 1;
+endmodule
+
+module top();
+	reg [1:0] x[1:0];
+	sm inst(.y(x));
+endmodule
+EOF
+memory_collect
+select -assert-none t:$mem_v2
