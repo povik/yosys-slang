@@ -378,7 +378,7 @@ struct UpdateTiming {
 	}
 };
 
-RTLIL::SigBit inside_comparison(SignalEvalContext &eval, RTLIL::SigSpec left,
+RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left,
 								const ast::Expression &expr)
 {
 	require(expr, !expr.type->isUnpackedArray());
@@ -480,7 +480,7 @@ public:
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false>, public UnrollLimitTracking {
 public:
 	NetlistContext &netlist;
-	SignalEvalContext eval;
+	EvalContext eval;
 	UpdateTiming &timing;
 
 	Yosys::pool<RTLIL::Wire *> seen_blocking_assignment;
@@ -1390,7 +1390,7 @@ public:
 		stmt.symbol.visit(*this);
 	}
 
-	using Frame = SignalEvalContext::Frame;
+	using Frame = EvalContext::Frame;
 
 	void handle(const ast::BreakStatement &brk)
 	{
@@ -1461,7 +1461,7 @@ public:
 	}
 };
 
-SignalEvalContext::Frame &SignalEvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
+EvalContext::Frame &EvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 {
 	if (subroutine) {
 		std::string hier;
@@ -1486,7 +1486,7 @@ SignalEvalContext::Frame &SignalEvalContext::push_frame(const ast::SubroutineSym
 	return frame;
 }
 
-void SignalEvalContext::create_local(const ast::Symbol *symbol)
+void EvalContext::create_local(const ast::Symbol *symbol)
 {
 	log_assert(procedural);
 	log_assert(!frames.empty());
@@ -1505,7 +1505,7 @@ void SignalEvalContext::create_local(const ast::Symbol *symbol)
 												variable.getType().getBitstreamWidth());
 }
 
-void SignalEvalContext::pop_frame()
+void EvalContext::pop_frame()
 {
 	log_assert(!frames.empty());
 	frames.pop_back();
@@ -1513,7 +1513,7 @@ void SignalEvalContext::pop_frame()
 	log_debug("%s<- pop\n", std::string(frames.size(), ' ').c_str());
 }
 
-RTLIL::Wire *SignalEvalContext::wire(const ast::Symbol &symbol)
+RTLIL::Wire *EvalContext::wire(const ast::Symbol &symbol)
 {
 	if (ast::VariableSymbol::isKind(symbol.kind) &&
 			symbol.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic) {
@@ -1527,7 +1527,7 @@ RTLIL::Wire *SignalEvalContext::wire(const ast::Symbol &symbol)
 	}
 }
 
-RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
+RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 {
 	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
 	RTLIL::SigSpec ret;
@@ -1605,7 +1605,7 @@ RTLIL::SigSpec SignalEvalContext::lhs(const ast::Expression &expr)
 	return ret;
 }
 
-RTLIL::SigSpec SignalEvalContext::connection_lhs(ast::AssignmentExpression const &assign)
+RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assign)
 {
 	ast_invariant(assign, !assign.timingControl);
 	const ast::Expression *rsymbol = &assign.right();
@@ -1630,7 +1630,7 @@ RTLIL::SigSpec SignalEvalContext::connection_lhs(ast::AssignmentExpression const
 	return ret;
 }
 
-RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
+RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 {
 	switch (symbol.kind) {
 	case ast::SymbolKind::ModportPort:
@@ -1668,7 +1668,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Symbol const &symbol)
 	}
 }
 
-RTLIL::SigSpec SignalEvalContext::streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs)
+RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs)
 {
 	require(expr, expr.isFixedSize());
 	RTLIL::SigSpec cat;
@@ -1698,7 +1698,7 @@ RTLIL::SigSpec SignalEvalContext::streaming(ast::StreamingConcatenationExpressio
 	}
 }
 
-RTLIL::SigSpec SignalEvalContext::apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op)
+RTLIL::SigSpec EvalContext::apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op)
 {
 	const ast::Type &from = conv.operand().type->getCanonicalType();
 	const ast::Type &to = conv.type->getCanonicalType();
@@ -1716,7 +1716,7 @@ RTLIL::SigSpec SignalEvalContext::apply_conversion(const ast::ConversionExpressi
 	}
 }
 
-RTLIL::SigSpec SignalEvalContext::apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec op)
+RTLIL::SigSpec EvalContext::apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec op)
 {
 	if (expr.kind == ast::ExpressionKind::EmptyArgument) {
 		return op;
@@ -1729,7 +1729,7 @@ RTLIL::SigSpec SignalEvalContext::apply_nested_conversion(const ast::Expression 
 	}
 }
 
-RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
+RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 {
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
@@ -2106,7 +2106,7 @@ done:
 	return ret;
 }
 
-RTLIL::SigSpec SignalEvalContext::eval_signed(ast::Expression const &expr)
+RTLIL::SigSpec EvalContext::eval_signed(ast::Expression const &expr)
 {
 	log_assert(expr.type);
 
@@ -2116,13 +2116,13 @@ RTLIL::SigSpec SignalEvalContext::eval_signed(ast::Expression const &expr)
 		return (*this)(expr);
 }
 
-SignalEvalContext::SignalEvalContext(NetlistContext &netlist)
+EvalContext::EvalContext(NetlistContext &netlist)
 	: netlist(netlist), procedural(nullptr),
 	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
 {
 }
 
-SignalEvalContext::SignalEvalContext(NetlistContext &netlist, ProceduralVisitor &procedural)
+EvalContext::EvalContext(NetlistContext &netlist, ProceduralVisitor &procedural)
 	: netlist(netlist), procedural(&procedural),
 	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
 {
@@ -3580,7 +3580,7 @@ struct TestSlangExprPass : Pass {
 		PopulateNetlist populate(netlist);
 		populate.add_internal_wires(top->body);
 
-		SignalEvalContext amended_eval(netlist);
+		EvalContext amended_eval(netlist);
 		amended_eval.ignore_ast_constants = true;
 
 		int ntests = 0;
