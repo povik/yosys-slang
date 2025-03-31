@@ -3184,6 +3184,11 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 			"xilinx,translate_off,translate_on",
 		});
 	}
+
+	auto &disable_inst_caching = driver.options.compilationFlags[ast::CompilationFlags::DisableInstanceCaching];
+	if (!disable_inst_caching.has_value()) {
+		disable_inst_caching = true;
+	}
 }
 
 struct SlangFrontend : Frontend {
