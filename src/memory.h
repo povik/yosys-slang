@@ -19,7 +19,8 @@ struct InferredMemoryDetector :
 	InferredMemoryDetector(bool disallow_implicit, std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve)
 		: TimingPatternInterpretor((DiagnosticIssuer&) *this), should_dissolve(should_dissolve), disallow_implicit(disallow_implicit) {}
 
-	void handle(const ast::RootSymbol &root) {
+	void process(const ast::Symbol &root)
+	{
 		auto first_pass = ast::makeVisitor([&](auto&, const ast::VariableSymbol &symbol) {
 			if (symbol.lifetime == ast::VariableLifetime::Static &&
 					symbol.getType().isUnpackedArray() &&
@@ -32,11 +33,12 @@ struct InferredMemoryDetector :
 			if (symbol.isUninstantiated)
 				return;
 			visitor.visitDefault(symbol);
+		}, [&](auto& visitor, const ast::InstanceSymbol& symbol) {
+			if (should_dissolve(symbol))
+				visitor.visitDefault(symbol);
 		});
-		for (auto top : root.topInstances) {
-			top->visit(first_pass);
-			visitDefault(*top);
-		}
+		root.visit(first_pass);
+		root.visit(*this);
 	}
 
 	struct LHSVisitor : public ast::ASTVisitor<LHSVisitor, true, true> {

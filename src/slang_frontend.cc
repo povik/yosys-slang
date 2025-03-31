@@ -2797,7 +2797,7 @@ public:
 
 	void detect_memories(const ast::InstanceBodySymbol &body)
 	{
-		body.visit(mem_detect);
+		mem_detect.process(body);
 		netlist.detected_memories = mem_detect.memory_candidates;
 	}
 

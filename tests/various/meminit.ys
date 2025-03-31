@@ -16,6 +16,8 @@ endmodule
 EOF
 
 chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
 memory_map
 sat -verify -enable_undef -prove-asserts
 
@@ -37,6 +39,8 @@ endmodule
 EOF
 
 chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
 memory_map
 sat -verify -enable_undef -prove-asserts
 
@@ -57,6 +61,8 @@ module top();
 endmodule
 EOF
 chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
 memory_map
 sat -verify -enable_undef -prove-asserts
 
@@ -77,6 +83,8 @@ module top();
 endmodule
 EOF
 chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
 memory_map
 sat -verify -enable_undef -prove-asserts
 
@@ -98,5 +106,7 @@ endmodule
 EOF
 dump
 chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
 memory_map
 sat -verify -enable_undef -prove-asserts

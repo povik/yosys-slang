@@ -220,6 +220,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 		emitted_mems.swap(other.emitted_mems);
 		scopes_remap.swap(other.scopes_remap);
 		wire_hdl_types.swap(other.wire_hdl_types);
+		detected_memories.swap(other.detected_memories);
 		canvas = other.canvas;
 		other.canvas = nullptr;
 	}
