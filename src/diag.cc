@@ -7,169 +7,179 @@
 #include "diag.h"
 
 namespace slang_frontend {
+
+using DiagCode = slang::DiagCode;
+using DiagGroup = slang::DiagGroup;
+using DiagSubsystem = slang::DiagSubsystem;
+using Diagnostic = slang::Diagnostic;
+using Diagnostics = slang::Diagnostics;
+using DiagnosticEngine = slang::DiagnosticEngine;
+using DiagnosticSeverity = slang::DiagnosticSeverity;
+using SourceRange = slang::SourceRange;
+using SourceLocation = slang::SourceLocation;
 namespace diag {
-	slang::DiagCode IffUnsupported(slang::DiagSubsystem::Netlist, 1000);
-	slang::DiagCode SignalSensitivityAmbiguous(slang::DiagSubsystem::Netlist, 1001);
-	slang::DiagCode EdgeImplicitMixing(slang::DiagSubsystem::Netlist, 1002);
-	slang::DiagCode GenericTimingUnsyn(slang::DiagSubsystem::Netlist, 1003);
-	slang::DiagCode BothEdgesUnsupported(slang::DiagSubsystem::Netlist, 1004);
-	slang::DiagCode NoteSignalEvent(slang::DiagSubsystem::Netlist, 1005);
-	slang::DiagCode ExpectingIfElseAload(slang::DiagSubsystem::Netlist, 1006);
-	slang::DiagCode NoteDuplicateEdgeSense(slang::DiagSubsystem::Netlist, 1007);
-	slang::DiagCode IfElseAloadPolarity(slang::DiagSubsystem::Netlist, 1008);
-	slang::DiagCode IfElseAloadMismatch(slang::DiagSubsystem::Netlist, 1009);
-	slang::DiagCode LatchNotInferred(slang::DiagSubsystem::Netlist, 1010);
-	slang::DiagCode MissingAload(slang::DiagSubsystem::Netlist, 1012);
-	slang::DiagCode NoteProcessDriver(slang::DiagSubsystem::Netlist, 1013);
-	slang::DiagCode AlwaysFFBadTiming(slang::DiagSubsystem::Netlist, 1014);
+	DiagCode IffUnsupported(DiagSubsystem::Netlist, 1000);
+	DiagCode SignalSensitivityAmbiguous(DiagSubsystem::Netlist, 1001);
+	DiagCode EdgeImplicitMixing(DiagSubsystem::Netlist, 1002);
+	DiagCode GenericTimingUnsyn(DiagSubsystem::Netlist, 1003);
+	DiagCode BothEdgesUnsupported(DiagSubsystem::Netlist, 1004);
+	DiagCode NoteSignalEvent(DiagSubsystem::Netlist, 1005);
+	DiagCode ExpectingIfElseAload(DiagSubsystem::Netlist, 1006);
+	DiagCode NoteDuplicateEdgeSense(DiagSubsystem::Netlist, 1007);
+	DiagCode IfElseAloadPolarity(DiagSubsystem::Netlist, 1008);
+	DiagCode IfElseAloadMismatch(DiagSubsystem::Netlist, 1009);
+	DiagCode LatchNotInferred(DiagSubsystem::Netlist, 1010);
+	DiagCode MissingAload(DiagSubsystem::Netlist, 1012);
+	DiagCode NoteProcessDriver(DiagSubsystem::Netlist, 1013);
+	DiagCode AlwaysFFBadTiming(DiagSubsystem::Netlist, 1014);
 
-	slang::DiagCode MissingStopCondition(slang::DiagSubsystem::Netlist, 1017);
+	DiagCode MissingStopCondition(DiagSubsystem::Netlist, 1017);
 
-	slang::DiagCode ComplexLatchLHS(slang::DiagSubsystem::Netlist, 1018);
+	DiagCode ComplexLatchLHS(DiagSubsystem::Netlist, 1018);
 
-	slang::DiagCode BadMemoryExpr(slang::DiagSubsystem::Netlist, 1019);
-	slang::DiagCode MemoryNotInferred(slang::DiagSubsystem::Netlist, 1020);
-	slang::DiagCode NoteUsageBlame(slang::DiagSubsystem::Netlist, 1021);
+	DiagCode BadMemoryExpr(DiagSubsystem::Netlist, 1019);
+	DiagCode MemoryNotInferred(DiagSubsystem::Netlist, 1020);
+	DiagCode NoteUsageBlame(DiagSubsystem::Netlist, 1021);
 
-	slang::DiagCode UnrollLimitExhausted(slang::DiagSubsystem::Netlist, 1022);
-	slang::DiagCode NoteLoopContributes(slang::DiagSubsystem::Netlist, 1023);
+	DiagCode UnrollLimitExhausted(DiagSubsystem::Netlist, 1022);
+	DiagCode NoteLoopContributes(DiagSubsystem::Netlist, 1023);
 
-	slang::DiagCode NonconstWildcardEq(slang::DiagSubsystem::Netlist, 1024);
+	DiagCode NonconstWildcardEq(DiagSubsystem::Netlist, 1024);
 
-	slang::DiagCode AssertionUnsupported(slang::DiagSubsystem::Netlist, 1025);
-	slang::DiagCode LangFeatureUnsupported(slang::DiagSubsystem::Netlist, 1026);
-	slang::DiagCode UnsupportedLhs(slang::DiagSubsystem::Netlist, 1027);
-	slang::DiagCode ArgumentTypeUnsupported(slang::DiagSubsystem::Netlist, 1028);
-	slang::DiagCode MultiportUnsupported(slang::DiagSubsystem::Netlist, 1029);
-	slang::DiagCode UnsupportedBlackboxConnection(slang::DiagSubsystem::Netlist, 1030);
-	slang::DiagCode UnsupportedPortDirection(slang::DiagSubsystem::Netlist, 1031);
-	slang::DiagCode ModportRequired(slang::DiagSubsystem::Netlist, 1032);
-	slang::DiagCode FixedSizeRequired(slang::DiagSubsystem::Netlist, 1033);
-	slang::DiagCode AloadOne(slang::DiagSubsystem::Netlist, 1034);
-	slang::DiagCode BadInlinedPortConnection(slang::DiagSubsystem::Netlist, 1035);
-	slang::DiagCode NoParamsOnUnkBboxes(slang::DiagSubsystem::Netlist, 1037);
-	slang::DiagCode ConnNameRequiredOnUnkBboxes(slang::DiagSubsystem::Netlist, 1038);
-	slang::DiagCode BboxTypeParameter(slang::DiagSubsystem::Netlist, 1039);
-	slang::DiagCode BboxExportPortWidths(slang::DiagSubsystem::Netlist, 1040);
-	slang::DiagCode NoteIgnoreInitial(slang::DiagSubsystem::Netlist, 1041);
-	slang::DiagCode PortCorrespondence(slang::DiagSubsystem::Netlist, 1042);
-	slang::DiagCode UnsynthesizableFeature(slang::DiagSubsystem::Netlist, 1043);
-	slang::DiagCode SVAUnsupported(slang::DiagSubsystem::Netlist, 1044);
+	DiagCode AssertionUnsupported(DiagSubsystem::Netlist, 1025);
+	DiagCode LangFeatureUnsupported(DiagSubsystem::Netlist, 1026);
+	DiagCode UnsupportedLhs(DiagSubsystem::Netlist, 1027);
+	DiagCode ArgumentTypeUnsupported(DiagSubsystem::Netlist, 1028);
+	DiagCode MultiportUnsupported(DiagSubsystem::Netlist, 1029);
+	DiagCode UnsupportedBlackboxConnection(DiagSubsystem::Netlist, 1030);
+	DiagCode UnsupportedPortDirection(DiagSubsystem::Netlist, 1031);
+	DiagCode ModportRequired(DiagSubsystem::Netlist, 1032);
+	DiagCode FixedSizeRequired(DiagSubsystem::Netlist, 1033);
+	DiagCode AloadOne(DiagSubsystem::Netlist, 1034);
+	DiagCode BadInlinedPortConnection(DiagSubsystem::Netlist, 1035);
+	DiagCode NoParamsOnUnkBboxes(DiagSubsystem::Netlist, 1037);
+	DiagCode ConnNameRequiredOnUnkBboxes(DiagSubsystem::Netlist, 1038);
+	DiagCode BboxTypeParameter(DiagSubsystem::Netlist, 1039);
+	DiagCode BboxExportPortWidths(DiagSubsystem::Netlist, 1040);
+	DiagCode NoteIgnoreInitial(DiagSubsystem::Netlist, 1041);
+	DiagCode PortCorrespondence(DiagSubsystem::Netlist, 1042);
+	DiagCode UnsynthesizableFeature(DiagSubsystem::Netlist, 1043);
+	DiagCode SVAUnsupported(DiagSubsystem::Netlist, 1044);
 
-	slang::DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
+	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
-	slang::DiagGroup sanity("sanity", {EdgeImplicitMixing});
+	DiagGroup sanity("sanity", {EdgeImplicitMixing});
 
 	void setup_messages(slang::DiagnosticEngine &engine)
 	{
 		engine.setMessage(IffUnsupported, "iff qualifier will not be synthesized");
 		engine.setMessage(SignalSensitivityAmbiguous, "non-edge sensitivity on a signal will be synthesized as @* sensitivity");
-		engine.setSeverity(SignalSensitivityAmbiguous, slang::DiagnosticSeverity::Warning);
+		engine.setSeverity(SignalSensitivityAmbiguous, DiagnosticSeverity::Warning);
 		engine.setMessage(EdgeImplicitMixing, "mixing of implicit and edge sensitivity");
 		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control (ignore with '--ignore-timing')");
 		engine.setMessage(BothEdgesUnsupported, "'edge' sensitivity will not be synthesized");
 		engine.setMessage(NoteSignalEvent, "signal event specified here");
-		engine.setSeverity(NoteSignalEvent, slang::DiagnosticSeverity::Note);
+		engine.setSeverity(NoteSignalEvent, DiagnosticSeverity::Note);
 
 		engine.setMessage(ExpectingIfElseAload, "simple if-else pattern expected in modeling an asynchronous load on a flip-flop");
 		engine.setMessage(NoteDuplicateEdgeSense, "asynchronous load pattern implied by edge sensitivity on multiple signals");
-		engine.setSeverity(NoteDuplicateEdgeSense, slang::DiagnosticSeverity::Note);
+		engine.setSeverity(NoteDuplicateEdgeSense, DiagnosticSeverity::Note);
 
 		engine.setMessage(IfElseAloadPolarity, "polarity of the condition doesn't match the edge sensitivity");
 		engine.setMessage(IfElseAloadMismatch, "condition cannot be matched to any signal from the event list");
 
 		engine.setMessage(LatchNotInferred, "latch not inferred for variable '{}' driven from always_latch procedure");
-		engine.setSeverity(LatchNotInferred, slang::DiagnosticSeverity::Warning);
+		engine.setSeverity(LatchNotInferred, DiagnosticSeverity::Warning);
 
 		engine.setMessage(MissingAload, "asynchronous load value missing for variable '{}'");
-		engine.setSeverity(MissingAload, slang::DiagnosticSeverity::Warning);
+		engine.setSeverity(MissingAload, DiagnosticSeverity::Warning);
 		engine.setMessage(NoteProcessDriver, "variable driven from this procedure");
-		engine.setSeverity(NoteProcessDriver, slang::DiagnosticSeverity::Note);
+		engine.setSeverity(NoteProcessDriver, DiagnosticSeverity::Note);
 
 		engine.setMessage(AlwaysFFBadTiming, "timing control does not model a flip-flop");
-		engine.setSeverity(AlwaysFFBadTiming, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(AlwaysFFBadTiming, DiagnosticSeverity::Error);
 
 		engine.setMessage(MissingStopCondition, "stop condition is missing; loop cannot be unrolled");
-		engine.setSeverity(MissingStopCondition, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(MissingStopCondition, DiagnosticSeverity::Error);
 
 		engine.setMessage(ComplexLatchLHS, "complex lhs in assignment to latched variable '{}' unsupported");
-		engine.setSeverity(ComplexLatchLHS, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(ComplexLatchLHS, DiagnosticSeverity::Error);
 
 		engine.setMessage(BadMemoryExpr, "unsupported operation on a memory variable");
-		engine.setSeverity(BadMemoryExpr, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(BadMemoryExpr, DiagnosticSeverity::Error);
 
 		engine.setMessage(MemoryNotInferred, "cannot infer memory from a variable despite '{}' attribute");
-		engine.setSeverity(MemoryNotInferred, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(MemoryNotInferred, DiagnosticSeverity::Error);
 		engine.setMessage(NoteUsageBlame, "inference prevented by variable usage here");
-		engine.setSeverity(NoteUsageBlame, slang::DiagnosticSeverity::Note);
+		engine.setSeverity(NoteUsageBlame, DiagnosticSeverity::Note);
 
-		engine.setSeverity(unsynthesizable, slang::DiagnosticSeverity::Error);
-		engine.setSeverity(sanity, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(unsynthesizable, DiagnosticSeverity::Error);
+		engine.setSeverity(sanity, DiagnosticSeverity::Error);
 
 		engine.setMessage(UnrollLimitExhausted, "unroll limit of {} exhausted [--unroll-limit=]");
-		engine.setSeverity(UnrollLimitExhausted, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(UnrollLimitExhausted, DiagnosticSeverity::Error);
 
 		engine.setMessage(NoteLoopContributes, "loop contributes to unroll tally");
-		engine.setSeverity(NoteLoopContributes, slang::DiagnosticSeverity::Note);
+		engine.setSeverity(NoteLoopContributes, DiagnosticSeverity::Note);
 
 		engine.setMessage(NonconstWildcardEq, "wildcard equality unsynthesizable with non-constant right-hand operand");
-		engine.setSeverity(NonconstWildcardEq, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(NonconstWildcardEq, DiagnosticSeverity::Error);
 
 		engine.setMessage(AssertionUnsupported, "unsupported assertion statement");
-		engine.setSeverity(AssertionUnsupported, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(AssertionUnsupported, DiagnosticSeverity::Error);
 
 		engine.setMessage(LangFeatureUnsupported, "unsupported language feature");
-		engine.setSeverity(LangFeatureUnsupported, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(LangFeatureUnsupported, DiagnosticSeverity::Error);
 
 		engine.setMessage(UnsupportedLhs, "unsupported assignment target expression");
-		engine.setSeverity(UnsupportedLhs, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(UnsupportedLhs, DiagnosticSeverity::Error);
 
 		engine.setMessage(ArgumentTypeUnsupported, "unsupported argument type: {}");
-		engine.setSeverity(ArgumentTypeUnsupported, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(ArgumentTypeUnsupported, DiagnosticSeverity::Error);
 
 		engine.setMessage(MultiportUnsupported, "multiports unsupported on kept module boundary");
-		engine.setSeverity(MultiportUnsupported, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(MultiportUnsupported, DiagnosticSeverity::Error);
 
 		engine.setMessage(UnsupportedBlackboxConnection, "{} port on blackbox instance unsupported");
-		engine.setSeverity(UnsupportedBlackboxConnection, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(UnsupportedBlackboxConnection, DiagnosticSeverity::Error);
 
 		engine.setMessage(UnsupportedPortDirection, "port direction '{}' on kept module boundary unsupported");
-		engine.setSeverity(UnsupportedPortDirection, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(UnsupportedPortDirection, DiagnosticSeverity::Error);
 
 		engine.setMessage(ModportRequired, "interface port on kept module boundary must be a modport");
-		engine.setSeverity(ModportRequired, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(ModportRequired, DiagnosticSeverity::Error);
 
 		engine.setMessage(FixedSizeRequired, "expression of type {} with dynamic size unsupported for synthesis");
-		engine.setSeverity(FixedSizeRequired, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(FixedSizeRequired, DiagnosticSeverity::Error);
 
 		engine.setMessage(AloadOne, "multiple asynchronous loads unsupported");
-		engine.setSeverity(AloadOne, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(AloadOne, DiagnosticSeverity::Error);
 
 		engine.setMessage(BadInlinedPortConnection, "direction '{}' on inlined port connection unsupported");
-		engine.setSeverity(BadInlinedPortConnection, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(BadInlinedPortConnection, DiagnosticSeverity::Error);
 
 		engine.setMessage(NoParamsOnUnkBboxes, "parameters on unknown blackboxes unsupported");
-		engine.setSeverity(NoParamsOnUnkBboxes, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(NoParamsOnUnkBboxes, DiagnosticSeverity::Error);
 
 		engine.setMessage(ConnNameRequiredOnUnkBboxes, "port name required in connections on unknown blackboxes");
-		engine.setSeverity(ConnNameRequiredOnUnkBboxes, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(ConnNameRequiredOnUnkBboxes, DiagnosticSeverity::Error);
 
 		engine.setMessage(BboxTypeParameter, "blackbox cannot have a type parameter");
-		engine.setSeverity(BboxTypeParameter, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(BboxTypeParameter, DiagnosticSeverity::Error);
 
 		engine.setMessage(BboxExportPortWidths, "cannot export a blackbox definition with non-constant port widths");
-		engine.setSeverity(BboxExportPortWidths, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(BboxExportPortWidths, DiagnosticSeverity::Error);
 
 		engine.setMessage(NoteIgnoreInitial, "use option '--ignore-initial' to ignore initial procedures");
-		engine.setSeverity(NoteIgnoreInitial, slang::DiagnosticSeverity::Note);
+		engine.setSeverity(NoteIgnoreInitial, DiagnosticSeverity::Note);
 
 		engine.setMessage(PortCorrespondence, "ports without direct correspondence to an internal net/variable unsupported");
-		engine.setSeverity(PortCorrespondence, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(PortCorrespondence, DiagnosticSeverity::Error);
 
 		engine.setMessage(UnsynthesizableFeature, "unsynthesizable feature");
 
 		engine.setMessage(SVAUnsupported, "SVA unsupported (ignore all assertions with '--ignore-assertions')");
-		engine.setSeverity(SVAUnsupported, slang::DiagnosticSeverity::Error);
+		engine.setSeverity(SVAUnsupported, DiagnosticSeverity::Error);
 	}
 };
 };
