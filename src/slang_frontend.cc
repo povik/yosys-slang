@@ -2128,8 +2128,33 @@ EvalContext::EvalContext(NetlistContext &netlist, ProceduralVisitor &procedural)
 {
 }
 
+struct HierarchyQueue {
+	template<class... Args>
+	std::pair<NetlistContext&, bool> get_or_emplace(const ast::InstanceBodySymbol *symbol, Args&&... args)
+	{
+		if (netlists.count(symbol)) {
+			return {*netlists.at(symbol), false};
+		} else {
+			NetlistContext *ref = new NetlistContext(args...);
+			netlists[symbol] = ref;
+			queue.push_back(ref);
+			return {*ref, true};
+		}
+	}
+
+	~HierarchyQueue()
+	{
+		for (auto netlist : queue)
+			delete netlist;
+	}
+
+	std::map<const ast::InstanceBodySymbol *, NetlistContext *> netlists;
+	std::vector<NetlistContext *> queue;
+};
+
 struct PopulateNetlist : public TimingPatternInterpretor, public ast::ASTVisitor<PopulateNetlist, true, false> {
 public:
+	HierarchyQueue &queue;
 	NetlistContext &netlist;
 	SynthesisSettings &settings;
 	InferredMemoryDetector mem_detect;
@@ -2189,9 +2214,9 @@ public:
 		}
 	} initial_eval;
 
-	PopulateNetlist(NetlistContext &netlist)
+	PopulateNetlist(HierarchyQueue &queue, NetlistContext &netlist)
 		: TimingPatternInterpretor((DiagnosticIssuer&) netlist),
-		  netlist(netlist), settings(netlist.settings),
+		  queue(queue), netlist(netlist), settings(netlist.settings),
 		  mem_detect(settings.no_implicit_memories.value_or(false), std::bind(&PopulateNetlist::should_dissolve, this, std::placeholders::_1)),
 		  initial_eval(netlist, &netlist.compilation, netlist.canvas,
 		  			   netlist.settings.ignore_timing.value_or(false)) {}
@@ -2648,8 +2673,8 @@ public:
 			}
 		} else {
 			log_assert(sym.isModule());
-			deferred_modules.emplace_back(netlist, sym);
-			NetlistContext &submodule = deferred_modules.back();
+			auto ref_body = sym.getCanonicalBody() ? sym.getCanonicalBody() : &sym.body;
+			auto [submodule, inserted] = queue.get_or_emplace(ref_body, netlist, sym);
 
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(sym));
 			for (auto *conn : sym.getPortConnections()) {
@@ -2709,34 +2734,41 @@ public:
 							// To support interface arrays, we need to match all the modports
 							// below iface_instance with the same name as ref_modport
 							if (!modport.name.compare(ref_modport.name)) {
-								submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
-														submodule.id(conn->port).str() + \
-														hierpath_relative_to(iface_scope, modport.getParentScope());
+								if (inserted) {
+									submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
+															submodule.id(conn->port).str() + \
+															hierpath_relative_to(iface_scope, modport.getParentScope());
+								}
 								visitor.visitDefault(modport);
 							}
 						},
 						[&](auto&, const ast::ModportPortSymbol &port) {
-							auto wire = submodule.add_wire(port);
-							log_assert(wire);
-							switch (port.direction) {
-							case ast::ArgumentDirection::In:
-								wire->port_input = true;
-								break;
-							case ast::ArgumentDirection::Out:
-								wire->port_output = true;
-								break;
-							case ast::ArgumentDirection::InOut:
-								wire->port_input = true;
-								wire->port_output = true;
-								break;
-							default: {
-								auto &diag = netlist.add_diag(diag::UnsupportedPortDirection, port.location);
-								diag << ast::toString(port.direction);
-								break;
+							RTLIL::Wire *wire;
+							if (inserted) {
+								wire = submodule.add_wire(port);
+								log_assert(wire);
+								switch (port.direction) {
+								case ast::ArgumentDirection::In:
+									wire->port_input = true;
+									break;
+								case ast::ArgumentDirection::Out:
+									wire->port_output = true;
+									break;
+								case ast::ArgumentDirection::InOut:
+									wire->port_input = true;
+									wire->port_output = true;
+									break;
+								default: {
+									auto &diag = netlist.add_diag(diag::UnsupportedPortDirection, port.location);
+									diag << ast::toString(port.direction);
+									break;
+								}
+								}
+							} else {
+								wire = submodule.wire(port);
 							}
-							}
-							ast_invariant(port, port.internalSymbol);
 
+							ast_invariant(port, port.internalSymbol);
 							const ast::Scope *parent = port.getParentScope();
 							ast_invariant(port, parent->asSymbol().kind == ast::SymbolKind::Modport);
 							const ast::ModportSymbol &modport = parent->asSymbol().as<ast::ModportSymbol>();
@@ -3340,15 +3372,17 @@ struct SlangFrontend : Frontend {
 			global_compilation = &(*compilation);
 			global_sourcemgr = compilation->getSourceManager();
 
-			std::vector<NetlistContext> queue;
+			HierarchyQueue hqueue;
 			for (auto instance : compilation->getRoot().topInstances) {
-				queue.emplace_back(design, settings, *compilation, *instance);
-				queue.back().canvas->attributes[ID::top] = 1;
+				auto [netlist, new_] = hqueue.get_or_emplace(instance->getCanonicalBody() ? instance->getCanonicalBody() : &instance->body,
+															 design, settings, *compilation, *instance);
+				log_assert(new_);
+				netlist.canvas->attributes[ID::top] = 1;
 			}
 
-			for (int i = 0; i < (int) queue.size(); i++) {
-				NetlistContext &netlist = queue[i];
-				PopulateNetlist populate(netlist);
+			for (int i = 0; i < (int) hqueue.queue.size(); i++) {
+				NetlistContext &netlist = *hqueue.queue[i];
+				PopulateNetlist populate(hqueue, netlist);
 				netlist.realm.visit(populate);
 
 				slang::Diagnostics diags;
@@ -3360,9 +3394,6 @@ struct SlangFrontend : Frontend {
 						continue;
 					driver.diagEngine.issue(diags[i]);
 				}
-
-				std::move(populate.deferred_modules.begin(),
-					populate.deferred_modules.end(), std::back_inserter(queue));
 			}
 
 			if (!driver.reportDiagnostics(/* quiet */ false))
@@ -3576,8 +3607,9 @@ struct TestSlangExprPass : Pass {
 		global_compilation = &(*compilation);
 		global_sourcemgr = compilation->getSourceManager();
 
+		HierarchyQueue dummy_queue;
 		NetlistContext netlist(d, settings, *compilation, *top);
-		PopulateNetlist populate(netlist);
+		PopulateNetlist populate(dummy_queue, netlist);
 		populate.add_internal_wires(top->body);
 
 		EvalContext amended_eval(netlist);
