@@ -322,6 +322,7 @@ void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::InstanceSymbol 
 		wire->port_id = mod->ports.size();
 	}, [&](auto&, const ast::ParameterSymbol &param) {
 		mod->avail_parameters(RTLIL::escape_id(std::string{param.name}));
+	}, [&](auto&, const ast::InstanceSymbol &) {
 	}));
 }
 
