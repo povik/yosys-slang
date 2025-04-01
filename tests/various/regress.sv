@@ -64,3 +64,15 @@ bit _bit [7:0];
 logic _logic [7:0];
 reg _reg [7:0];
 endmodule
+
+module r9_blackbox_inner(output w);
+endmodule
+
+(* blackbox *)
+module r9_blackbox(output w);
+	r9_blackbox_inner inner(.*);
+endmodule
+
+module r9();
+	r9_blackbox box();
+endmodule
