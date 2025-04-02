@@ -1,0 +1,25 @@
+set(YOSYS_CONFIG "yosys-config" CACHE FILEPATH "Location of yosys-config binary")
+message(STATUS "Using yosys: ${YOSYS_CONFIG}")
+
+execute_process(
+    COMMAND ${YOSYS_CONFIG} --datdir
+    OUTPUT_VARIABLE YOSYS_DATDIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY
+)
+message(STATUS "yosys-config --datdir: ${YOSYS_DATDIR}")
+
+execute_process(
+    COMMAND ${YOSYS_CONFIG} --cxxflags
+    OUTPUT_VARIABLE YOSYS_CXXFLAGS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY
+)
+string(REGEX REPLACE " +" ";" YOSYS_CXXFLAGS ${YOSYS_CXXFLAGS})
+list(FILTER YOSYS_CXXFLAGS INCLUDE REGEX "^-[ID]")
+message(STATUS "yosys-config --cxxflags (filtered): ${YOSYS_CXXFLAGS}")
+
+add_library(yosys::yosys INTERFACE IMPORTED)
+target_compile_options(yosys::yosys INTERFACE ${YOSYS_CXXFLAGS})
+
+set(YOSYS_DATDIR ${YOSYS_DATDIR} PARENT_SCOPE)

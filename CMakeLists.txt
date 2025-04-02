@@ -1,0 +1,34 @@
+if (CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
+    message(FATAL_ERROR "In-tree builds are not supported. Instead, run:\ncmake . -B build <options> && cmake --build build")
+endif()
+
+# as in slang
+cmake_minimum_required(VERSION 3.20...3.29)
+
+# as in slang
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+project(yosys-slang CXX)
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
+
+include(FetchContent)
+
+# The log will show "-- Using remote fmt library", but that is misleading,
+# as no network access will be done. (Our first declaration of `fmt` wins.)
+FetchContent_Declare(
+    fmt
+    EXCLUDE_FROM_ALL
+    SOURCE_DIR ${CMAKE_SOURCE_DIR}/third_party/fmt
+)
+
+set(SLANG_USE_MIMALLOC OFF)
+add_subdirectory(third_party/slang)
+
+# We're statically linking slang (and fmt) into our plugin, which itself is a shared library.
+# Unless we build the dependencies as PIC, linking will fail.
+set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(slang_slang PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_subdirectory(src)
