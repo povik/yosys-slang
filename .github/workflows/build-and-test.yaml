@@ -38,9 +38,56 @@ jobs:
             echo "]"
             echo "filtered_versions=[\"$first\",\"$last\"]"
           } >> "$GITHUB_OUTPUT"
-  build:
+  build-yosys:
     runs-on: ubuntu-24.04
     needs: [define-matrix]
+    strategy:
+      fail-fast: false
+      matrix:
+        yosys_version: ${{ fromJSON(needs.define-matrix.outputs.all_versions) }}
+    steps:
+      - name: Install Dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git build-essential pkg-config cmake ccache gperf bison flex libreadline-dev gawk tcl-dev libffi-dev graphviz xdot python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev
+      - name: Cache ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-yosys-${{ matrix.yosys_version }}
+          restore-keys: |
+            ccache-yosys-${{ matrix.yosys_version }}
+            ccache-yosys-
+      - name: Set up ccache
+        run: |
+          ccache --max-size=2G -z
+      - name: Cache Yosys build
+        id: cache-yosys
+        uses: actions/cache@v4
+        with:
+          path: .
+          key: build-yosys-${{ matrix.yosys_version }}
+      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
+        name: Check out Yosys
+        uses: actions/checkout@v4
+        with:
+          repository: YosysHQ/yosys
+          ref: ${{ matrix.yosys_version }}
+          fetch-depth: 1
+          submodules: recursive
+      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
+        name: Build Yosys
+        run: |
+          make config-gcc
+          echo "ENABLE_ABC := 0" >> Makefile.conf
+          make -j$(nproc)
+      - name: Print ccache statistics
+        run: |
+          ccache -s
+  build:
+    runs-on: ubuntu-24.04
+    needs: [build-yosys, define-matrix]
     strategy:
       fail-fast: false
       matrix:
@@ -55,42 +102,26 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
-      - name: Set up caching
+      - name: Cache ccache cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: slang-${{ hashFiles('third_party') }}-${{ hashFiles('src') }}
+          key: ccache-slang-${{ hashFiles('third_party') }}-${{ hashFiles('src') }}
           restore-keys: |
-            slang-${{ hashFiles('third_party') }}-${{ hashFiles('src') }}
-            slang-${{ hashFiles('third_party') }}-
-            slang-
+            ccache-slang-${{ hashFiles('third_party') }}-${{ hashFiles('src') }}
+            ccache-slang-${{ hashFiles('third_party') }}-
+            ccache-slang-
       - name: Set up ccache
         run: |
           ccache --max-size=2G -z
-      - name: Cache Yosys build
+      - name: Get cached Yosys build
         id: cache-yosys
         uses: actions/cache@v4
-        env:
-          cache-name: cache-yosys
         with:
           path: tests/third_party/yosys
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.yosys_version }}
-      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
-        name: Pull Yosys
-        run: |
-          git clone --depth 1 --recursive \
-            --branch ${{ matrix.yosys_version }} \
-            -- https://github.com/YosysHQ/yosys.git tests/third_party/yosys
-      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
-        name: Build Yosys
-        shell: bash
-        run: |
-          cd tests/third_party/yosys
-          make config-gcc
-          echo "ENABLE_ABC := 0" >> Makefile.conf
-          make -j6
+          key: build-yosys-${{ matrix.yosys_version }}
+          fail-on-cache-miss: true
       - name: Install Yosys
-        shell: bash
         run: |
           cd tests/third_party/yosys
           sudo make install
@@ -100,7 +131,7 @@ jobs:
       - name: Pack build
         shell: bash
         run: |
-          tar -cvf build.tar build/slang.so tests/third_party/yosys/
+          tar -cvf build.tar build/slang.so
       - name: Store build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -134,8 +165,14 @@ jobs:
         shell: bash
         run:
           tar -xvf build.tar
+      - name: Get cached Yosys build
+        id: cache-yosys
+        uses: actions/cache@v4
+        with:
+          path: tests/third_party/yosys
+          key: build-yosys-${{ matrix.yosys_version }}
+          fail-on-cache-miss: true
       - name: Install Yosys
-        shell: bash
         run: |
           cd tests/third_party/yosys
           sudo make install
