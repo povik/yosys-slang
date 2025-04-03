@@ -25,6 +25,7 @@
 #include "kernel/sigtools.h"
 #include "kernel/utils.h"
 
+#include "version.h"
 #include "initial_eval.h"
 #include "slang_frontend.h"
 #include "diag.h"
@@ -324,7 +325,7 @@ static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<
 
 			if (selectable) {
 				for (auto bit : detect_possibly_unassigned_subset(remaining, case_, level + 2))
-					new_remaining.insert(bit);	
+					new_remaining.insert(bit);
 			}
 		}
 
@@ -480,7 +481,7 @@ struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false
 public:
 	NetlistContext &netlist;
 	SignalEvalContext eval;
-	UpdateTiming &timing;	
+	UpdateTiming &timing;
 
 	Yosys::pool<RTLIL::Wire *> seen_blocking_assignment;
 	Yosys::pool<RTLIL::Wire *> seen_nonblocking_assignment;
@@ -602,7 +603,7 @@ public:
 
 				for (auto pair : revert) {
 					if (pair.second == RTLIL::Sm)
-						visible_assignments.erase(pair.first);	
+						visible_assignments.erase(pair.first);
 					else
 						visible_assignments[pair.first] = pair.second;
 				}
@@ -1084,8 +1085,8 @@ public:
 				fmt_arg.signed_ = arg->type->isSigned();
 				break;
 			}
-			fmt_args.push_back(fmt_arg);						
-			
+			fmt_args.push_back(fmt_arg);
+
 		}
 		Yosys::Fmt fmt = {};
 		// TODO: insert the actual module name
@@ -1158,7 +1159,7 @@ public:
 			b.branch({}, [&](){
 				current_case->statement = &cond.ifTrue;
 				cond.ifFalse->visit(*this);
-			});	
+			});
 		}
 		b.finish(netlist);
 
@@ -1190,7 +1191,7 @@ public:
 
 		b.sw->statement = &stmt;
 		switch (stmt.check) {
-		case ast::UniquePriorityCheck::Priority: 
+		case ast::UniquePriorityCheck::Priority:
 			b.sw->full_case = true;
 			break;
 		case ast::UniquePriorityCheck::Unique:
@@ -1445,7 +1446,7 @@ public:
 	{
 		if (!netlist.settings.ignore_timing.value_or(false))
 			netlist.add_diag(diag::GenericTimingUnsyn, stmt.timing.sourceRange);
-		
+
 		stmt.stmt.visit(*this);
 	}
 
@@ -2020,7 +2021,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 			ret = {};
 			for (auto elem : pattern_expr.elements())
 				ret = {ret, (*this)(*elem)};
-			ret = ret.repeat(repl_count);				
+			ret = ret.repeat(repl_count);
 		}
 		break;
 	case ast::ExpressionKind::ConditionalOp:
@@ -2081,7 +2082,7 @@ RTLIL::SigSpec SignalEvalContext::operator()(ast::Expression const &expr)
 
 					RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
 					transfer_attrs(call, proc);
-					visitor.root_case->copy_into(&proc->root_case);	
+					visitor.root_case->copy_into(&proc->root_case);
 				}
 			}
 		}
@@ -2175,7 +2176,7 @@ public:
 					mod->remove(cell);
 					return;
 				}
-				fmt_args.push_back(fmt_arg);	
+				fmt_args.push_back(fmt_arg);
 			}
 			Yosys::Fmt fmt = {};
 			// TODO: default_base is subroutine dependent, final newline is $display-only
@@ -2209,7 +2210,7 @@ public:
 		Yosys::pool<RTLIL::SigBit> dangling;
 		if (symbol.procedureKind != ast::ProceduralBlockKind::AlwaysComb) {
 			Yosys::pool<RTLIL::SigBit> driven_pool = {all_driven.begin(), all_driven.end()};
-			dangling = 
+			dangling =
 				detect_possibly_unassigned_subset(driven_pool, visitor.root_case);
 		}
 
@@ -2349,7 +2350,7 @@ public:
 												staging_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
 												named_chunk,
 												timing.triggers[0].edge_polarity);
-						transfer_attrs(symbol, cell);	
+						transfer_attrs(symbol, cell);
 					}
 				} else if (aloads.size() == 1) {
 					RTLIL::SigSpec aload_chunk = driven_chunk;
@@ -2468,7 +2469,7 @@ public:
 
 		RTLIL::SigSpec internal_signal;
 
-		if (auto expr = port.getInternalExpr()) 
+		if (auto expr = port.getInternalExpr())
 			internal_signal = netlist.eval.lhs(*expr);
 		else
 			internal_signal = netlist.wire(*port.internalSymbol);
@@ -3016,7 +3017,7 @@ static void build_hierpath2(NetlistContext &netlist,
 	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
 		auto &block = symbol->as<ast::GenerateBlockSymbol>();
 		if (auto index = block.arrayIndex) {
-			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]."; 
+			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "].";
 		} else {
 			s << block.getExternalName() << ".";
 		}
@@ -3077,7 +3078,7 @@ static bool build_hierpath3(const ast::Scope *relative_to,
 	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
 		auto &block = symbol->as<ast::GenerateBlockSymbol>();
 		if (auto index = block.arrayIndex) {
-			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]"; 
+			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]";
 		} else {
 			s << block.getExternalName();
 		}
@@ -3167,6 +3168,29 @@ NetlistContext::~NetlistContext()
 }
 
 USING_YOSYS_NAMESPACE
+
+struct SlangVersionPass : Pass {
+	SlangVersionPass() : Pass("slang_version", "display revision of slang frontend") {}
+
+	void help() override
+	{
+		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+		log("\n");
+		log("	slang_version\n");
+		log("\n");
+		log("Display git revisions of the slang frontend.\n");
+		log("\n");
+	}
+
+	void execute(std::vector<std::string> args, [[maybe_unused]] RTLIL::Design *d) override
+	{
+		if (args.size() != 1)
+			cmd_error(args, 1, "Extra argument");
+
+		log("yosys-slang revision %s\n", YOSYS_SLANG_REVISION);
+		log("slang revision %s\n", SLANG_REVISION);
+	}
+} SlangVersionPass;
 
 static std::vector<std::string> default_options;
 static std::vector<std::vector<std::string>> defaults_stack;
@@ -3525,7 +3549,7 @@ struct TestSlangExprPass : Pass {
 
 		if (!driver.parseAllSources())
 			log_error("Parsing failed\n");
-		
+
 		auto compilation = driver.createCompilation();
 		auto tfunc = std::make_shared<TFunc>();
 		compilation->addSystemSubroutine(tfunc);
