@@ -48,6 +48,7 @@ struct SynthesisSettings {
 	std::optional<bool> empty_blackboxes;
 	std::optional<bool> ast_compilation_only;
 	std::optional<bool> no_default_translate_off;
+	bool disable_instance_caching = false;
 
 	enum HierMode {
 		NONE,
@@ -428,7 +429,7 @@ std::string format_wchunk(RTLIL::SigChunk chunk)
 
 const ast::InstanceBodySymbol &get_instance_body(SynthesisSettings &settings, const ast::InstanceSymbol &instance)
 {
-	if (instance.getCanonicalBody())
+	if (!settings.disable_instance_caching && instance.getCanonicalBody())
 		return *instance.getCanonicalBody();
 	else
 		return instance.body;
@@ -3254,6 +3255,7 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 	if (!disable_inst_caching.has_value()) {
 		disable_inst_caching = true;
 	}
+	settings.disable_instance_caching = disable_inst_caching.value();
 }
 
 struct SlangFrontend : Frontend {
