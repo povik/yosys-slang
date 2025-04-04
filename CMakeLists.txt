@@ -13,7 +13,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 project(yosys-slang CXX)
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
-if (APPLE)
+option(BUILD_AS_PLUGIN "Build yosys-slang as a plugin" ON)
+mark_as_advanced(BUILD_AS_PLUGIN)
+
+if (APPLE AND BUILD_AS_PLUGIN)
     # On Linux, the shared libraries can refer to symbols from the executable by default.
     # On macOS, this is not the default behavior and needs to be enabled explicitly.
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -undefined dynamic_lookup")
@@ -34,7 +37,7 @@ add_subdirectory(third_party/slang)
 
 # We're statically linking slang (and fmt) into our plugin, which itself is a shared library.
 # Unless we build the dependencies as PIC, linking will fail.
-set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
-set_target_properties(slang_slang PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_AS_PLUGIN})
+set_target_properties(slang_slang PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_AS_PLUGIN})
 
 add_subdirectory(src)
