@@ -158,15 +158,15 @@ const RTLIL::IdString id(const std::string_view &view)
 	return RTLIL::escape_id(std::string(view));
 }
 
-static const RTLIL::IdString module_type_id(const ast::InstanceSymbol &sym)
+static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
 {
-	ast_invariant(sym, sym.isModule());
+	ast_invariant(sym, sym.parentInstance && sym.parentInstance->isModule());
 	std::string instance;
-	sym.body.getHierarchicalPath(instance);
-	if (instance == sym.body.name)
-		return RTLIL::escape_id(std::string(sym.body.name));
+	sym.getHierarchicalPath(instance);
+	if (instance == sym.name)
+		return RTLIL::escape_id(std::string(sym.name));
 	else
-		return RTLIL::escape_id(std::string(sym.body.name) + "$" + instance);
+		return RTLIL::escape_id(std::string(sym.name) + "$" + instance);
 }
 
 static const RTLIL::Const convert_svint(const slang::SVInt &svint)
@@ -424,6 +424,14 @@ std::string format_wchunk(RTLIL::SigChunk chunk)
 		return Yosys::stringf("%s[%d]", chunk.wire->name.c_str(), chunk.offset);
 	else
 		return Yosys::stringf("%s[%d:%d]", chunk.wire->name.c_str(), chunk.offset, chunk.offset + chunk.width);
+}
+
+const ast::InstanceBodySymbol &get_instance_body(SynthesisSettings &settings, const ast::InstanceSymbol &instance)
+{
+	if (instance.getCanonicalBody())
+		return *instance.getCanonicalBody();
+	else
+		return instance.body;
 }
 
 class UnrollLimitTracking {
@@ -2673,10 +2681,11 @@ public:
 			}
 		} else {
 			log_assert(sym.isModule());
-			auto ref_body = sym.getCanonicalBody() ? sym.getCanonicalBody() : &sym.body;
-			auto [submodule, inserted] = queue.get_or_emplace(ref_body, netlist, sym);
+			auto ref_body = &get_instance_body(settings, sym);
+			ast_invariant(sym, ref_body->parentInstance != nullptr);
+			auto [submodule, inserted] = queue.get_or_emplace(ref_body, netlist, *ref_body->parentInstance);
 
-			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(sym));
+			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(*ref_body));
 			for (auto *conn : sym.getPortConnections()) {
 				slang::SourceLocation loc;
 				if (auto expr = conn->getExpression())
@@ -3179,7 +3188,7 @@ NetlistContext::NetlistContext(
 		const ast::InstanceSymbol &instance)
 	: settings(settings), compilation(compilation), realm(instance.body), eval(*this)
 {
-	canvas = design->addModule(module_type_id(instance));
+	canvas = design->addModule(module_type_id(instance.body));
 	transfer_attrs(instance.body.getDefinition(), canvas);
 }
 
@@ -3374,8 +3383,10 @@ struct SlangFrontend : Frontend {
 
 			HierarchyQueue hqueue;
 			for (auto instance : compilation->getRoot().topInstances) {
-				auto [netlist, new_] = hqueue.get_or_emplace(instance->getCanonicalBody() ? instance->getCanonicalBody() : &instance->body,
-															 design, settings, *compilation, *instance);
+				auto ref_body = &get_instance_body(settings, *instance);
+				log_assert(ref_body->parentInstance);
+				auto [netlist, new_] = hqueue.get_or_emplace(ref_body, design, settings,
+															 *compilation, *ref_body->parentInstance);
 				log_assert(new_);
 				netlist.canvas->attributes[ID::top] = 1;
 			}
