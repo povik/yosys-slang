@@ -224,6 +224,7 @@ void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::InstanceSymbol 
 	}
 
 	RTLIL::Module *mod = target->addModule(name);
+	mod->set_bool_attribute(ID(blackbox), true);
 	transfer_attrs<const ast::Symbol>((ast::Symbol&) inst.getDefinition(), mod);
 
 	inst.body.visit(ast::makeVisitor([&](auto&, const ast::PortSymbol &port) {

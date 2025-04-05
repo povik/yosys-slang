@@ -3021,6 +3021,9 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 
 bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)
 {
+	if (sym.cellDefine)
+		return true;
+
 	for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
 		if (attr->name == "blackbox"sv && !attr->getValue().isFalse()) {
 			if (why_blackbox) {
