@@ -2524,6 +2524,9 @@ public:
 
 	bool is_blackbox(const ast::DefinitionSymbol &sym)
 	{
+		if (sym.cellDefine)
+			return true;
+
 		for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
 			if (attr->name == "blackbox"sv && !attr->getValue().isFalse())
 				return true;
