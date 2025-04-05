@@ -556,7 +556,7 @@ public:
 	// Return an enable signal for the current case node
 	RTLIL::SigBit case_enable()
 	{
-		RTLIL::SigBit ret = netlist.canvas->addWire(NEW_ID, 1);
+		RTLIL::SigBit ret = netlist.canvas->addWire(netlist.new_id(), 1);
 		root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
 		current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
 		return ret;
@@ -697,7 +697,7 @@ public:
 						&& chunk.wire->attributes[ID($nonstatic)].as_int() > parent->level)
 					continue;
 
-				RTLIL::Wire *w = netlist.canvas->addWire(NEW_ID_SUFFIX(format_wchunk(chunk)), chunk.size());
+				RTLIL::Wire *w = netlist.canvas->addWire(netlist.new_id(format_wchunk(chunk)), chunk.size());
 				if (sw->statement)
 					transfer_attrs(*sw->statement, w);
 				RTLIL::SigSpec w_default = chunk;
@@ -919,7 +919,7 @@ public:
 			require(assign, !blocking);
 
 			RTLIL::IdString id = netlist.id(sel.value().as<ast::NamedValueExpression>().symbol);
-			RTLIL::Cell *memwr = netlist.canvas->addCell(NEW_ID, ID($memwr_v2));
+			RTLIL::Cell *memwr = netlist.canvas->addCell(netlist.new_id(), ID($memwr_v2));
 			memwr->setParam(ID::MEMID, id.str());
 			if (timing.implicit()) {
 				memwr->setParam(ID::CLK_ENABLE, false);
@@ -980,7 +980,7 @@ public:
 			return;
 		}
 
-		auto cell = netlist.canvas->addCell(NEW_ID, ID($check));
+		auto cell = netlist.canvas->addCell(netlist.new_id(), ID($check));
 		set_effects_trigger(cell);
 		cell->setParam(ID::FLAVOR, flavor);
 		cell->setParam(ID::FORMAT, std::string(""));
@@ -1062,7 +1062,7 @@ public:
 
 	void handle_display(const ast::CallExpression &call)
 	{
-		auto cell = netlist.canvas->addCell(NEW_ID, ID($print));
+		auto cell = netlist.canvas->addCell(netlist.new_id(), ID($print));
 		transfer_attrs(call, cell);
 		set_effects_trigger(cell);
 		cell->parameters[ID::PRIORITY] = --effects_priority;
@@ -1263,7 +1263,7 @@ public:
 	}
 
 	void handle(const ast::WhileLoopStatement &stmt) {
-		RTLIL::Wire *break_ = add_nonstatic(NEW_ID_SUFFIX("break"), 1);
+		RTLIL::Wire *break_ = add_nonstatic(netlist.new_id("break"), 1);
 		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
 
 		std::vector<SwitchHelper> sw_stack;
@@ -1314,7 +1314,7 @@ public:
 			return;
 		}
 
-		RTLIL::Wire *break_ = add_nonstatic(NEW_ID_SUFFIX("break"), 1);
+		RTLIL::Wire *break_ = add_nonstatic(netlist.new_id("break"), 1);
 		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
 
 		std::vector<SwitchHelper> sw_stack;
@@ -1487,7 +1487,7 @@ EvalContext::Frame &EvalContext::push_frame(const ast::SubroutineSymbol *subrout
 		log_assert(!subroutine);
 		frame.kind = Frame::Implicit;
 	} else {
-		frame.disable = procedural->add_nonstatic(NEW_ID_SUFFIX("disable"), 1);
+		frame.disable = procedural->add_nonstatic(netlist.new_id("disable"), 1);
 		procedural->do_simple_assign(slang::SourceLocation::NoLocation,
 									 frame.disable, RTLIL::S0, true);
 		frame.kind = (subroutine != nullptr) ? Frame::FunctionBody : Frame::LoopBody;
@@ -1510,7 +1510,7 @@ void EvalContext::create_local(const ast::Symbol *symbol)
 	auto &variable = symbol->as<ast::VariableSymbol>();
 	log_assert(variable.lifetime == ast::VariableLifetime::Automatic);
 
-	frames.back().locals[symbol] = procedural->add_nonstatic(NEW_ID_SUFFIX("local"),
+	frames.back().locals[symbol] = procedural->add_nonstatic(netlist.new_id("local"),
 												variable.getType().getBitstreamWidth());
 }
 
@@ -1606,7 +1606,7 @@ RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 
 	if (0) {
 	error:
-		ret = netlist.canvas->addWire(NEW_ID, expr.type->getBitstreamWidth());
+		ret = netlist.canvas->addWire(netlist.new_id(), expr.type->getBitstreamWidth());
 	}
 
 	log_assert(expr.type->isFixedSize());
@@ -1631,7 +1631,7 @@ RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assi
 	ast_invariant(assign, rsymbol->kind == ast::ExpressionKind::EmptyArgument);
 	ast_invariant(assign, rsymbol->type->isBitstreamType());
 
-	RTLIL::SigSpec ret = netlist.canvas->addWire(NEW_ID, rsymbol->type->getBitstreamWidth());
+	RTLIL::SigSpec ret = netlist.canvas->addWire(netlist.new_id(), rsymbol->type->getBitstreamWidth());
 	netlist.GroupConnect(
 		lhs(assign.left()),
 		apply_nested_conversion(assign.right(), ret)
@@ -1879,7 +1879,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				}
 				if (!right.is_fully_const()) {
 					netlist.add_diag(diag::NonconstWildcardEq, expr.sourceRange);
-					ret = netlist.canvas->addWire(NEW_ID, expr.type->getBitstreamWidth());
+					ret = netlist.canvas->addWire(netlist.new_id(), expr.type->getBitstreamWidth());
 					return ret;
 				}
 				return netlist.Unop(
@@ -1978,7 +1978,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				int width = elemsel.type->getBitstreamWidth();
 				RTLIL::IdString id = netlist.id(elemsel.value()
 										.as<ast::NamedValueExpression>().symbol);
-				RTLIL::Cell *memrd = netlist.canvas->addCell(NEW_ID, ID($memrd_v2));
+				RTLIL::Cell *memrd = netlist.canvas->addCell(netlist.new_id(), ID($memrd_v2));
 				memrd->setParam(ID::MEMID, id.str());
 				memrd->setParam(ID::CLK_ENABLE, false);
 				memrd->setParam(ID::CLK_POLARITY, false);
@@ -1996,7 +1996,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				RTLIL::SigSpec addr = (*this)(elemsel.selector());
 				memrd->setPort(ID::ADDR, addr);
 				memrd->setParam(ID::ABITS, addr.size());
-				ret = netlist.canvas->addWire(NEW_ID, width);
+				ret = netlist.canvas->addWire(netlist.new_id(), width);
 				memrd->setPort(ID::DATA, ret);
 				memrd->setParam(ID::WIDTH, width);
 				transfer_attrs(expr, memrd);
@@ -2040,10 +2040,10 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			require(expr, ternary.conditions.size() == 1);
 			require(expr, !ternary.conditions[0].pattern);
 
-			ret = mod->Mux(NEW_ID,
+			ret = mod->Mux(netlist.new_id(),
 				(*this)(ternary.right()),
 				(*this)(ternary.left()),
-				mod->ReduceBool(NEW_ID, (*this)(*(ternary.conditions[0].expr)))
+				mod->ReduceBool(netlist.new_id(), (*this)(*(ternary.conditions[0].expr)))
 			);
 		}
 		break;
@@ -2089,7 +2089,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					visitor.eval.ignore_ast_constants = ignore_ast_constants;
 					ret = visitor.handle_call(call);
 
-					RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
+					RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 					transfer_attrs(call, proc);
 					visitor.root_case->copy_into(&proc->root_case);
 				}
@@ -2179,7 +2179,7 @@ public:
 			: SlangInitial::EvalVisitor(compilation, ignore_timing), netlist(netlist), mod(mod), print_priority(0) {}
 
 		void handleDisplay(const slang::ast::CallExpression &call, const std::vector<slang::ConstantValue> &args) {
-			auto cell = mod->addCell(NEW_ID, ID($print));
+			auto cell = mod->addCell(netlist.new_id(), ID($print));
 			cell->parameters[ID::TRG_ENABLE] = true;
 			cell->parameters[ID::TRG_WIDTH] = 0;
 			cell->parameters[ID::TRG_POLARITY] = {};
@@ -2232,7 +2232,7 @@ public:
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
-		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
+		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(body, proc);
 
 		UpdateTiming implicit_timing;
@@ -2282,9 +2282,9 @@ public:
 
 			for (auto bit : latch_driven) {
 				// TODO: create latches in groups
-				RTLIL::SigBit en = netlist.canvas->addWire(NEW_ID, 1);
-				RTLIL::SigBit staging = netlist.canvas->addWire(NEW_ID, 1);
-				RTLIL::Cell *cell = netlist.canvas->addDlatch(NEW_ID, en,
+				RTLIL::SigBit en = netlist.canvas->addWire(netlist.new_id(), 1);
+				RTLIL::SigBit staging = netlist.canvas->addWire(netlist.new_id(), 1);
+				RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en,
 														staging, bit, true);
 				signaling[bit] = {en, staging};
 				enables.append(en);
@@ -2309,7 +2309,7 @@ public:
 		log_assert(symbol.getBody().kind == ast::StatementKind::Timed);
 		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
 
-		RTLIL::Process *proc = netlist.canvas->addProcess(NEW_ID);
+		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(timed.stmt, proc);
 
 		UpdateTiming prologue_timing;
@@ -2651,7 +2651,7 @@ public:
 						auto &conv = right->as<ast::ConversionExpression>();
 
 						// assign converted value to the target
-						RTLIL::Wire *temporary = netlist.canvas->addWire(NEW_ID,
+						RTLIL::Wire *temporary = netlist.canvas->addWire(netlist.new_id(),
 												conv.operand().type->getBitstreamWidth());
 						netlist.canvas->connect(signal, netlist.eval.apply_conversion(conv, temporary));
 
@@ -2918,7 +2918,7 @@ public:
 					if (netlist.is_inferred_memory(sym)) {
 						RTLIL::IdString id = netlist.id(sym);
 						RTLIL::Memory *m = netlist.canvas->memories.at(id);
-						RTLIL::Cell *meminit = netlist.canvas->addCell(NEW_ID, ID($meminit_v2));
+						RTLIL::Cell *meminit = netlist.canvas->addCell(netlist.new_id(), ID($meminit_v2));
 						int abits = 32;
 						ast_invariant(sym, m->width * m->size == const_.size());
 						meminit->setParam(ID::MEMID, id.str());

@@ -87,7 +87,7 @@ struct EvalContext {
 	RTLIL::SigSpec operator()(ast::Symbol const &symbol);
 
 	// Evaluates the given expression, inserts an extra sign bit if need
-	// be so that the result can be interpreted as a signed value 
+	// be so that the result can be interpreted as a signed value
 	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
 
 	// Describes the given LHS expression as a sequence of wirebits
@@ -114,6 +114,9 @@ struct RTLILBuilder {
 	using SigSpec = RTLIL::SigSpec;
 
 	RTLIL::Module *canvas;
+
+	unsigned next_id = 0;
+	std::string new_id(std::string base = std::string());
 
 	SigSpec ReduceBool(SigSpec a);
 
