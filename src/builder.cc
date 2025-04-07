@@ -12,10 +12,17 @@ using RTLIL::Cell;
 using RTLIL::IdString;
 using RTLIL::SigSpec;
 
+std::string RTLILBuilder::new_id(std::string base) {
+	if (base.empty())
+		return std::string("$") + std::to_string(next_id++);
+	else
+		return std::string("$") + base + "$" + std::to_string(next_id++);
+}
+
 SigSpec RTLILBuilder::ReduceBool(SigSpec a) {
 	if (a.is_fully_const())
 		return RTLIL::const_reduce_bool(a.as_const(), RTLIL::Const(), false, false, 1);
-	return canvas->ReduceBool(NEW_ID, a, false);
+	return canvas->ReduceBool(new_id(), a, false);
 }
 
 SigSpec RTLILBuilder::Sub(SigSpec a, SigSpec b, bool is_signed) {
@@ -24,7 +31,7 @@ SigSpec RTLILBuilder::Sub(SigSpec a, SigSpec b, bool is_signed) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_sub(a.as_const(), b.as_const(), is_signed, is_signed,
 								std::max(a.size(), b.size()) + 1);
-	return canvas->Sub(NEW_ID, a, b, is_signed);
+	return canvas->Sub(new_id(), a, b, is_signed);
 }
 
 SigSpec RTLILBuilder::Demux(SigSpec a, SigSpec s) {
@@ -35,31 +42,31 @@ SigSpec RTLILBuilder::Demux(SigSpec a, SigSpec s) {
 		return {zeropad.repeat((1 << s.size()) - 1 - idx_const),
 					a, zeropad.repeat(idx_const)};
 	}
-	return canvas->Demux(NEW_ID, a, s);
+	return canvas->Demux(new_id(), a, s);
 }
 
 SigSpec RTLILBuilder::Le(SigSpec a, SigSpec b, bool is_signed) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_le(a.as_const(), b.as_const(), is_signed, is_signed, 1);
-	return canvas->Le(NEW_ID, a, b, is_signed);
+	return canvas->Le(new_id(), a, b, is_signed);
 }
 
 SigSpec RTLILBuilder::Ge(SigSpec a, SigSpec b, bool is_signed) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_ge(a.as_const(), b.as_const(), is_signed, is_signed, 1);
-	return canvas->Ge(NEW_ID, a, b, is_signed);
+	return canvas->Ge(new_id(), a, b, is_signed);
 }
 
 SigSpec RTLILBuilder::Lt(SigSpec a, SigSpec b, bool is_signed) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_lt(a.as_const(), b.as_const(), is_signed, is_signed, 1);
-	return canvas->Lt(NEW_ID, a, b, is_signed);
+	return canvas->Lt(new_id(), a, b, is_signed);
 }
 
 SigSpec RTLILBuilder::Eq(SigSpec a, SigSpec b) {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_eq(a.as_const(), b.as_const(), false, false, 1);
-	return canvas->Eq(NEW_ID, a, b);
+	return canvas->Eq(new_id(), a, b);
 }
 
 SigSpec RTLILBuilder::EqWildcard(SigSpec a, SigSpec b) {
@@ -75,7 +82,7 @@ SigSpec RTLILBuilder::EqWildcard(SigSpec a, SigSpec b) {
 	log_assert(a.size() == b.size());
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_eq(a.as_const(), b.as_const(), false, false, 1);
-	return canvas->Eq(NEW_ID, a, b);
+	return canvas->Eq(new_id(), a, b);
 }
 
 SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b) {
@@ -85,7 +92,7 @@ SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b) {
 		return b;
 	if (b.is_fully_def() && a.size() == 1)
 		return a;
-	return canvas->LogicAnd(NEW_ID, a, b);
+	return canvas->LogicAnd(new_id(), a, b);
 }
 
 SigSpec RTLILBuilder::LogicOr(SigSpec a, SigSpec b) {
@@ -93,13 +100,13 @@ SigSpec RTLILBuilder::LogicOr(SigSpec a, SigSpec b) {
 		return RTLIL::Const(1, 1);
 	if (a.is_fully_zero() && b.is_fully_zero())
 		return RTLIL::Const(0, 1);
-	return canvas->LogicOr(NEW_ID, a, b);
+	return canvas->LogicOr(new_id(), a, b);
 }
 
 SigSpec RTLILBuilder::LogicNot(SigSpec a) {
 	if (a.is_fully_const())
 		return RTLIL::const_logic_not(a.as_const(), RTLIL::Const(), false, false, -1);
-	return canvas->LogicNot(NEW_ID, a);
+	return canvas->LogicNot(new_id(), a);
 }
 
 SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s) {
@@ -109,7 +116,7 @@ SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s) {
 		return a;
 	if (s[0] == RTLIL::S1)
 		return b;
-	return canvas->Mux(NEW_ID, a, b, s);
+	return canvas->Mux(new_id(), a, b, s);
 }
 
 SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s) {
@@ -125,7 +132,7 @@ SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s) {
 		}
 		return result;
 	}
-	return canvas->Bwmux(NEW_ID, a, b, s);
+	return canvas->Bwmux(new_id(), a, b, s);
 }
 
 SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b,
@@ -151,8 +158,8 @@ SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b,
 		return ret;
 	}
 
-	SigSpec y = canvas->addWire(NEW_ID, result_width);
-	Cell *cell = canvas->addCell(NEW_ID, ID($shift));
+	SigSpec y = canvas->addWire(new_id(), result_width);
+	Cell *cell = canvas->addCell(new_id(), ID($shift));
 	cell->parameters[Yosys::ID::A_SIGNED] = a_signed;
 	cell->parameters[Yosys::ID::B_SIGNED] = b_signed;
 	cell->parameters[Yosys::ID::A_WIDTH] = a.size();
@@ -170,8 +177,8 @@ SigSpec RTLILBuilder::Shiftx(SigSpec a, SigSpec s,
 	if (a.is_fully_const() && s.is_fully_const())
 		return RTLIL::const_shiftx(a.as_const(), s.as_const(),
 								   false, s_signed, result_width);
-	SigSpec y = canvas->addWire(NEW_ID, result_width);
-	canvas->addShiftx(NEW_ID, a, s, y, s_signed);
+	SigSpec y = canvas->addWire(new_id(), result_width);
+	canvas->addShiftx(new_id(), a, s, y, s_signed);
 	return y;
 }
 
@@ -180,8 +187,8 @@ SigSpec RTLILBuilder::Neg(SigSpec a, bool signed_)
 	if (a.is_fully_const())
 		return RTLIL::const_neg(a.as_const(), RTLIL::Const(),
 								signed_, false, a.size() + 1);
-	SigSpec y = canvas->addWire(NEW_ID, a.size() + 1);
-	canvas->addNeg(NEW_ID, a, y, signed_);
+	SigSpec y = canvas->addWire(new_id(), a.size() + 1);
+	canvas->addNeg(new_id(), a, y, signed_);
 	return y;
 }
 
@@ -192,14 +199,14 @@ SigSpec RTLILBuilder::Bmux(SigSpec a, SigSpec s) {
 	if (s.is_fully_def()) {
 		return a.extract(s.as_const().as_int() * stride, stride);
 	}
-	return canvas->Bmux(NEW_ID, a, s);
+	return canvas->Bmux(new_id(), a, s);
 }
 
 SigSpec RTLILBuilder::Not(SigSpec a)
 {
 	if (a.is_fully_const())
 		return RTLIL::const_not(a.as_const(), RTLIL::Const(), false, false, -1);
-	return canvas->Not(NEW_ID, a);
+	return canvas->Not(new_id(), a);
 }
 
 namespace ThreeValued {
@@ -327,7 +334,7 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 		}
 	}
 
-	Cell *cell = canvas->addCell(NEW_ID, op);
+	Cell *cell = canvas->addCell(new_id(), op);
 	cell->setPort(RTLIL::ID::A, a);
 	cell->setPort(RTLIL::ID::B, b);
 	cell->setParam(RTLIL::ID::A_WIDTH, a.size());
@@ -335,7 +342,7 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 	cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
 	cell->setParam(RTLIL::ID::B_SIGNED, b_signed);
 	cell->setParam(RTLIL::ID::Y_WIDTH, y_width);
-	SigSpec ret = canvas->addWire(NEW_ID, y_width);
+	SigSpec ret = canvas->addWire(new_id(), y_width);
 	cell->setPort(RTLIL::ID::Y, ret);
 	return ret;
 }
@@ -356,12 +363,12 @@ SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 #undef OP
 	}
 
-	Cell *cell = canvas->addCell(NEW_ID, op);
+	Cell *cell = canvas->addCell(new_id(), op);
 	cell->setPort(RTLIL::ID::A, a);
 	cell->setParam(RTLIL::ID::A_WIDTH, a.size());
 	cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
 	cell->setParam(RTLIL::ID::Y_WIDTH, y_width);
-	SigSpec ret = canvas->addWire(NEW_ID, y_width);
+	SigSpec ret = canvas->addWire(new_id(), y_width);
 	cell->setPort(RTLIL::ID::Y, ret);
 	return ret;
 }
