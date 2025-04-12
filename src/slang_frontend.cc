@@ -79,18 +79,18 @@ struct SynthesisSettings {
 		cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
 					"Keep hierarchy in a 'best effort' mode");
 		cmdLine.add("--ignore-timing", ignore_timing,
-		            "Ignore delays for synthesis");
+					"Ignore delays for synthesis");
 		cmdLine.add("--ignore-initial", ignore_initial,
-		            "Ignore initial blocks for synthesis");
+					"Ignore initial blocks for synthesis");
 		cmdLine.add("--ignore-assertions", ignore_assertions,
-		            "Ignore assertions and formal statements in input");
+					"Ignore assertions and formal statements in input");
 		cmdLine.add("--unroll-limit", unroll_limit_,
-		            "Set unrolling limit (default: 4000)", "<limit>");
+					"Set unrolling limit (default: 4000)", "<limit>");
 		// TODO: deprecate; now on by default
 		cmdLine.add("--extern-modules", extern_modules,
-		            "Import as an instantiable blackbox any module which was previously "
-		            "loaded into the current design with a Yosys command; this allows composing "
-		            "hierarchy of SystemVerilog and non-SystemVerilog modules");
+					"Import as an instantiable blackbox any module which was previously "
+					"loaded into the current design with a Yosys command; this allows composing "
+					"hierarchy of SystemVerilog and non-SystemVerilog modules");
 		cmdLine.add("--no-implicit-memories", no_implicit_memories,
 					"Require a memory style attribute to consider a variable for memory inference");
 		cmdLine.add("--empty-blackboxes", empty_blackboxes,
@@ -2021,7 +2021,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			if (0) {
 	case ast::ExpressionKind::ReplicatedAssignmentPattern:
 				repl_count = *expr.as<ast::ReplicatedAssignmentPatternExpression>()
-                            	.count().eval(const_).integer().as<size_t>();
+								.count().eval(const_).integer().as<size_t>();
 			}
 
 			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
@@ -2227,7 +2227,7 @@ public:
 		  queue(queue), netlist(netlist), settings(netlist.settings),
 		  mem_detect(settings.no_implicit_memories.value_or(false), std::bind(&PopulateNetlist::should_dissolve, this, std::placeholders::_1)),
 		  initial_eval(netlist, &netlist.compilation, netlist.canvas,
-		  			   netlist.settings.ignore_timing.value_or(false)) {}
+					   netlist.settings.ignore_timing.value_or(false)) {}
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
@@ -2444,8 +2444,8 @@ public:
 
 		auto result = body.visit(initial_eval);
 		if (result != ast::Statement::EvalResult::Success)
-    		initial_eval.context.addDiag(diag::NoteIgnoreInitial,
-    									 slang::SourceLocation::NoLocation);
+			initial_eval.context.addDiag(diag::NoteIgnoreInitial,
+										 slang::SourceLocation::NoLocation);
 	}
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
@@ -3600,22 +3600,22 @@ struct TestSlangDiagPass : Pass {
 
 class TFunc : public ast::SystemSubroutine {
 public:
-    TFunc() : ast::SystemSubroutine("$t", ast::SubroutineKind::Function) {}
+	TFunc() : ast::SystemSubroutine("$t", ast::SubroutineKind::Function) {}
 
-    const ast::Type& checkArguments(const ast::ASTContext& context, const Args& args,
+	const ast::Type& checkArguments(const ast::ASTContext& context, const Args& args,
 									slang::SourceRange range, const ast::Expression*) const final {
-        auto& comp = context.getCompilation();
-        if (!checkArgCount(context, false, args, range, 1, 1))
-            return comp.getErrorType();
-        return comp.getVoidType();
-    }
+		auto& comp = context.getCompilation();
+		if (!checkArgCount(context, false, args, range, 1, 1))
+			return comp.getErrorType();
+		return comp.getVoidType();
+	}
 
-    slang::ConstantValue eval(ast::EvalContext& context, const Args&,
-    						  slang::SourceRange range,
+	slang::ConstantValue eval(ast::EvalContext& context, const Args&,
+							  slang::SourceRange range,
 							  const ast::CallExpression::SystemCallInfo&) const final {
-        notConst(context, range);
-        return nullptr;
-    }
+		notConst(context, range);
+		return nullptr;
+	}
 };
 
 struct TestSlangExprPass : Pass {
