@@ -3069,11 +3069,16 @@ static void build_hierpath2(NetlistContext &netlist,
 
 		auto &inst = symbol->as<ast::InstanceSymbolBase>();
 		if (!inst.arrayPath.empty()) {
-            for (size_t i = 0; i < inst.arrayPath.size(); i++)
-            	s << "[" << inst.arrayPath[i] << "]";
+			slang::SmallVector<slang::ConstantRange, 8> dimensions;
+			inst.getArrayDimensions(dimensions);
+
+			for (size_t i = 0; i < inst.arrayPath.size(); i++)
+				s << "[" << ((int) inst.arrayPath[i]) + dimensions[i].lower() << "]";
 		}
 
 		s << ".";
+	} else if (symbol->kind == ast::SymbolKind::InstanceArray) {
+		s << symbol->name;
 	} else if (!symbol->name.empty()) {
 		s << symbol->name << ".";
 	} else if (symbol->kind == ast::SymbolKind::StatementBlock) {
@@ -3132,11 +3137,16 @@ static bool build_hierpath3(const ast::Scope *relative_to,
 
 		auto &inst = symbol->as<ast::InstanceSymbolBase>();
 		if (!inst.arrayPath.empty()) {
-            for (size_t i = 0; i < inst.arrayPath.size(); i++)
-            	s << "[" << inst.arrayPath[i] << "]";
+			slang::SmallVector<slang::ConstantRange, 8> dimensions;
+			inst.getArrayDimensions(dimensions);
+
+			for (size_t i = 0; i < inst.arrayPath.size(); i++)
+				s << "[" << ((int) inst.arrayPath[i]) + dimensions[i].lower() << "]";
 		}
 
 		pending = true;
+	} else if (symbol->kind == ast::SymbolKind::InstanceArray) {
+		s << symbol->name;
 	} else if (!symbol->name.empty()) {
 		s << symbol->name;
 
