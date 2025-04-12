@@ -161,8 +161,7 @@ const RTLIL::IdString id(const std::string_view &view)
 static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
 {
 	ast_invariant(sym, sym.parentInstance && sym.parentInstance->isModule());
-	std::string instance;
-	sym.getHierarchicalPath(instance);
+	std::string instance = sym.getHierarchicalPath();
 	if (instance == sym.name)
 		return RTLIL::escape_id(std::string(sym.name));
 	else
@@ -1472,8 +1471,7 @@ public:
 EvalContext::Frame &EvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
 {
 	if (subroutine) {
-		std::string hier;
-		subroutine->getHierarchicalPath(hier);
+		std::string hier = subroutine->getHierarchicalPath();
 		log_debug("%s-> push (%s)\n", std::string(frames.size(), ' ').c_str(),
 				  hier.c_str());
 	} else {
@@ -1500,8 +1498,7 @@ void EvalContext::create_local(const ast::Symbol *symbol)
 	log_assert(!frames.empty());
 
 	{
-		std::string hier;
-		symbol->getHierarchicalPath(hier);
+		std::string hier = symbol->getHierarchicalPath();
 		log_debug("%s- local (%s)\n", std::string(frames.size(), ' ').c_str(), hier.c_str());
 	}
 
