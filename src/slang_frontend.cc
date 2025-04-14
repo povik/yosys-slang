@@ -2039,10 +2039,10 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			require(expr, ternary.conditions.size() == 1);
 			require(expr, !ternary.conditions[0].pattern);
 
-			ret = mod->Mux(netlist.new_id(),
+			ret = netlist.Mux(
 				(*this)(ternary.right()),
 				(*this)(ternary.left()),
-				mod->ReduceBool(netlist.new_id(), (*this)(*(ternary.conditions[0].expr)))
+				netlist.ReduceBool((*this)(*(ternary.conditions[0].expr)))
 			);
 		}
 		break;
