@@ -4,13 +4,6 @@ flatten
 chformal -lower
 sat -verify -enable_undef -prove-asserts -show-public
 
-#design -reset
-#read_slang --keep-hierarchy intf_array_w_hierarchy.sv
-#hierarchy -top top
-#flatten
-#chformal -lower
-#sat -verify -enable_undef -prove-asserts -show-public
-
 design -reset
 test_slangdiag -expect "interface port on kept module boundary must be a modport"
 read_slang --keep-hierarchy <<EOF

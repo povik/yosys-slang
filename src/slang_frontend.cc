@@ -2717,13 +2717,18 @@ public:
 
 					const ast::Symbol &iface_instance = *conn->getIfaceConn().first;
 					const ast::ModportSymbol &ref_modport = *conn->getIfaceConn().second;
+					std::span<const slang::ConstantRange> array_range;
 
 					const ast::Scope *iface_scope;
 					switch (iface_instance.kind) {
-					case ast::SymbolKind::InstanceArray:
+					case ast::SymbolKind::InstanceArray: {
 						iface_scope = static_cast<const ast::Scope *>(
 										&iface_instance.as<ast::InstanceArraySymbol>());
+						auto range1 = conn->port.as<ast::InterfacePortSymbol>().getDeclaredRange();
+						ast_invariant(conn->port, range1.has_value());
+						array_range = range1.value();
 						break;
+					}
 					case ast::SymbolKind::Instance:
 						iface_scope = static_cast<const ast::Scope *>(
 										&iface_instance.as<ast::InstanceSymbol>().body);
@@ -2733,21 +2738,33 @@ public:
 						break;
 					}
 
-					// Failing this condition is a dead giveaway the iface_instance symbol
-					// is a placeholder made up by slang as a result of slicing. We shouldn't
-					// try supporting that case until slang#1152 is fixed which hopefully
-					// gives us more clarity into what the right handling is.
-					require(sym, iface_instance.getParentScope())
+					std::string hierpath_suffix = "";
+					int array_level = 0;
 
 					iface_instance.visit(ast::makeVisitor(
+						[&](auto &visitor, const ast::InstanceArraySymbol &symbol) {
+							// Mock instance array symbols made up by slang don't contain
+							// the instances as members, but they do contain them as elements
+							std::string save = hierpath_suffix;
+							int i = 0;
+							for (auto &elem : symbol.elements) {
+								auto dim = array_range[array_level];
+								int hdl_index = dim.lower() + i;
+								i++;
+								hierpath_suffix += "[" + std::to_string(hdl_index) + "]";
+								array_level++;
+								elem->visit(visitor);
+								array_level--;
+								hierpath_suffix = save;
+							}
+						},
 						[&](auto &visitor, const ast::ModportSymbol &modport) {
-							// To support interface arrays, we need to match all the modports
-							// below iface_instance with the same name as ref_modport
+							// To support interface arrays, we need to match all modports
+							// with the same name as ref_modport
 							if (!modport.name.compare(ref_modport.name)) {
 								if (inserted) {
 									submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
-															submodule.id(conn->port).str() + \
-															hierpath_relative_to(iface_scope, modport.getParentScope());
+															submodule.id(conn->port).str() + hierpath_suffix;
 								}
 								visitor.visitDefault(modport);
 							}

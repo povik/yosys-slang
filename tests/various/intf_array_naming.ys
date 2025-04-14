@@ -1,0 +1,18 @@
+read_slang --keep-hierarchy <<EOF
+interface bus(input clk);
+	logic a;
+	modport primary(input a);
+endinterface
+module m1(bus.primary intf [0:1][3:2]);
+	wire w = intf[0][3].a;
+endmodule
+module top(input logic clk);
+	bus top_bus[1:0][1:0](clk);
+	m1 m1i(top_bus);
+endmodule
+EOF
+flatten
+select -assert-count 3 w:m1i.intf[0][3].a w:top_bus[1][1].a w:m1i.w %% %a
+select -assert-count 2 w:m1i.intf[0][2].a w:top_bus[1][0].a %% %a
+select -assert-count 2 w:m1i.intf[1][3].a w:top_bus[0][1].a %% %a
+select -assert-count 2 w:m1i.intf[1][2].a w:top_bus[0][0].a %% %a
