@@ -22,6 +22,8 @@ std::string RTLILBuilder::new_id(std::string base) {
 SigSpec RTLILBuilder::ReduceBool(SigSpec a) {
 	if (a.is_fully_const())
 		return RTLIL::const_reduce_bool(a.as_const(), RTLIL::Const(), false, false, 1);
+	if (a.size() == 1)
+		return a[0];
 	return canvas->ReduceBool(new_id(), a, false);
 }
 
