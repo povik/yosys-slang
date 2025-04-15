@@ -26,6 +26,7 @@ include(FetchContent)
 
 # The log will show "-- Using remote fmt library", but that is misleading,
 # as no network access will be done. (Our first declaration of `fmt` wins.)
+option(FMT_INSTALL OFF)
 FetchContent_Declare(
     fmt
     EXCLUDE_FROM_ALL
