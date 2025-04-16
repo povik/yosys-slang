@@ -2712,6 +2712,9 @@ public:
 				case ast::SymbolKind::InterfacePort: {
 					if (!conn->getIfaceConn().second) {
 						netlist.add_diag(diag::ModportRequired, loc);
+						if (inserted) {
+							submodule.disabled = true;
+						}
 						continue;
 					}
 
@@ -3427,6 +3430,10 @@ struct SlangFrontend : Frontend {
 
 			for (int i = 0; i < (int) hqueue.queue.size(); i++) {
 				NetlistContext &netlist = *hqueue.queue[i];
+
+				if (netlist.disabled)
+					continue;
+
 				PopulateNetlist populate(hqueue, netlist);
 				netlist.realm.visit(populate);
 

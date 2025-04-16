@@ -200,6 +200,11 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	Yosys::dict<RTLIL::Wire *, const ast::Type * YS_HASH_PTR_OPS> wire_hdl_types;
 
+	// With this flag set we will not elaborate this netlist; we set this when
+	// `scopes_remap` is incomplete due to errors in processing the instantiation
+	// of `realm` somewhere in the input.
+	bool disabled = false;
+
 	NetlistContext(RTLIL::Design *design,
 		SynthesisSettings &settings,
 		ast::Compilation &compilation,
@@ -226,6 +231,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 		detected_memories.swap(other.detected_memories);
 		canvas = other.canvas;
 		other.canvas = nullptr;
+		disabled = other.disabled;
 	}
 
 	Yosys::pool<const ast::Symbol *> detected_memories;

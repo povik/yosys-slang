@@ -10,3 +10,23 @@ sat -verify -enable_undef -prove-asserts -show-public
 #flatten
 #chformal -lower
 #sat -verify -enable_undef -prove-asserts -show-public
+
+design -reset
+test_slangdiag -expect "interface port on kept module boundary must be a modport"
+read_slang --keep-hierarchy <<EOF
+interface bus(input clk);
+	logic a, b;
+	modport primary(input a, output b, input clk);
+	modport secondary(input b, output a, input clk);
+endinterface
+
+module m1(bus intf);
+	// test that we don't crash because this reference hasn't been remapped
+	wire w = intf.a;
+endmodule
+
+module top(input logic s, input logic clk);
+	bus intf(clk);
+	m1 a(.*);
+endmodule
+EOF
