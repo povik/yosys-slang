@@ -3392,15 +3392,18 @@ struct SlangFrontend : Frontend {
 				std::cout << writer.view() << std::endl;
 			}
 
+			bool in_succesful_failtest = false;
+
 			driver.reportCompilation(*compilation,/* quiet */ false);
 			if (check_diagnostics(driver.diagEngine, compilation->getAllDiagnostics(), /*last=*/false))
-				return;
+				in_succesful_failtest = true;
 
 			if (driver.diagEngine.getNumErrors()) {
 				// Stop here should there have been any errors from AST compilation,
 				// PopulateNetlist requires a well-formed AST without error nodes
 				(void) driver.reportDiagnostics(/* quiet */ false);
-				log_error("Compilation failed\n");
+				if (!in_succesful_failtest)
+					log_error("Compilation failed\n");
 				return;
 			}
 
@@ -3431,8 +3434,10 @@ struct SlangFrontend : Frontend {
 				diags.append_range(populate.mem_detect.issued_diagnostics);
 				diags.append_range(netlist.issued_diagnostics);
 				diags.sort(driver.sourceManager);
-				if (check_diagnostics(driver.diagEngine, diags, /*last=*/true))
-					return;
+
+				if (check_diagnostics(driver.diagEngine, diags, /*last=*/false))
+					in_succesful_failtest = true;
+
 				for (int i = 0; i < (int) diags.size(); i++) {
 					if (i > 0 && diags[i] == diags[i - 1])
 						continue;
@@ -3440,8 +3445,14 @@ struct SlangFrontend : Frontend {
 				}
 			}
 
-			if (!driver.reportDiagnostics(/* quiet */ false))
-				log_error("Compilation failed\n");
+			if (check_diagnostics(driver.diagEngine, {}, /*last=*/true))
+				in_succesful_failtest = true;
+
+			if (!driver.reportDiagnostics(/* quiet */ false)) {
+				if (!in_succesful_failtest)
+					log_error("Compilation failed\n");
+				return;
+			}
 		} catch (const std::exception& e) {
 			log_error("Exception: %s\n", e.what());
 		}
