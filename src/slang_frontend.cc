@@ -2571,6 +2571,7 @@ public:
 			return false;
 			}
 		case SynthesisSettings::ALL:
+		default:
 			return false;
 		}
 	}
