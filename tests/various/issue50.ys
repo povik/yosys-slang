@@ -1,0 +1,2 @@
+test_slangdiag -expect "unknown system name '$t'"
+read_slang issue50.v

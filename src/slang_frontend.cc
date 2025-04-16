@@ -9,7 +9,6 @@
 #include "slang/ast/EvalContext.h"
 #include "slang/ast/SystemSubroutine.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
-#include "slang/diagnostics/TextDiagnosticClient.h"
 #include "slang/diagnostics/CompilationDiags.h"
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxPrinter.h"
@@ -2571,6 +2570,7 @@ public:
 			return false;
 			}
 		case SynthesisSettings::ALL:
+		default:
 			return false;
 		}
 	}
@@ -3258,6 +3258,8 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 	settings.disable_instance_caching = disable_inst_caching.value();
 }
 
+static std::string expected_diagnostic;
+
 struct SlangFrontend : Frontend {
 	SlangFrontend() : Frontend("slang", "read SystemVerilog (slang)") {}
 
@@ -3308,6 +3310,30 @@ struct SlangFrontend : Frontend {
 		}
 
 		return buffer;
+	}
+
+	// There are three cases handled by this function:
+	// 1. Normal mode; no expected diagnostics. Return `false` to continue executing.
+	// 2. Test mode; expected diagnostic found. Return `true` to exit early with success.
+	// 3a. Test mode; expected diagnostic not found but more could appear later. Return `false`.
+	// 3b. Test mode; expected diagnostic not found. Use `log_error()` to exit early with failure.
+	bool check_diagnostics(slang::DiagnosticEngine &diagEngine, const slang::SmallVector<slang::Diagnostic> &diags, bool last)
+	{
+		if (expected_diagnostic.empty())
+			return false;
+
+		for (auto &diag : diags) {
+			auto message = diagEngine.formatMessage(diag);
+			if (message == expected_diagnostic) {
+				log("Expected diagnostic `%s' found\n", expected_diagnostic.c_str());
+				expected_diagnostic.clear();
+				return true;
+			}
+		}
+		if (last)
+			log_error("Expected diagnostic `%s' but none emitted\n", expected_diagnostic.c_str());
+		else
+			return false;
 	}
 
 	void execute(std::istream *&f, std::string filename, std::vector<std::string> args, RTLIL::Design *design) override
@@ -3367,6 +3393,9 @@ struct SlangFrontend : Frontend {
 			}
 
 			driver.reportCompilation(*compilation,/* quiet */ false);
+			if (check_diagnostics(driver.diagEngine, compilation->getAllDiagnostics(), /*last=*/false))
+				return;
+
 			if (driver.diagEngine.getNumErrors()) {
 				// Stop here should there have been any errors from AST compilation,
 				// PopulateNetlist requires a well-formed AST without error nodes
@@ -3402,6 +3431,8 @@ struct SlangFrontend : Frontend {
 				diags.append_range(populate.mem_detect.issued_diagnostics);
 				diags.append_range(netlist.issued_diagnostics);
 				diags.sort(driver.sourceManager);
+				if (check_diagnostics(driver.diagEngine, diags, /*last=*/true))
+					return;
 				for (int i = 0; i < (int) diags.size(); i++) {
 					if (i > 0 && diags[i] == diags[i - 1])
 						continue;
@@ -3538,6 +3569,34 @@ struct UndrivenPass : Pass {
 		}
 	}
 } UndrivenPass;
+
+struct TestSlangDiagPass : Pass {
+	TestSlangDiagPass() : Pass("test_slangdiag", "test diagnostics emission by the slang frontend") {}
+
+	void help() override
+	{
+		log("Perform internal test of the slang frontend.\n");
+	}
+
+	void execute(std::vector<std::string> args, RTLIL::Design *design) override
+	{
+		log_header(design, "Executing TEST_SLANGDIAG pass.\n");
+
+		size_t argidx;
+		for (argidx = 1; argidx < args.size(); argidx++)
+		{
+			if (args[argidx] == "-expect" && argidx+1 < args.size()) {
+				std::string message = args[++argidx];
+				if (message.front() == '\"' && message.back() == '\"')
+					message = message.substr(1, message.size() - 2);
+				expected_diagnostic = message;
+				continue;
+			}
+			break;
+		}
+		extra_args(args, argidx, design, false);
+	}
+} TestSlangDiagPass;
 
 class TFunc : public ast::SystemSubroutine {
 public:
