@@ -76,3 +76,20 @@ endmodule
 module r9();
 	r9_blackbox box();
 endmodule
+
+// issue #129
+module r10n();
+wire n;
+endmodule
+
+module r10a();
+wire t;
+assign t = n1.n;
+r10n n1();
+endmodule
+
+module r10b();
+wire t;
+r10n n1();
+assign t = n1.n;
+endmodule
