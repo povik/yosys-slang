@@ -97,6 +97,7 @@ namespace diag {
 	DiagCode PortCorrespondence(DiagSubsystem::Netlist, 1042);
 	DiagCode UnsynthesizableFeature(DiagSubsystem::Netlist, 1043);
 	DiagCode SVAUnsupported(DiagSubsystem::Netlist, 1044);
+	DiagCode ForbiddenDemotion(DiagSubsystem::Netlist, 1045);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -212,6 +213,9 @@ namespace diag {
 
 		engine.setMessage(SVAUnsupported, "SVA unsupported (ignore all assertions with '--ignore-assertions')");
 		engine.setSeverity(SVAUnsupported, DiagnosticSeverity::Error);
+
+		engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported");
+		engine.setSeverity(ForbiddenDemotion, DiagnosticSeverity::Error);
 	}
 };
 };

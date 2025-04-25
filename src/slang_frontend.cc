@@ -8,8 +8,9 @@
 #include "slang/ast/Compilation.h"
 #include "slang/ast/EvalContext.h"
 #include "slang/ast/SystemSubroutine.h"
-#include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/diagnostics/CompilationDiags.h"
+#include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/LookupDiags.h"
 #include "slang/driver/Driver.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
@@ -3283,9 +3284,32 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 		disable_inst_caching = true;
 	}
 	settings.disable_instance_caching = disable_inst_caching.value();
+
+	// revisit slang#1326 in case of issues with this override
+	auto &time_scale = driver.options.timeScale;
+	if (!time_scale.has_value()) {
+		time_scale = "1ns/1ns";
+	}
 }
 
 static std::string expected_diagnostic;
+
+std::vector<slang::DiagCode> forbidden_diag_demotions = {
+	slang::diag::UnknownSystemName
+};
+
+void catch_forbidden_diag_demotions(slang::DiagnosticEngine &engine) {
+	// FIXME: this doesn't catch demotions which are location specific via pragmas
+	for (auto code : forbidden_diag_demotions) {
+		if (engine.getSeverity(code, slang::SourceLocation::NoLocation) !=
+				slang::DiagnosticSeverity::Error) {
+			slang::Diagnostic demotion_diag(diag::ForbiddenDemotion, slang::SourceLocation::NoLocation);
+			demotion_diag << engine.getOptionName(code);
+			engine.issue(demotion_diag);
+			engine.setSeverity(slang::diag::UnknownSystemName, slang::DiagnosticSeverity::Error);
+		}
+	}
+}
 
 struct SlangFrontend : Frontend {
 	SlangFrontend() : Frontend("slang", "read SystemVerilog (slang)") {}
@@ -3374,8 +3398,7 @@ struct SlangFrontend : Frontend {
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
 		diag::setup_messages(driver.diagEngine);
-		// TODO: move me elsewhere
-		driver.diagEngine.setSeverity(slang::diag::MissingTimeScale, slang::DiagnosticSeverity::Ignored);
+
 		{
 			if (auto heredoc = read_heredoc(args)) {
 				auto buffer = driver.sourceManager.assignText("<inlined>", std::string_view{heredoc.value()});
@@ -3401,6 +3424,7 @@ struct SlangFrontend : Frontend {
 		fixup_options(settings, driver);
 		if (!driver.processOptions())
 			log_cmd_error("Bad command\n");
+		catch_forbidden_diag_demotions(driver.diagEngine);
 
 		try {
 			if (!driver.parseAllSources())

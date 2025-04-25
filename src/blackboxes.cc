@@ -56,7 +56,7 @@ void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &t
 	for (auto module : source->modules()) {
 		std::string unescaped_id = RTLIL::unescape_id(module->name);
 
-		if (target.tryGetDefinition(unescaped_id, *target.getRootScope()).definition)
+		if (target.tryGetDefinition(unescaped_id, target.getRootNoFinalize()).definition)
 			continue;
 
 		SmallVector<TokenOrSyntax, 16> port_list;

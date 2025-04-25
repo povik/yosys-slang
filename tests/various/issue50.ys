@@ -1,2 +1,7 @@
 test_slangdiag -expect "unknown system name '$t'"
 read_slang issue50.v
+
+# try to demote the error
+#FIXME: cannot be tested with test_slangdiag
+#test_slangdiag -expect "disabling error 'unknown-sys-name' is unsupported"
+#read_slang -Wno-error=unknown-sys-name issue50.v
