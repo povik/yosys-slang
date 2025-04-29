@@ -1447,6 +1447,9 @@ public:
 		for (; it != eval.frames.end(); it++) {
 			log_assert(it->disable != nullptr);
 			do_simple_assign(stmt.sourceRange.start(), it->disable, RTLIL::S1, true);
+			if (it->break_ != nullptr) {
+				do_simple_assign(stmt.sourceRange.start(), it->break_, RTLIL::S1, true);
+			}
 		}
 	}
 
