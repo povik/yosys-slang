@@ -121,13 +121,15 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 	const ast::Statement *stmt = &body;
 
 	std::vector<AsyncBranch> found_async;
+	const ast::StatementBlockSymbol *prologue_block = nullptr;
 	std::vector<const ast::Statement *> prologue;
 	bool did_something = true;
 	while (did_something) {
 		did_something = false;
 
-		if (stmt->kind == ast::StatementKind::Block &&
+		if (prologue_block == nullptr && stmt->kind == ast::StatementKind::Block &&
 				stmt->as<ast::BlockStatement>().blockKind == ast::StatementBlockKind::Sequential) {
+			prologue_block = stmt->as<ast::BlockStatement>().blockSymbol;
 			stmt = &stmt->as<ast::BlockStatement>().body;
 			did_something = true;
 		}
@@ -248,7 +250,7 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 		return;
 	}
 
-	handle_ff_process(symbol, *triggers[0], prologue, *stmt, found_async);
+	handle_ff_process(symbol, *triggers[0], prologue_block, prologue, *stmt, found_async);
 }
 
 void TimingPatternInterpretor::interpret(const ast::ProceduralBlockSymbol &symbol)
