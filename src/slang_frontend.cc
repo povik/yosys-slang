@@ -847,7 +847,7 @@ public:
 			case ast::ExpressionKind::RangeSelect:
 				{
 					auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
-					Addressing addr(eval, sel);
+					Addressing<RTLIL::SigSpec> addr(eval, sel);
 					int wider_size = sel.value().type->getBitstreamWidth();
 					raw_mask = addr.shift_up(raw_mask, false, wider_size);
 					raw_rvalue = addr.shift_up(raw_rvalue, true, wider_size);
@@ -864,7 +864,7 @@ public:
 						break;
 					}
 
-					Addressing addr(eval, sel);
+					Addressing<RTLIL::SigSpec> addr(eval, sel);
 					raw_mask = addr.demux(raw_mask, sel.value().type->getBitstreamWidth());
 					raw_rvalue = raw_rvalue.repeat(addr.range.width());
 					raw_lexpr = &sel.value();
@@ -1569,7 +1569,7 @@ RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(netlist.eval, sel);
+			Addressing<RTLIL::SigSpec> addr(netlist.eval, sel);
 			RTLIL::SigSpec inner = lhs(sel.value());
 			ret = addr.extract(inner, sel.type->getBitstreamWidth());
 		}
@@ -1585,7 +1585,7 @@ RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 			require(expr, elemsel.value().type->isBitstreamType() && elemsel.value().type->hasFixedRange());
-			Addressing addr(*this, elemsel);
+			Addressing<RTLIL::SigSpec> addr(*this, elemsel);
 			ret = addr.extract(lhs(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
@@ -1966,7 +1966,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(*this, sel);
+			Addressing<RTLIL::SigSpec> addr(*this, sel);
 			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
 		}
 		break;
@@ -2003,7 +2003,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				break;
 			}
 
-			Addressing addr(*this, elemsel);
+			Addressing<RTLIL::SigSpec> addr(*this, elemsel);
 			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;

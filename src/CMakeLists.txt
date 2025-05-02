@@ -13,6 +13,7 @@ endif()
 
 add_library(yosys-slang ${LIBRARY_TYPE}
     abort_helpers.cc
+    addressing.cc
     addressing.h
     async_pattern.cc
     async_pattern.h
