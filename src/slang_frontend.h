@@ -21,6 +21,7 @@ namespace slang {
 	struct ConstantRange;
 	class SourceManager;
 	class DiagnosticEngine;
+	class CommandLine;
 	namespace ast {
 		class Compilation;
 		class Symbol;
@@ -184,6 +185,45 @@ public:
 	void add_diagnostics(const Diagnostics &diags);
 	void report_into(slang::DiagnosticEngine &engine);
 	std::vector<Diagnostic> issued_diagnostics;
+};
+
+struct SynthesisSettings {
+	std::optional<bool> dump_ast;
+	std::optional<bool> no_proc;
+	std::optional<bool> compat_mode;
+	std::optional<bool> keep_hierarchy;
+	std::optional<bool> best_effort_hierarchy;
+	std::optional<bool> ignore_timing;
+	std::optional<bool> ignore_initial;
+	std::optional<bool> ignore_assertions;
+	std::optional<int> unroll_limit_;
+	std::optional<bool> extern_modules;
+	std::optional<bool> no_implicit_memories;
+	std::optional<bool> empty_blackboxes;
+	std::optional<bool> ast_compilation_only;
+	std::optional<bool> no_default_translate_off;
+	bool disable_instance_caching = false;
+
+	enum HierMode {
+		NONE,
+		BEST_EFFORT,
+		ALL
+	};
+
+	HierMode hierarchy_mode()
+	{
+		if (keep_hierarchy.value_or(false))
+			return ALL;
+		if (best_effort_hierarchy.value_or(false))
+			return BEST_EFFORT;
+		return NONE;
+	}
+
+	int unroll_limit() {
+		return unroll_limit_.value_or(4000);
+	}
+
+	void addOptions(slang::CommandLine &cmdLine);
 };
 
 struct SynthesisSettings;

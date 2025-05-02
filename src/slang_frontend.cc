@@ -33,75 +33,38 @@
 
 namespace slang_frontend {
 
-struct SynthesisSettings {
-	std::optional<bool> dump_ast;
-	std::optional<bool> no_proc;
-	std::optional<bool> compat_mode;
-	std::optional<bool> keep_hierarchy;
-	std::optional<bool> best_effort_hierarchy;
-	std::optional<bool> ignore_timing;
-	std::optional<bool> ignore_initial;
-	std::optional<bool> ignore_assertions;
-	std::optional<int> unroll_limit_;
-	std::optional<bool> extern_modules;
-	std::optional<bool> no_implicit_memories;
-	std::optional<bool> empty_blackboxes;
-	std::optional<bool> ast_compilation_only;
-	std::optional<bool> no_default_translate_off;
-	bool disable_instance_caching = false;
-
-	enum HierMode {
-		NONE,
-		BEST_EFFORT,
-		ALL
-	};
-
-	HierMode hierarchy_mode()
-	{
-		if (keep_hierarchy.value_or(false))
-			return ALL;
-		if (best_effort_hierarchy.value_or(false))
-			return BEST_EFFORT;
-		return NONE;
-	}
-
-	int unroll_limit() {
-		return unroll_limit_.value_or(4000);
-	}
-
-	void addOptions(slang::CommandLine &cmdLine) {
-		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
-		cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
-		// TODO: deprecate; now on by default
-		cmdLine.add("--compat-mode", compat_mode,
-					"Be relaxed about the synthesis semantics of some language constructs");
-		cmdLine.add("--keep-hierarchy", keep_hierarchy,
-					"Keep hierarchy (experimental; may crash)");
-		cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
-					"Keep hierarchy in a 'best effort' mode");
-		cmdLine.add("--ignore-timing", ignore_timing,
-					"Ignore delays for synthesis");
-		cmdLine.add("--ignore-initial", ignore_initial,
-					"Ignore initial blocks for synthesis");
-		cmdLine.add("--ignore-assertions", ignore_assertions,
-					"Ignore assertions and formal statements in input");
-		cmdLine.add("--unroll-limit", unroll_limit_,
-					"Set unrolling limit (default: 4000)", "<limit>");
-		// TODO: deprecate; now on by default
-		cmdLine.add("--extern-modules", extern_modules,
-					"Import as an instantiable blackbox any module which was previously "
-					"loaded into the current design with a Yosys command; this allows composing "
-					"hierarchy of SystemVerilog and non-SystemVerilog modules");
-		cmdLine.add("--no-implicit-memories", no_implicit_memories,
-					"Require a memory style attribute to consider a variable for memory inference");
-		cmdLine.add("--empty-blackboxes", empty_blackboxes,
-					"Assume empty modules are blackboxes");
-		cmdLine.add("--ast-compilation-only", ast_compilation_only,
-					"For developers: stop after the AST is fully compiled");
-		cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
-					"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
-	}
-};
+void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
+	cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
+	cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
+	// TODO: deprecate; now on by default
+	cmdLine.add("--compat-mode", compat_mode,
+				"Be relaxed about the synthesis semantics of some language constructs");
+	cmdLine.add("--keep-hierarchy", keep_hierarchy,
+				"Keep hierarchy (experimental; may crash)");
+	cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
+				"Keep hierarchy in a 'best effort' mode");
+	cmdLine.add("--ignore-timing", ignore_timing,
+				"Ignore delays for synthesis");
+	cmdLine.add("--ignore-initial", ignore_initial,
+				"Ignore initial blocks for synthesis");
+	cmdLine.add("--ignore-assertions", ignore_assertions,
+				"Ignore assertions and formal statements in input");
+	cmdLine.add("--unroll-limit", unroll_limit_,
+				"Set unrolling limit (default: 4000)", "<limit>");
+	// TODO: deprecate; now on by default
+	cmdLine.add("--extern-modules", extern_modules,
+				"Import as an instantiable blackbox any module which was previously "
+				"loaded into the current design with a Yosys command; this allows composing "
+				"hierarchy of SystemVerilog and non-SystemVerilog modules");
+	cmdLine.add("--no-implicit-memories", no_implicit_memories,
+				"Require a memory style attribute to consider a variable for memory inference");
+	cmdLine.add("--empty-blackboxes", empty_blackboxes,
+				"Assume empty modules are blackboxes");
+	cmdLine.add("--ast-compilation-only", ast_compilation_only,
+				"For developers: stop after the AST is fully compiled");
+	cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
+				"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
+}
 
 namespace ast = slang::ast;
 namespace syntax = slang::syntax;
