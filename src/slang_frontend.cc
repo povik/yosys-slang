@@ -103,8 +103,6 @@ struct SynthesisSettings {
 	}
 };
 
-namespace RTLIL = Yosys::RTLIL;
-namespace ID = Yosys::RTLIL::ID;
 namespace ast = slang::ast;
 namespace syntax = slang::syntax;
 namespace parsing = slang::parsing;

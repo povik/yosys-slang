@@ -48,6 +48,7 @@ using Yosys::ys_debug;
 using Yosys::ceil_log2;
 namespace RTLIL = ::Yosys::RTLIL;
 namespace ast = ::slang::ast;
+namespace ID = ::Yosys::RTLIL::ID;
 
 struct NetlistContext;
 struct ProceduralVisitor;
