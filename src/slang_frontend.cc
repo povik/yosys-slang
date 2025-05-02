@@ -297,47 +297,36 @@ static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<
 	return remaining;
 }
 
-struct UpdateTiming {
-	RTLIL::SigBit background_enable = RTLIL::S1;
+bool ProcessTiming::implicit() const
+{
+	return triggers.empty();
+}
 
-	struct Sensitivity {
-		RTLIL::SigBit signal;
-		bool edge_polarity;
-		const ast::TimingControl *ast_node;
-	};
-	std::vector<Sensitivity> triggers;
+// extract trigger for side-effect cells like $print, $check
+void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
+{
+	auto &params = cell->parameters;
 
-	bool implicit() const
-	{
-		return triggers.empty();
-	}
+	cell->setPort(ID::EN, netlist.LogicAnd(background_enable, enable));
 
-	// extract trigger for side-effect cells like $print, $check
-	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
-	{
-		auto &params = cell->parameters;
-
-		cell->setPort(ID::EN, netlist.LogicAnd(background_enable, enable));
-
-		if (implicit()) {
-			params[ID::TRG_ENABLE] = false;
-			params[ID::TRG_WIDTH] = 0;
-			params[ID::TRG_POLARITY] = {};
-			cell->setPort(ID::TRG, {});
-		} else {
-			params[ID::TRG_ENABLE] = true;
-			params[ID::TRG_WIDTH] = triggers.size();
-			std::vector<RTLIL::State> pol_bits;
-			RTLIL::SigSpec trg_signals;
-			for (auto trigger : triggers) {
-				pol_bits.push_back(trigger.edge_polarity ? RTLIL::S1 : RTLIL::S0);
-				trg_signals.append(trigger.signal);
-			}
-			params[ID::TRG_POLARITY] = RTLIL::Const(pol_bits);
-			cell->setPort(ID::TRG, trg_signals);
+	if (implicit()) {
+		params[ID::TRG_ENABLE] = false;
+		params[ID::TRG_WIDTH] = 0;
+		params[ID::TRG_POLARITY] = {};
+		cell->setPort(ID::TRG, {});
+	} else {
+		params[ID::TRG_ENABLE] = true;
+		params[ID::TRG_WIDTH] = triggers.size();
+		std::vector<RTLIL::State> pol_bits;
+		RTLIL::SigSpec trg_signals;
+		for (auto trigger : triggers) {
+			pol_bits.push_back(trigger.edge_polarity ? RTLIL::S1 : RTLIL::S0);
+			trg_signals.append(trigger.signal);
 		}
+		params[ID::TRG_POLARITY] = RTLIL::Const(pol_bits);
+		cell->setPort(ID::TRG, trg_signals);
 	}
-};
+}
 
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left,
 								const ast::Expression &expr)
@@ -399,7 +388,7 @@ struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false
 public:
 	NetlistContext &netlist;
 	EvalContext eval;
-	UpdateTiming &timing;
+	ProcessTiming &timing;
 
 	Yosys::pool<RTLIL::Wire *> seen_blocking_assignment;
 	Yosys::pool<RTLIL::Wire *> seen_nonblocking_assignment;
@@ -415,7 +404,7 @@ public:
 	std::vector<RTLIL::Cell *> preceding_memwr;
 	int effects_priority = 0;
 
-	ProceduralVisitor(NetlistContext &netlist, UpdateTiming &timing, Mode mode)
+	ProceduralVisitor(NetlistContext &netlist, ProcessTiming &timing, Mode mode)
 			: UnrollLimitTracking(netlist, netlist.settings.unroll_limit()),
 			  netlist(netlist), eval(netlist, *this), timing(timing), mode(mode) {
 		eval.push_frame();
@@ -1994,7 +1983,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					ret = procedural->handle_call(call);
 				} else {
 					require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
-					UpdateTiming implicit;
+					ProcessTiming implicit;
 					ProceduralVisitor visitor(netlist, implicit, ProceduralVisitor::ContinuousAssign);
 					visitor.eval.ignore_ast_constants = ignore_ast_constants;
 					ret = visitor.handle_call(call);
@@ -2145,7 +2134,7 @@ public:
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(body, proc);
 
-		UpdateTiming implicit_timing;
+		ProcessTiming implicit_timing;
 		ProceduralVisitor visitor(netlist, implicit_timing, ProceduralVisitor::AlwaysProcedure);
 		body.visit(visitor);
 
@@ -2223,7 +2212,7 @@ public:
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(timed.stmt, proc);
 
-		UpdateTiming prologue_timing;
+		ProcessTiming prologue_timing;
 		{
 			prologue_timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
 			for (auto &abranch : async)	{
@@ -2251,7 +2240,7 @@ public:
 			RTLIL::SigSpec sig = netlist.eval(abranch.trigger);
 			log_assert(sig.size() == 1);
 
-			UpdateTiming branch_timing;
+			ProcessTiming branch_timing;
 			RTLIL::SigSpec sig_depol = abranch.polarity ? sig : netlist.LogicNot(sig);
 			branch_timing.background_enable = netlist.LogicAnd(netlist.LogicNot(prior_branch_taken), sig_depol);
 			prior_branch_taken.append(sig_depol);
@@ -2272,7 +2261,7 @@ public:
 		}
 
 		{
-			UpdateTiming timing;
+			ProcessTiming timing;
 			timing.background_enable = netlist.LogicNot(prior_branch_taken);
 			timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
 			ProceduralVisitor visitor(netlist, timing, ProceduralVisitor::AlwaysProcedure);

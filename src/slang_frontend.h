@@ -129,6 +129,20 @@ private:
 	bool error_issued = false;
 };
 
+struct ProcessTiming {
+	RTLIL::SigBit background_enable = RTLIL::S1;
+
+	struct Sensitivity {
+		RTLIL::SigBit signal;
+		bool edge_polarity;
+		const ast::TimingControl *ast_node;
+	};
+	std::vector<Sensitivity> triggers;
+
+	bool implicit() const;
+	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable);
+};
+
 struct RTLILBuilder {
 	using SigSpec = RTLIL::SigSpec;
 
