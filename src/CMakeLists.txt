@@ -27,6 +27,7 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     initial_eval.h
     memory.h
     naming.cc
+    procedural.cc
     slang_frontend.cc
     slang_frontend.h
     ${CMAKE_CURRENT_BINARY_DIR}/version.h

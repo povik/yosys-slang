@@ -432,57 +432,6 @@ const ast::InstanceBodySymbol &get_instance_body(SynthesisSettings &settings, co
 		return instance.body;
 }
 
-class UnrollLimitTracking {
-	NetlistContext &netlist;
-	int limit;
-	int unrolling = 0;
-	int unroll_counter = 0;
-	Yosys::pool<const ast::Statement * YS_HASH_PTR_OPS> loops;
-	bool error_issued = false;
-
-public:
-	UnrollLimitTracking(NetlistContext &netlist, int limit)
-		: netlist(netlist), limit(limit) {}
-
-	~UnrollLimitTracking() {
-		log_assert(!unrolling);
-	}
-
-	void enter_unrolling() {
-		if (!unrolling++) {
-			unroll_counter = 0;
-			error_issued = false;
-			loops.clear();
-		}
-	}
-
-	void exit_unrolling() {
-		unrolling--;
-		log_assert(unrolling >= 0);
-	}
-
-	bool unroll_tick(const ast::Statement *symbol) {
-		if (error_issued)
-			return false;
-
-		loops.insert(symbol);
-
-		if (++unroll_counter > limit) {
-			auto &diag = netlist.add_diag(diag::UnrollLimitExhausted, symbol->sourceRange);
-			diag << limit;
-			for (auto other_loop : loops) {
-				if (other_loop == symbol)
-					continue;
-				diag.addNote(diag::NoteLoopContributes, other_loop->sourceRange);
-			}
-			error_issued = true;
-			return false;
-		}
-
-		return true;
-	}
-};
-
 struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false>, public UnrollLimitTracking {
 public:
 	NetlistContext &netlist;

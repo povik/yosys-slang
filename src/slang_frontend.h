@@ -111,6 +111,23 @@ struct EvalContext {
 	bool ignore_ast_constants = false;
 };
 
+class UnrollLimitTracking {
+public:
+	UnrollLimitTracking(NetlistContext &netlist, int limit);
+	~UnrollLimitTracking();
+	void enter_unrolling();
+	void exit_unrolling();
+	bool unroll_tick(const ast::Statement *symbol);
+
+private:
+	NetlistContext &netlist;
+	int limit;
+	int unrolling = 0;
+	int unroll_counter = 0;
+	Yosys::pool<const ast::Statement * YS_HASH_PTR_OPS> loops;
+	bool error_issued = false;
+};
+
 struct RTLILBuilder {
 	using SigSpec = RTLIL::SigSpec;
 
