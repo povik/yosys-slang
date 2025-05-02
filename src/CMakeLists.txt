@@ -19,6 +19,7 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     async_pattern.h
     blackboxes.cc
     builder.cc
+    cases.cc
     cases.h
     diag.cc
     diag.h

@@ -5,6 +5,9 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #pragma once
+#include "slang_frontend.h"
+#include "diag.h"
+
 namespace slang_frontend {
 
 // These structures are modeled after RTLIL's SwitchRule and CaseRule, to which
@@ -121,39 +124,5 @@ struct Case {
 			case_->insert_latch_signaling(issuer, map);
 	}
 };
-
-Switch::~Switch() {
-	for (auto case_ : cases)
-		delete case_;
-}
-
-Case *Switch::add_case(std::vector<RTLIL::SigSpec> compare)
-{
-	Case *case_ = new Case;
-	cases.push_back(case_);
-	case_->level = level;
-	case_->compare = compare;
-	return case_;
-}
-
-RTLIL::SwitchRule *Switch::lower()
-{
-	RTLIL::SwitchRule *rule = new RTLIL::SwitchRule;
-	rule->signal = signal;
-
-	if (full_case)
-		rule->attributes[ID::full_case] = true;
-
-	if (parallel_case)
-		rule->attributes[ID::parallel_case] = true;
-
-	if (statement)
-		transfer_attrs(*statement, rule);
-
-	for (auto case_ : cases)
-		rule->cases.push_back(case_->lower());
-
-	return rule;
-}
 
 };
