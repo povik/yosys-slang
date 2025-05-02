@@ -8,21 +8,22 @@
 #include "slang/ast/symbols/VariableSymbols.h"
 
 #include "slang_frontend.h"
+#include "variables.h"
 
 namespace slang_frontend {
 
-static void subfield_names(RTLIL::SigChunk chunk, int type_offset, const ast::Type *type,
+static void subfield_names(VariableChunk chunk, int type_offset, const ast::Type *type,
 							 std::string prefix, std::vector<NamedChunk> &ret)
 {
 	type = &type->getCanonicalType();
 
-	if (!chunk.width)
+	if (!chunk.bitwidth())
 		return;
 
-	if (chunk.offset >= type_offset + type->getBitstreamWidth())
+	if (chunk.base >= type_offset + type->getBitstreamWidth())
 		return;
 
-	if (chunk.offset + chunk.width <= type_offset)
+	if (chunk.base + chunk.bitwidth() <= type_offset)
 		return;
 
 	if (type->isStruct()) {
@@ -44,31 +45,31 @@ static void subfield_names(RTLIL::SigChunk chunk, int type_offset, const ast::Ty
 		}
 	} else {
 		int width = type->getBitstreamWidth();
-		int lo = std::clamp(chunk.offset - type_offset, 0, width);
-		int hi = std::clamp(chunk.offset + chunk.width - type_offset, 0, width);
+		int lo = std::clamp(chunk.base - type_offset, 0, width);
+		int hi = std::clamp(chunk.base + chunk.bitwidth() - type_offset, 0, width);
 
 		log_assert(hi > lo);
 		if (lo == 0 && hi == width)
-			ret.emplace_back(RTLIL::SigChunk{chunk.wire, type_offset, width}, prefix);
+			ret.emplace_back(VariableChunk{chunk.variable, type_offset, width}, prefix);
 		else
 			// TODO: use hdl indices
-			ret.emplace_back(RTLIL::SigChunk{chunk.wire, type_offset + lo, hi - lo}, prefix + "[" + std::to_string(hi - 1) + ":" + std::to_string(lo) + "]");
+			ret.emplace_back(VariableChunk{chunk.variable, type_offset + lo, hi - lo}, prefix + "[" + std::to_string(hi - 1) + ":" + std::to_string(lo) + "]");
 	}
 }
 
-std::vector<NamedChunk> generate_subfield_names(RTLIL::SigChunk chunk, const ast::Type *type)
+std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type)
 {
-	log_assert(chunk.wire);
+	log_assert((bool) chunk.variable);
 	log_assert(type->isBitstreamType() && type->isFixedSize());
-	log_assert(chunk.wire->width == type->getBitstreamWidth());
+	log_assert(chunk.variable.bitwidth() == type->getBitstreamWidth());
 
 	std::vector<NamedChunk> ret;
-	subfield_names(chunk, 0, type, RTLIL::unescape_id(chunk.wire->name.str()), ret);
+	subfield_names(chunk, 0, type, "", ret);
 
 	int sum = 0;
 	for (auto pair : ret)
-		sum += pair.first.width;
-	log_assert(sum == chunk.width);
+		sum += pair.first.bitwidth();
+	log_assert(sum == chunk.bitwidth());
 
 	return ret;
 }

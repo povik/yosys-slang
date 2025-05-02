@@ -5,7 +5,11 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #pragma once
+
+#include "slang/ast/symbols/ValueSymbol.h"
+
 #include "slang_frontend.h"
+#include "variables.h"
 #include "diag.h"
 
 namespace slang_frontend {
@@ -45,7 +49,7 @@ struct Case {
 	struct Action {
 		slang::SourceLocation loc;
 
-		RTLIL::SigSpec lvalue;
+		VariableBits lvalue;
 		RTLIL::SigSpec mask;
 		RTLIL::SigSpec unmasked_rvalue;
 	};
@@ -88,14 +92,15 @@ struct Case {
 	}
 
 	void insert_latch_signaling(
-			DiagnosticIssuer &issuer, Yosys::dict<RTLIL::SigBit, RTLIL::SigSig> map)
+			DiagnosticIssuer &issuer, Yosys::dict<VariableBit, RTLIL::SigSig> map)
 	{
 		for (auto &action : actions) {
 			bool raise_complex = false;
-			RTLIL::SigSpec enables, lvalue, lstaging, rvalue;
+			VariableBits lvalue;
+			RTLIL::SigSpec enables, lstaging, rvalue;
 
-			for (int i = 0; i < action.lvalue.size(); i++) {
-				RTLIL::SigBit lbit = action.lvalue[i];
+			for (int i = 0; i < (int) action.lvalue.size(); i++) {
+				VariableBit lbit = action.lvalue[i];
 
 				if (map.count(lbit)) {
 					auto &mapped = map.at(lbit);
@@ -113,9 +118,12 @@ struct Case {
 			aux_actions.push_back({enables, RTLIL::SigSpec(RTLIL::S1, enables.size())});
 
 			if (raise_complex) {
-				auto &diag = issuer.add_diag(diag::ComplexLatchLHS, action.loc);
-				lvalue.sort();
-				diag << std::string(log_signal(lvalue));
+				lvalue.sort_and_unify();
+				for (auto chunk : lvalue.chunks()) {
+					log_assert(chunk.variable.kind == Variable::Static);
+					auto &diag = issuer.add_diag(diag::ComplexLatchLHS, action.loc);
+					diag << chunk.variable.get_symbol()->getHierarchicalPath();
+				}
 			}
 		}
 

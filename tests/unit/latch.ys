@@ -29,7 +29,7 @@ equiv_make latch01_gold latch01_gate latch01_equiv
 equiv_induct latch01_equiv
 equiv_status -assert
 
-test_slangdiag -expect "complex lhs in assignment to latched variable '\q' unsupported"
+test_slangdiag -expect "complex lhs in assignment to latched variable 'latch02_gate.q' unsupported"
 read_slang <<EOF
 module latch02_gate(input logic [3:0] d, output logic [3:0] q,
 					input logic [2:0] idx);

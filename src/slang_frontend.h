@@ -52,37 +52,82 @@ namespace ast = ::slang::ast;
 namespace ID = ::Yosys::RTLIL::ID;
 
 struct NetlistContext;
-struct ProceduralVisitor;
+class ProceduralContext;
+class RegisterEscapeConstructGuard;
+class EnterAutomaticScopeGuard;
+class VariableBits;
+class VariableBit;
+class VariableChunk;
+struct ProcessTiming;
+class Case;
+
+class Variable {
+public:
+	enum Kind {
+		Static,
+		Local,
+		Disable,
+		Break,
+		Dummy,
+		Invalid
+	} kind;
+
+	static Variable from_symbol(const ast::ValueSymbol *symbol, int depth=-1);
+	static Variable disable_for_scope(const ast::Statement *statement, int depth);
+	static Variable break_for_scope(const ast::Statement *statement, int depth);
+	static Variable dummy(int width);
+
+	Variable();
+	const ast::ValueSymbol *get_symbol() const;
+	const ast::Statement *get_statement() const;
+	int bitwidth() const;
+	explicit operator bool() const;
+
+	bool operator==(const Variable &other) const { return sort_label() == other.sort_label(); }
+	bool operator<(const Variable &other) const { return sort_label() < other.sort_label(); }
+
+#if YS_HASHING_VERSION >= 1
+	[[nodiscard]] Yosys::Hasher hash_into(Yosys::Hasher h) const { h.eat(sort_label()); return h; }
+#else
+	int hash() const { return Yosys::hash_ops<SortLabel>::hash(sort_label()); }
+#endif
+	std::string text() const;
+
+private:
+	union {
+		const ast::ValueSymbol *symbol;
+		const ast::Statement *statement;
+		int width;
+	};
+	int depth = 0;
+
+	Variable(enum Kind kind, const ast::ValueSymbol *symbol, int depth);
+	Variable(enum Kind kind, const ast::Statement *statement, int depth);
+	Variable(enum Kind kind, int width);
+
+	typedef std::tuple<int, void *, int> SortLabel;
+	SortLabel sort_label() const;
+};
 
 struct EvalContext {
 	NetlistContext &netlist;
-	ProceduralVisitor *procedural;
+	ProceduralContext *procedural;
 
 	ast::EvalContext const_;
 	const ast::Expression *lvalue = nullptr;
 
-	struct Frame {
-		Yosys::dict<const ast::Symbol *, RTLIL::Wire *> locals;
-		const ast::SubroutineSymbol *subroutine;
-		RTLIL::Wire* disable = nullptr;
-		RTLIL::Wire* break_ = nullptr; // for kind==LoopBody
-		enum {
-			Implicit,
-			LoopBody,
-			FunctionBody
-		} kind;
-	};
+	// Scope nest level tracking to isolate automatic variables of reentrant
+	// scopes (i.e. functions)
+	Yosys::dict<const ast::Scope *, int> scope_nest_level;
+	int current_scope_nest_level;
 
-	std::vector<Frame> frames;
-
-	Frame &push_frame(const ast::SubroutineSymbol *subroutine=nullptr);
-	void create_local(const ast::Symbol *symbol);
-	void pop_frame();
-	RTLIL::Wire *wire(const ast::Symbol &symbol);
+	int find_nest_level(const ast::Scope *scope);
+	Variable variable(const ast::ValueSymbol &symbol);
 
 	RTLIL::SigSpec apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op);
 	RTLIL::SigSpec apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec val);
-	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs);
+	VariableBits streaming_lhs(ast::StreamingConcatenationExpression const &expr);
+	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr);
 
 	// Evaluates the given symbols/expressions to their value in this context
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
@@ -98,18 +143,31 @@ struct EvalContext {
 	// assignments. Not all expressions (not even all LHS-viable expressions)
 	// are in simple correspondence to wirebits, and as such they cannot be
 	// processed by this method and require special handling elsewhere.
-	RTLIL::SigSpec lhs(ast::Expression const &expr);
+	VariableBits lhs(ast::Expression const &expr);
 
 	// Evaluate non-procedural connection LHS for connections expressed in
-	// terms of an assignment of `EmptyArgument`. This is a pattern found in
+	// terms of an assignment to `EmptyArgument`. This is a pattern found in
 	// the AST in module instance connections or for pattern assignments.
 	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
 
 	EvalContext(NetlistContext &netlist);
-	EvalContext(NetlistContext &netlist, ProceduralVisitor &procedural);
+	EvalContext(NetlistContext &netlist, ProceduralContext &procedural);
 
 	// for testing
 	bool ignore_ast_constants = false;
+
+	friend class EnterAutomaticScopeGuard;
+};
+
+// guard for entering scopes with automatic variables
+class EnterAutomaticScopeGuard {
+public:
+	EnterAutomaticScopeGuard(EvalContext &context, const ast::Scope *scope);
+	~EnterAutomaticScopeGuard();
+private:
+	EvalContext &context;
+	const ast::Scope *scope;
+	int save_scope_nest_level;
 };
 
 class UnrollLimitTracking {
@@ -141,6 +199,112 @@ struct ProcessTiming {
 
 	bool implicit() const;
 	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable);
+};
+
+class ProceduralContext {
+public:
+	UnrollLimitTracking unroll_limit;
+	NetlistContext &netlist;
+	ProcessTiming &timing;
+	EvalContext eval;
+	int effects_priority = 0;
+
+	Case *root_case;
+	Case *current_case;
+
+private:
+	Yosys::pool<VariableBit> seen_blocking_assignment;
+	Yosys::pool<VariableBit> seen_nonblocking_assignment;
+	std::vector<RTLIL::Cell *> preceding_memwr;
+
+public:
+	ProceduralContext(NetlistContext &netlist, ProcessTiming &timing);
+	~ProceduralContext();
+
+	// used to inherit the variable state and effect sequencing of another
+	// ProceduralContext without inheriting the ProcessTiming
+	void inherit_state(ProceduralContext &other);
+	void copy_case_tree_into(RTLIL::CaseRule &rule);
+	VariableBits all_driven();
+
+	// Return an enable signal for the current case node
+	RTLIL::SigBit case_enable();
+
+	// For $check, $print cells
+	void set_effects_trigger(RTLIL::Cell *cell);
+	void do_assign(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking);
+	void do_simple_assign(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec rvalue, bool blocking);
+	RTLIL::SigSpec substitute_rvalue(VariableBits bits);
+	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue);
+
+private:
+	void assign_rvalue_inner(const ast::AssignmentExpression &assign, const ast::Expression *raw_lexpr,
+							 RTLIL::SigSpec raw_rvalue, RTLIL::SigSpec raw_mask, bool blocking);
+
+public:
+	struct EscapeFrame {
+		// A virtual variable: initialized to zero but assigned one once
+		// we are escaping via this or an upper level escape construct
+		Variable flag;
+
+		// Non-zero if this is a function
+		const ast::SubroutineSymbol *subroutine = nullptr;
+
+		enum EscapeConstructKind {
+			Loop, // we escape via this for `break`
+			LoopBody, // via this for `continue`
+			FunctionBody,
+		} kind;
+	};
+
+	using EscapeConstructKind = EscapeFrame::EscapeConstructKind;
+
+	Variable get_disable_flag();
+	const ast::SubroutineSymbol *get_current_subroutine();
+	void signal_escape(slang::SourceLocation loc, EscapeConstructKind kind);
+
+private:
+	std::vector<EscapeFrame> escape_stack;
+
+public:
+	struct VariableState {
+		using Map = Yosys::dict<VariableBit, RTLIL::SigBit>;
+
+		Map visible_assignments;
+		Map revert;
+
+		void set(VariableBits lhs, RTLIL::SigSpec value);
+		RTLIL::SigSpec evaluate(NetlistContext &netlist, VariableBits vbits);
+		RTLIL::SigSpec evaluate(NetlistContext &netlist, VariableChunk vchunk);
+		void save(Map &save);
+		std::pair<VariableBits, RTLIL::SigSpec> restore(Map &save);
+	};
+
+	VariableState vstate;
+
+	friend class RegisterEscapeConstructGuard;
+};
+
+using EscapeConstructKind = ProceduralContext::EscapeFrame::EscapeConstructKind;
+
+// guard for registering "escape constructs", i.e. loops and functions
+// which are escapable via `break`, `continue` and `return`
+class RegisterEscapeConstructGuard {
+public:
+	RegisterEscapeConstructGuard(ProceduralContext &context,
+								 EscapeConstructKind kind,
+								 const ast::SubroutineSymbol *subroutine);
+	RegisterEscapeConstructGuard(ProceduralContext &context,
+								 EscapeConstructKind kind,
+								 const ast::Statement *statement);
+	~RegisterEscapeConstructGuard();
+
+	// Variable which signals we are escaping
+	const Variable flag;
+
+private:
+	ProceduralContext &context;
+	const ast::Scope *scope;
 };
 
 struct RTLILBuilder {
@@ -261,6 +425,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	RTLIL::Wire *add_wire(const ast::ValueSymbol &sym);
 	RTLIL::Wire *wire(const ast::Symbol &sym);
+	RTLIL::SigSpec convert_static(VariableBits bits);
 
 	struct Memory {
 		int num_wr_ports = 0;
@@ -269,8 +434,6 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	// Used to implement modports on uncollapsed levels of hierarchy
 	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
-
-	Yosys::dict<RTLIL::Wire *, const ast::Type * YS_HASH_PTR_OPS> wire_hdl_types;
 
 	// With this flag set we will not elaborate this netlist; we set this when
 	// `scopes_remap` is incomplete due to errors in processing the instantiation
@@ -295,11 +458,9 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	{
 		log_assert(other.eval.procedural == nullptr);
 		log_assert(other.eval.lvalue == nullptr);
-		log_assert(other.eval.frames.empty());
 
 		emitted_mems.swap(other.emitted_mems);
 		scopes_remap.swap(other.scopes_remap);
-		wire_hdl_types.swap(other.wire_hdl_types);
 		detected_memories.swap(other.detected_memories);
 		canvas = other.canvas;
 		other.canvas = nullptr;
@@ -334,7 +495,7 @@ extern void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::Instance
 #define wire_missing(netlist, symbol) { wire_missing_(netlist, symbol, __FILE__, __LINE__); }
 
 // naming.cc
-typedef std::pair<RTLIL::SigChunk, std::string> NamedChunk;
-std::vector<NamedChunk> generate_subfield_names(RTLIL::SigChunk chunk, const ast::Type *type);
+typedef std::pair<VariableChunk, std::string> NamedChunk;
+std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type);
 
 };
