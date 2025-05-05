@@ -7,6 +7,12 @@
 #pragma once
 #include "slang_frontend.h"
 
+namespace slang {
+	namespace ast {
+		class StatementBlockSymbol;
+	}
+}
+
 namespace slang_frontend {
 
 struct TimingPatternInterpretor {
@@ -25,6 +31,7 @@ struct TimingPatternInterpretor {
 
 	virtual void handle_ff_process(const ast::ProceduralBlockSymbol &symbol,
 								   const ast::SignalEventControl &clock,
+								   const ast::StatementBlockSymbol *prologue_block,
 								   std::vector<const ast::Statement *> prologue,
 								   const ast::Statement &sync_body,
 								   std::span<AsyncBranch> async) = 0;

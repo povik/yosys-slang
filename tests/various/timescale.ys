@@ -1,0 +1,3 @@
+# test we silence the following slang error:
+# "design element does not have a time scale defined but others in the design do"
+read_slang timescale1.sv timescale2.sv

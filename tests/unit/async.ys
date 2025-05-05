@@ -1,0 +1,98 @@
+read_slang <<EOF
+module async01_gate(input logic clk, input logic rst,
+					input logic [3:0] d, output logic [03:0] q);
+	always_ff @(posedge clk, posedge rst) begin
+		if (rst) begin
+			q <= 4'hb;
+		end else begin
+			q <= d + 1;
+		end
+	end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \async01_gold
+	wire width 4 $1
+	wire input 1 \clk
+	wire width 4 input 3 \d
+	wire width 4 output 4 \q
+	wire input 2 \rst
+
+	cell $add $2
+		parameter \A_SIGNED 0
+		parameter \A_WIDTH 4
+		parameter \B_SIGNED 0
+		parameter \B_WIDTH 1
+		parameter \Y_WIDTH 4
+		connect \A \d
+		connect \B 1'1
+		connect \Y $1
+	end
+
+	cell $adff $3
+		parameter \ARST_POLARITY 1'1
+		parameter \ARST_VALUE 4'1011
+		parameter \CLK_POLARITY 1'1
+		parameter \WIDTH 4
+		connect \ARST \rst
+		connect \CLK \clk
+		connect \D $1
+		connect \Q \q
+	end
+end
+EOF
+
+async2sync
+equiv_make async01_gold async01_gate async01_equiv
+equiv_induct async01_equiv
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module async02_gate(input logic clk, input logic rst,
+					input logic [3:0] d, output logic [03:0] q);
+	always_ff @(posedge clk, posedge rst) begin
+		if (rst) begin
+		end else begin
+			q <= d + 1;
+		end
+	end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \async02_gold
+	wire width 4 $1
+	wire input 1 \clk
+	wire width 4 input 3 \d
+	wire width 4 output 4 \q
+	wire input 2 \rst
+
+	cell $add $2
+		parameter \A_SIGNED 0
+		parameter \A_WIDTH 4
+		parameter \B_SIGNED 0
+		parameter \B_WIDTH 1
+		parameter \Y_WIDTH 4
+		connect \A \d
+		connect \B 1'1
+		connect \Y $1
+	end
+
+	cell $dffe $3
+		parameter \EN_POLARITY 1'0
+		parameter \CLK_POLARITY 1'1
+		parameter \WIDTH 4
+		connect \CLK \clk
+		connect \D $1
+		connect \Q \q
+		connect \EN \rst
+	end
+end
+EOF
+
+async2sync
+equiv_make async02_gold async02_gate async02_equiv
+equiv_induct async02_equiv
+equiv_status -assert

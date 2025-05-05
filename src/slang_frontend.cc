@@ -30,81 +30,43 @@
 #include "slang_frontend.h"
 #include "diag.h"
 #include "async_pattern.h"
+#include "variables.h"
 
 namespace slang_frontend {
 
-struct SynthesisSettings {
-	std::optional<bool> dump_ast;
-	std::optional<bool> no_proc;
-	std::optional<bool> compat_mode;
-	std::optional<bool> keep_hierarchy;
-	std::optional<bool> best_effort_hierarchy;
-	std::optional<bool> ignore_timing;
-	std::optional<bool> ignore_initial;
-	std::optional<bool> ignore_assertions;
-	std::optional<int> unroll_limit_;
-	std::optional<bool> extern_modules;
-	std::optional<bool> no_implicit_memories;
-	std::optional<bool> empty_blackboxes;
-	std::optional<bool> ast_compilation_only;
-	std::optional<bool> no_default_translate_off;
-	bool disable_instance_caching = false;
+void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
+	cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
+	cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
+	// TODO: deprecate; now on by default
+	cmdLine.add("--compat-mode", compat_mode,
+				"Be relaxed about the synthesis semantics of some language constructs");
+	cmdLine.add("--keep-hierarchy", keep_hierarchy,
+				"Keep hierarchy (experimental; may crash)");
+	cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
+				"Keep hierarchy in a 'best effort' mode");
+	cmdLine.add("--ignore-timing", ignore_timing,
+				"Ignore delays for synthesis");
+	cmdLine.add("--ignore-initial", ignore_initial,
+				"Ignore initial blocks for synthesis");
+	cmdLine.add("--ignore-assertions", ignore_assertions,
+				"Ignore assertions and formal statements in input");
+	cmdLine.add("--unroll-limit", unroll_limit_,
+				"Set unrolling limit (default: 4000)", "<limit>");
+	// TODO: deprecate; now on by default
+	cmdLine.add("--extern-modules", extern_modules,
+				"Import as an instantiable blackbox any module which was previously "
+				"loaded into the current design with a Yosys command; this allows composing "
+				"hierarchy of SystemVerilog and non-SystemVerilog modules");
+	cmdLine.add("--no-implicit-memories", no_implicit_memories,
+				"Require a memory style attribute to consider a variable for memory inference");
+	cmdLine.add("--empty-blackboxes", empty_blackboxes,
+				"Assume empty modules are blackboxes");
+	cmdLine.add("--ast-compilation-only", ast_compilation_only,
+				"For developers: stop after the AST is fully compiled");
+	cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
+				"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
+}
 
-	enum HierMode {
-		NONE,
-		BEST_EFFORT,
-		ALL
-	};
-
-	HierMode hierarchy_mode()
-	{
-		if (keep_hierarchy.value_or(false))
-			return ALL;
-		if (best_effort_hierarchy.value_or(false))
-			return BEST_EFFORT;
-		return NONE;
-	}
-
-	int unroll_limit() {
-		return unroll_limit_.value_or(4000);
-	}
-
-	void addOptions(slang::CommandLine &cmdLine) {
-		cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
-		cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
-		// TODO: deprecate; now on by default
-		cmdLine.add("--compat-mode", compat_mode,
-					"Be relaxed about the synthesis semantics of some language constructs");
-		cmdLine.add("--keep-hierarchy", keep_hierarchy,
-					"Keep hierarchy (experimental; may crash)");
-		cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
-					"Keep hierarchy in a 'best effort' mode");
-		cmdLine.add("--ignore-timing", ignore_timing,
-					"Ignore delays for synthesis");
-		cmdLine.add("--ignore-initial", ignore_initial,
-					"Ignore initial blocks for synthesis");
-		cmdLine.add("--ignore-assertions", ignore_assertions,
-					"Ignore assertions and formal statements in input");
-		cmdLine.add("--unroll-limit", unroll_limit_,
-					"Set unrolling limit (default: 4000)", "<limit>");
-		// TODO: deprecate; now on by default
-		cmdLine.add("--extern-modules", extern_modules,
-					"Import as an instantiable blackbox any module which was previously "
-					"loaded into the current design with a Yosys command; this allows composing "
-					"hierarchy of SystemVerilog and non-SystemVerilog modules");
-		cmdLine.add("--no-implicit-memories", no_implicit_memories,
-					"Require a memory style attribute to consider a variable for memory inference");
-		cmdLine.add("--empty-blackboxes", empty_blackboxes,
-					"Assume empty modules are blackboxes");
-		cmdLine.add("--ast-compilation-only", ast_compilation_only,
-					"For developers: stop after the AST is fully compiled");
-		cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
-					"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
-	}
-};
-
-namespace RTLIL = Yosys::RTLIL;
-namespace ID = Yosys::RTLIL::ID;
 namespace ast = slang::ast;
 namespace syntax = slang::syntax;
 namespace parsing = slang::parsing;
@@ -255,14 +217,6 @@ template void transfer_attrs<const ast::Symbol>(const ast::Symbol &from, RTLIL::
 	for (auto bit : (signal)) \
 		log_assert(!(bit.wire && bit.wire->get_bool_attribute(ID($nonstatic))));
 
-void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
-{
-	for (int i = mask.size() - 1; i >= 0; i--) {
-		if (mask[i] == RTLIL::S0)
-			target.remove(i, 1);
-	}
-}
-
 };
 
 #include "cases.h"
@@ -270,15 +224,15 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
 
 namespace slang_frontend {
 
-static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<RTLIL::SigBit> &signals, Case *rule, int level=0)
+static Yosys::pool<VariableBit> detect_possibly_unassigned_subset(Yosys::pool<VariableBit> &signals, Case *rule, int level=0)
 {
-	Yosys::pool<RTLIL::SigBit> remaining = signals;
+	Yosys::pool<VariableBit> remaining = signals;
 	bool debug = false;
 
 	for (auto &action : rule->actions) {
 		if (debug) {
 			log_debug("%saction %s<=%s (mask %s)\n", std::string(level, ' ').c_str(),
-					  log_signal(action.lvalue), log_signal(action.unmasked_rvalue), log_signal(action.mask));
+					  "FIXME" /* log_signal(action.lvalue) */, log_signal(action.unmasked_rvalue), log_signal(action.mask));
 		}
 
 		if (action.mask.is_fully_ones())
@@ -294,7 +248,7 @@ static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<
 		if (remaining.empty())
 			break;
 
-		Yosys::pool<RTLIL::SigBit> new_remaining;
+		Yosys::pool<VariableBit> new_remaining;
 		Yosys::BitPatternPool pool(switch_->signal);
 		for (auto case_ : switch_->cases) {
 			if (!switch_->signal.empty() && pool.empty())
@@ -336,47 +290,42 @@ static Yosys::pool<RTLIL::SigBit> detect_possibly_unassigned_subset(Yosys::pool<
 	return remaining;
 }
 
-struct UpdateTiming {
-	RTLIL::SigBit background_enable = RTLIL::S1;
+bool ProcessTiming::implicit() const
+{
+	return triggers.empty();
+}
 
-	struct Sensitivity {
-		RTLIL::SigBit signal;
-		bool edge_polarity;
-		const ast::TimingControl *ast_node;
-	};
-	std::vector<Sensitivity> triggers;
+// extract trigger for side-effect cells like $print, $check
+void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
+{
+	auto &params = cell->parameters;
 
-	bool implicit() const
-	{
-		return triggers.empty();
-	}
+	cell->setPort(ID::EN, netlist.LogicAnd(background_enable, enable));
 
-	// extract trigger for side-effect cells like $print, $check
-	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
-	{
-		auto &params = cell->parameters;
-
-		cell->setPort(ID::EN, netlist.LogicAnd(background_enable, enable));
-
-		if (implicit()) {
-			params[ID::TRG_ENABLE] = false;
-			params[ID::TRG_WIDTH] = 0;
-			params[ID::TRG_POLARITY] = {};
-			cell->setPort(ID::TRG, {});
-		} else {
-			params[ID::TRG_ENABLE] = true;
-			params[ID::TRG_WIDTH] = triggers.size();
-			std::vector<RTLIL::State> pol_bits;
-			RTLIL::SigSpec trg_signals;
-			for (auto trigger : triggers) {
-				pol_bits.push_back(trigger.edge_polarity ? RTLIL::S1 : RTLIL::S0);
-				trg_signals.append(trigger.signal);
-			}
-			params[ID::TRG_POLARITY] = RTLIL::Const(pol_bits);
-			cell->setPort(ID::TRG, trg_signals);
+	if (implicit()) {
+		params[ID::TRG_ENABLE] = false;
+		params[ID::TRG_WIDTH] = 0;
+		params[ID::TRG_POLARITY] = {};
+		cell->setPort(ID::TRG, {});
+	} else {
+		params[ID::TRG_ENABLE] = true;
+		params[ID::TRG_WIDTH] = triggers.size();
+		std::vector<RTLIL::State> pol_bits;
+		RTLIL::SigSpec trg_signals;
+		for (auto trigger : triggers) {
+			pol_bits.push_back(trigger.edge_polarity ? RTLIL::S1 : RTLIL::S0);
+			trg_signals.append(trigger.signal);
 		}
+		params[ID::TRG_POLARITY] = RTLIL::Const(pol_bits);
+		cell->setPort(ID::TRG, trg_signals);
 	}
-};
+}
+
+// For $check, $print cells
+void ProceduralContext::set_effects_trigger(RTLIL::Cell *cell)
+{
+	timing.extract_trigger(netlist, cell, case_enable());
+}
 
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left,
 								const ast::Expression &expr)
@@ -434,199 +383,105 @@ const ast::InstanceBodySymbol &get_instance_body(SynthesisSettings &settings, co
 		return instance.body;
 }
 
-class UnrollLimitTracking {
-	NetlistContext &netlist;
-	int limit;
-	int unrolling = 0;
-	int unroll_counter = 0;
-	Yosys::pool<const ast::Statement * YS_HASH_PTR_OPS> loops;
-	bool error_issued = false;
+using VariableState = ProceduralContext::VariableState;
 
+void VariableState::set(VariableBits lhs, RTLIL::SigSpec value)
+{
+	log_assert((int) lhs.size() == value.size());
+
+	for (int i = 0; i < (int) lhs.size(); i++) {
+		VariableBit bit = lhs[i];
+
+		if (!revert.count(bit)) {
+			if (visible_assignments.count(bit))
+				revert[bit] = visible_assignments.at(bit);
+			else
+				revert[bit] = RTLIL::Sm;
+		}
+
+		visible_assignments[bit] = value[i];
+	}
+}
+
+RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableBits vbits)
+{
+	RTLIL::SigSpec ret;
+	for (auto vbit : vbits) {
+		if (visible_assignments.count(vbit)) {
+			ret.append(visible_assignments.at(vbit));
+		} else {
+			log_assert(vbit.variable.kind == Variable::Static);
+			RTLIL::SigBit bit{netlist.wire(*vbit.variable.get_symbol()), vbit.offset};
+			ret.append(bit);
+		}
+	}
+	return ret;
+}
+
+RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableChunk vchunk)
+{
+	RTLIL::SigSpec ret;
+	for (int i = 0; i < vchunk.bitwidth(); i++) {
+		if (visible_assignments.count(vchunk[i])) {
+			ret.append(visible_assignments.at(vchunk[i]));
+		} else {
+			log_assert(vchunk.variable.kind == Variable::Static);
+			RTLIL::SigBit bit{netlist.wire(*vchunk.variable.get_symbol()), vchunk.base + i};
+			ret.append(bit);
+		}
+	}
+	return ret;
+}
+
+void VariableState::save(Map &save)
+{
+	revert.swap(save);
+}
+
+std::pair<VariableBits, RTLIL::SigSpec> VariableState::restore(Map &save)
+{
+	VariableBits lreverted;
+	RTLIL::SigSpec rreverted;
+
+	for (auto pair : revert)
+		lreverted.push_back(pair.first);
+	std::sort(lreverted.begin(), lreverted.end());
+
+	//rreverted.reserve(lreverted.size());
+	for (auto bit : lreverted)
+		rreverted.append(visible_assignments.at(bit));
+
+	for (auto pair : revert) {
+		if (pair.second == RTLIL::Sm)
+			visible_assignments.erase(pair.first);
+		else
+			visible_assignments[pair.first] = pair.second;
+	}
+
+	save.swap(revert);
+	return {lreverted, rreverted};
+}
+
+struct StatementVisitor : public ast::ASTVisitor<StatementVisitor, true, false> {
 public:
-	UnrollLimitTracking(NetlistContext &netlist, int limit)
-		: netlist(netlist), limit(limit) {}
-
-	~UnrollLimitTracking() {
-		log_assert(!unrolling);
-	}
-
-	void enter_unrolling() {
-		if (!unrolling++) {
-			unroll_counter = 0;
-			error_issued = false;
-			loops.clear();
-		}
-	}
-
-	void exit_unrolling() {
-		unrolling--;
-		log_assert(unrolling >= 0);
-	}
-
-	bool unroll_tick(const ast::Statement *symbol) {
-		if (error_issued)
-			return false;
-
-		loops.insert(symbol);
-
-		if (++unroll_counter > limit) {
-			auto &diag = netlist.add_diag(diag::UnrollLimitExhausted, symbol->sourceRange);
-			diag << limit;
-			for (auto other_loop : loops) {
-				if (other_loop == symbol)
-					continue;
-				diag.addNote(diag::NoteLoopContributes, other_loop->sourceRange);
-			}
-			error_issued = true;
-			return false;
-		}
-
-		return true;
-	}
-};
-
-struct ProceduralVisitor : public ast::ASTVisitor<ProceduralVisitor, true, false>, public UnrollLimitTracking {
-public:
 	NetlistContext &netlist;
-	EvalContext eval;
-	UpdateTiming &timing;
+	ProceduralContext &context;
+	EvalContext &eval;
+	UnrollLimitTracking &unroll_limit;
 
-	Yosys::pool<RTLIL::Wire *> seen_blocking_assignment;
-	Yosys::pool<RTLIL::Wire *> seen_nonblocking_assignment;
-
-	Case *root_case;
-	Case *current_case;
-
-	enum Mode {
-		AlwaysProcedure,
-		ContinuousAssign
-	} mode;
-
-	std::vector<RTLIL::Cell *> preceding_memwr;
-	int effects_priority = 0;
-
-	ProceduralVisitor(NetlistContext &netlist, UpdateTiming &timing, Mode mode)
-			: UnrollLimitTracking(netlist, netlist.settings.unroll_limit()),
-			  netlist(netlist), eval(netlist, *this), timing(timing), mode(mode) {
-		eval.push_frame();
-
-		root_case = new Case;
-		current_case = root_case->add_switch({})->add_case({});
-	}
-
-	~ProceduralVisitor()
-	{
-		delete root_case;
-	}
-
-	void inherit_state(ProceduralVisitor &other)
-	{
-		log_assert(other.eval.frames.size() == 1);
-		eval.frames[0].locals = other.eval.frames[0].locals;
-		seen_blocking_assignment = other.seen_blocking_assignment;
-		seen_nonblocking_assignment = other.seen_nonblocking_assignment;
-		preceding_memwr = other.preceding_memwr;
-		vstate = other.vstate;
-	}
-
-	void copy_case_tree_into(RTLIL::CaseRule &rule)
-	{
-		root_case->copy_into(&rule);
-	}
-
-	RTLIL::SigSpec all_driven()
-	{
-		RTLIL::SigSpec all_driven;
-		for (auto pair : vstate.visible_assignments)
-			all_driven.append(pair.first);
-		all_driven.sort_and_unify();
-
-		RTLIL::SigSpec all_driven_filtered;
-
-		for (auto chunk : all_driven.chunks()) {
-			log_assert(chunk.wire);
-			if (!chunk.wire->get_bool_attribute(ID($nonstatic)))
-				all_driven_filtered.append(chunk);
-		}
-
-		return all_driven_filtered;
-	}
-
-	// Return an enable signal for the current case node
-	RTLIL::SigBit case_enable()
-	{
-		RTLIL::SigBit ret = netlist.canvas->addWire(netlist.new_id(), 1);
-		root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
-		current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
-		return ret;
-	}
-
-	// For $check, $print cells
-	void set_effects_trigger(RTLIL::Cell *cell)
-	{
-		timing.extract_trigger(netlist, cell, case_enable());
-	}
+	StatementVisitor(ProceduralContext &context)
+		: netlist(context.netlist), context(context), eval(context.eval), unroll_limit(context.unroll_limit) {}
 
 	struct SwitchHelper {
-		struct VariableState {
-			using Map = Yosys::dict<RTLIL::SigBit, RTLIL::SigBit>;
-
-			Map visible_assignments;
-			Map revert;
-
-			void set(RTLIL::SigSpec lhs, RTLIL::SigSpec value)
-			{
-				log_debug("VariableState.set: lhs=%s value=%s\n",
-						  log_signal(lhs), log_signal(value));
-				log_assert(lhs.size() == value.size());
-
-				for (int i = 0; i < lhs.size(); i++) {
-					RTLIL::SigBit bit = lhs[i];
-
-					if (!revert.count(bit)) {
-						if (visible_assignments.count(bit))
-							revert[bit] = visible_assignments.at(bit);
-						else
-							revert[bit] = RTLIL::Sm;
-					}
-
-					visible_assignments[bit] = value[i];
-				}
-			}
-
-			void save(Map &save)
-			{
-				revert.swap(save);
-			}
-
-			RTLIL::SigSig restore(Map &save)
-			{
-				RTLIL::SigSpec lreverted, rreverted;
-
-				for (auto pair : revert)
-					lreverted.append(pair.first);
-				lreverted.sort();
-				rreverted = lreverted;
-				rreverted.replace(visible_assignments);
-
-				for (auto pair : revert) {
-					if (pair.second == RTLIL::Sm)
-						visible_assignments.erase(pair.first);
-					else
-						visible_assignments[pair.first] = pair.second;
-				}
-
-				save.swap(revert);
-				return {lreverted, rreverted};
-			}
-		};
-
 		Case *parent;
 		Case *&current_case;
 		Switch *sw;
+
+		using VariableState = ProceduralContext::VariableState;
+
 		VariableState &vstate;
 		VariableState::Map save_map;
-		std::vector<std::pair<Case *, RTLIL::SigSig>> branch_updates;
+		std::vector<std::tuple<Case *, VariableBits, RTLIL::SigSpec>> branch_updates;
 		bool entered = false, finished = false;
 
 		SwitchHelper(Case *&current_case, VariableState &vstate, RTLIL::SigSpec signal)
@@ -656,6 +511,7 @@ public:
 
 		void enter_branch(std::vector<RTLIL::SigSpec> compare)
 		{
+			save_map.clear();
 			vstate.save(save_map);
 			log_assert(!entered);
 			log_assert(current_case == parent);
@@ -671,7 +527,7 @@ public:
 			current_case = parent;
 			entered = false;
 			auto updates = vstate.restore(save_map);
-			branch_updates.push_back(std::make_pair(this_case, updates));
+			branch_updates.push_back(std::make_tuple(this_case, updates.first, updates.second));
 		}
 
 		void branch(std::vector<RTLIL::SigSpec> compare,
@@ -684,279 +540,71 @@ public:
 
 		void finish(NetlistContext &netlist)
 		{
-			RTLIL::SigSpec updated_anybranch;
+			VariableBits updated_anybranch;
 			for (auto &branch : branch_updates)
-				updated_anybranch.append(branch.second.first);
+				updated_anybranch.append(std::get<1>(branch));
 			updated_anybranch.sort_and_unify();
 
+			// end-of-scope variables
+			Yosys::pool<Variable> eos_variables;
+
+			auto &va = vstate.visible_assignments;
+			for (auto bit : updated_anybranch)
+			if (bit.variable.kind != Variable::Static && !va.count(bit))
+				eos_variables.insert(bit.variable);
+
 			for (auto chunk : updated_anybranch.chunks()) {
-				log_assert(chunk.wire);
+				if (chunk.variable.kind != Variable::Static &&
+						eos_variables.count(chunk.variable)) {
+					for (int i = 0; i < chunk.bitwidth(); i++)
+						log_assert(!va.count(chunk[i]));
 
-				if (chunk.wire->has_attribute(ID($nonstatic)) \
-						&& chunk.wire->attributes[ID($nonstatic)].as_int() > parent->level)
 					continue;
+				}
 
-				RTLIL::Wire *w = netlist.canvas->addWire(netlist.new_id(format_wchunk(chunk)), chunk.size());
+				RTLIL::IdString new_id;
+				if (auto symbol = chunk.variable.get_symbol())
+					new_id = netlist.new_id(RTLIL::unescape_id(netlist.id(*symbol)) + chunk.slice_text());
+				else
+					new_id = netlist.new_id();
+
+				RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
+				RTLIL::Wire *w = netlist.canvas->addWire(new_id, chunk.bitwidth());
 				if (sw->statement)
 					transfer_attrs(*sw->statement, w);
-				RTLIL::SigSpec w_default = chunk;
-				w_default.replace(vstate.visible_assignments);
 				parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
 				vstate.set(chunk, w);
 			}
 
 			for (auto &branch : branch_updates) {
-				Case *rule = branch.first;
-				RTLIL::SigSpec target = branch.second.first;
-				RTLIL::SigSpec source = branch.second.second;
+				Case *rule;
+				VariableBits target;
+				RTLIL::SigSpec source;
+				std::tie(rule, target, source) = branch;
+
 				int done = 0;
 				for (auto chunk : target.chunks()) {
-					if (chunk.wire->has_attribute(ID($nonstatic)) \
-							&& chunk.wire->attributes[ID($nonstatic)].as_int() > parent->level) {
-						done += chunk.size();
+					if (eos_variables.count(chunk.variable)) {
+						done += chunk.bitwidth();
 						continue;
 					}
 
-					RTLIL::SigSpec target_w = chunk;
 					// get the wire (or some part of it) which we created up above
-					target_w.replace(vstate.visible_assignments);
+					RTLIL::SigSpec target_w;
+					for (int i = 0; i < chunk.bitwidth(); i++) {
+						log_assert(va.count(chunk[i]));
+						target_w.append(va.at(chunk[i]));
+					}
+
 					rule->aux_actions.push_back(RTLIL::SigSig(target_w,
-						source.extract(done, chunk.size())));
-					done += chunk.size();
+						source.extract(done, chunk.bitwidth())));
+					done += chunk.bitwidth();
 				}
 			}
 
 			finished = true;
 		}
 	};
-
-	SwitchHelper::VariableState vstate;
-
-	void do_assign(slang::SourceLocation loc, RTLIL::SigSpec lvalue, RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking)
-	{
-		log_assert(lvalue.size() == unmasked_rvalue.size());
-		log_assert(lvalue.size() == mask.size());
-
-		crop_zero_mask(mask, lvalue);
-		crop_zero_mask(mask, unmasked_rvalue);
-		crop_zero_mask(mask, mask);
-
-		// TODO: proper message on blocking/nonblocking mixing
-		if (blocking) {
-			for (auto bit : lvalue)
-			if (bit.wire) {
-				log_assert(!seen_nonblocking_assignment.count(bit.wire));
-				seen_blocking_assignment.insert(bit.wire);
-			}
-		} else {
-			for (auto bit : lvalue)
-			if (bit.wire) {
-				log_assert(!seen_blocking_assignment.count(bit.wire));
-				seen_nonblocking_assignment.insert(bit.wire);
-			}
-		}
-
-		current_case->actions.push_back(Case::Action{
-			loc,
-			lvalue,
-			mask,
-			unmasked_rvalue
-		});
-
-		RTLIL::SigSpec rvalue_background = lvalue;
-		rvalue_background.replace(vstate.visible_assignments);
-
-		RTLIL::SigSpec rvalue = netlist.Bwmux(rvalue_background, unmasked_rvalue, mask);
-		vstate.set(lvalue, rvalue);
-	}
-
-	void do_simple_assign(slang::SourceLocation loc, RTLIL::SigSpec lvalue, RTLIL::SigSpec rvalue, bool blocking)
-	{
-		do_assign(loc, lvalue, rvalue, RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
-	}
-
-	RTLIL::SigSpec substitute_rvalue(RTLIL::Wire *wire)
-	{
-		log_assert(wire);
-
-		// We disallow mixing of blocking and non-blocking assignments to the same
-		// variable from the same process. That simplifies the handling here.
-		if (!seen_blocking_assignment.count(wire))
-			return wire;
-
-		RTLIL::SigSpec subed = wire;
-		subed.replace(vstate.visible_assignments);
-		return subed;
-	}
-
-	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
-	{
-		if (assign.timingControl && !netlist.settings.ignore_timing.value_or(false))
-				netlist.add_diag(diag::GenericTimingUnsyn, assign.timingControl->sourceRange);
-
-		bool blocking = !assign.isNonBlocking();
-		const ast::Expression *raw_lexpr = &assign.left();
-		RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
-
-		if (raw_lexpr->kind == ast::ExpressionKind::Streaming) {
-			auto& stream_lexpr = raw_lexpr->as<ast::StreamingConcatenationExpression>();
-			RTLIL::SigSpec lvalue = eval.streaming(stream_lexpr, true);
-			ast_invariant(assign, rvalue.size() >= lvalue.size());
-			do_simple_assign(assign.sourceRange.start(), lvalue,
-							 rvalue.extract_end(rvalue.size() - lvalue.size()), blocking);
-			return;
-		} else if (raw_lexpr->kind == ast::ExpressionKind::SimpleAssignmentPattern) {
-			// break down into individual assignments
-			auto& pattern_lexpr = raw_lexpr->as<ast::SimpleAssignmentPatternExpression>();
-
-			int nbits_remaining = rvalue.size();
-			for (auto el : pattern_lexpr.elements()) {
-				log_assert(el->kind == ast::ExpressionKind::Assignment);
-				auto &inner_assign = el->as<ast::AssignmentExpression>();
-
-				const ast::Expression *rsymbol = &inner_assign.right();
-				while (rsymbol->kind == ast::ExpressionKind::Conversion)
-					rsymbol = &rsymbol->as<ast::ConversionExpression>().operand();
-				log_assert(rsymbol->kind == ast::ExpressionKind::EmptyArgument);
-				log_assert(rsymbol->type->isBitstreamType());
-				int relem_width = rsymbol->type->getBitstreamWidth();
-
-				log_assert(nbits_remaining >= relem_width);
-				RTLIL::SigSpec relem = rvalue.extract(nbits_remaining - relem_width, relem_width);
-				nbits_remaining -= relem_width;
-
-				assign_rvalue(inner_assign, eval.apply_nested_conversion(inner_assign.right(), relem));
-			}
-
-			log_assert(nbits_remaining == 0);
-			return;
-		}
-		assign_rvalue_inner(assign, raw_lexpr, raw_rvalue, raw_mask, blocking);
-	}
-
-	void assign_rvalue_inner(const ast::AssignmentExpression &assign, const ast::Expression *raw_lexpr,
-							 RTLIL::SigSpec raw_rvalue, RTLIL::SigSpec raw_mask, bool blocking)
-	{
-		ast_invariant(assign, raw_mask.size() == (int) raw_lexpr->type->getBitstreamWidth());
-		ast_invariant(assign, raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
-
-		bool finished_etching = false;
-		bool memory_write = false;
-		while (!finished_etching) {
-			switch (raw_lexpr->kind) {
-			case ast::ExpressionKind::RangeSelect:
-				{
-					auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
-					Addressing addr(eval, sel);
-					int wider_size = sel.value().type->getBitstreamWidth();
-					raw_mask = addr.shift_up(raw_mask, false, wider_size);
-					raw_rvalue = addr.shift_up(raw_rvalue, true, wider_size);
-					raw_lexpr = &sel.value();
-				}
-				break;
-			case ast::ExpressionKind::ElementSelect:
-				{
-					auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
-
-					if (netlist.is_inferred_memory(sel.value())) {
-						finished_etching = true;
-						memory_write = true;
-						break;
-					}
-
-					Addressing addr(eval, sel);
-					raw_mask = addr.demux(raw_mask, sel.value().type->getBitstreamWidth());
-					raw_rvalue = raw_rvalue.repeat(addr.range.width());
-					raw_lexpr = &sel.value();
-				}
-				break;
-			case ast::ExpressionKind::MemberAccess:
-				{
-					const auto &acc = raw_lexpr->as<ast::MemberAccessExpression>();
-					if (acc.member.kind != ast::SymbolKind::Field) {
-						finished_etching = true;
-						break;
-					}
-					const auto &member = acc.member.as<ast::FieldSymbol>();
-					if (member.randMode != ast::RandMode::None) {
-						finished_etching = true;
-						break;
-					}
-
-					int pad = acc.value().type->getBitstreamWidth() - acc.type->getBitstreamWidth() - member.bitOffset;
-					raw_mask = {RTLIL::SigSpec(RTLIL::S0, pad), raw_mask, RTLIL::SigSpec(RTLIL::S0, member.bitOffset)};
-					raw_rvalue = {RTLIL::SigSpec(RTLIL::Sx, pad), raw_rvalue, RTLIL::SigSpec(RTLIL::Sx, member.bitOffset)};
-					raw_lexpr = &acc.value();
-				}
-				break;
-			case ast::ExpressionKind::Concatenation:
-				{
-					const auto &concat = raw_lexpr->as<ast::ConcatenationExpression>();
-					int base = raw_mask.size(), len;
-					for (auto op : concat.operands()) {
-						require(concat, op->type->isBitstreamType());
-						base -= (len = op->type->getBitstreamWidth());
-						log_assert(base >= 0);
-						assign_rvalue_inner(assign, op, raw_rvalue.extract(base, len), raw_mask.extract(base, len), blocking);
-					}
-					log_assert(base == 0);
-					return;
-				}
-				break;
-			default:
-				finished_etching = true;
-				break;
-			}
-			log_assert(raw_mask.size() == (int) raw_lexpr->type->getBitstreamWidth());
-			log_assert(raw_rvalue.size() == (int) raw_lexpr->type->getBitstreamWidth());
-		}
-
-		if (memory_write) {
-			log_assert(raw_lexpr->kind == ast::ExpressionKind::ElementSelect);
-			auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
-			log_assert(netlist.is_inferred_memory(sel.value()));
-			require(assign, !blocking);
-
-			RTLIL::IdString id = netlist.id(sel.value().as<ast::NamedValueExpression>().symbol);
-			RTLIL::Cell *memwr = netlist.canvas->addCell(netlist.new_id(), ID($memwr_v2));
-			memwr->setParam(ID::MEMID, id.str());
-			if (timing.implicit()) {
-				memwr->setParam(ID::CLK_ENABLE, false);
-				memwr->setParam(ID::CLK_POLARITY, false);
-				memwr->setPort(ID::CLK, RTLIL::Sx);
-			} else {
-				require(assign, timing.triggers.size() == 1);
-				auto& trigger = timing.triggers[0];
-				memwr->setParam(ID::CLK_ENABLE, true);
-				memwr->setParam(ID::CLK_POLARITY, trigger.edge_polarity);
-				memwr->setPort(ID::CLK, trigger.signal);
-			}
-			int portid = netlist.emitted_mems[id].num_wr_ports++;
-			memwr->setParam(ID::PORTID, portid);
-			std::vector<RTLIL::State> mask(portid, RTLIL::S0);
-			for (auto prev : preceding_memwr) {
-				log_assert(prev->type == ID($memwr_v2));
-				if (prev->getParam(ID::MEMID) == memwr->getParam(ID::MEMID)) {
-					mask[prev->getParam(ID::PORTID).as_int()] = RTLIL::S1;
-				}
-			}
-			memwr->setParam(ID::PRIORITY_MASK, mask);
-			memwr->setPort(ID::EN, netlist.Mux(
-				RTLIL::SigSpec(RTLIL::S0, raw_mask.size()), raw_mask,
-				netlist.LogicAnd(case_enable(), timing.background_enable)));
-
-			RTLIL::SigSpec addr = eval(sel.selector());
-
-			memwr->setParam(ID::ABITS, addr.size());
-			memwr->setPort(ID::ADDR, addr);
-			memwr->setParam(ID::WIDTH, raw_rvalue.size());
-			memwr->setPort(ID::DATA, raw_rvalue);
-			preceding_memwr.push_back(memwr);
-		} else {
-			RTLIL::SigSpec lvalue = eval.lhs(*raw_lexpr);
-			do_assign(assign.sourceRange.start(), lvalue, raw_rvalue, raw_mask, blocking);
-		}
-	}
 
 	void handle(const ast::ImmediateAssertionStatement &stmt)
 	{
@@ -980,11 +628,11 @@ public:
 		}
 
 		auto cell = netlist.canvas->addCell(netlist.new_id(), ID($check));
-		set_effects_trigger(cell);
+		context.set_effects_trigger(cell);
 		cell->setParam(ID::FLAVOR, flavor);
 		cell->setParam(ID::FORMAT, std::string(""));
 		cell->setParam(ID::ARGS_WIDTH, 0);
-		cell->setParam(ID::PRIORITY, --effects_priority);
+		cell->setParam(ID::PRIORITY, --context.effects_priority);
 		cell->setPort(ID::ARGS, {});
 		cell->setPort(ID::A, netlist.ReduceBool(eval(stmt.cond)));
 	}
@@ -1017,43 +665,48 @@ public:
 
 		slang::SourceLocation loc = call.sourceRange.start();
 
-		eval.push_frame(subroutine);
-		for (auto& member : subroutine->members())
-		if (ast::VariableSymbol::isKind(member.kind)) {
-			auto& var = member.as<ast::VariableSymbol>();
+		{
+			EnterAutomaticScopeGuard scope_guard(eval, subroutine);
 
-			if (var.kind == ast::SymbolKind::FormalArgument ||
-					var.flags.has(ast::VariableFlags::CompilerGenerated))
-				var.visit(*this);
+			for (auto& member : subroutine->members())
+			if (ast::VariableSymbol::isKind(member.kind)) {
+				auto& var = member.as<ast::VariableSymbol>();
+
+				if (var.kind == ast::SymbolKind::FormalArgument ||
+						var.flags.has(ast::VariableFlags::CompilerGenerated))
+					var.visit(*this);
+			}
+
+			for (int i = 0; i < (int) arg_symbols.size(); i++) {
+				auto dir = arg_symbols[i]->direction;
+				if (dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::InOut)
+					context.do_simple_assign(loc, eval.variable(*arg_symbols[i]), arg_in[i], true);
+			}
+
+			{
+				RegisterEscapeConstructGuard escape_guard(context, EscapeConstructKind::FunctionBody,
+														  subroutine);
+				subroutine->getBody().visit(*this);
+			}
+
+			for (int i = 0; i < (int) arg_symbols.size(); i++) {
+				auto dir = arg_symbols[i]->direction;
+				if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
+					arg_out.push_back(eval(*arg_symbols[i]));
+				else
+					arg_out.push_back({});
+			}
+
+			if (subroutine->returnValVar)
+				ret = eval(*subroutine->returnValVar);
 		}
-
-		for (int i = 0; i < (int) arg_symbols.size(); i++) {
-			auto dir = arg_symbols[i]->direction;
-			if (dir == ast::ArgumentDirection::In || dir == ast::ArgumentDirection::InOut)
-				do_simple_assign(loc, eval.wire(*arg_symbols[i]), arg_in[i], true);
-		}
-
-		subroutine->getBody().visit(*this);
-
-		for (int i = 0; i < (int) arg_symbols.size(); i++) {
-			auto dir = arg_symbols[i]->direction;
-			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
-				arg_out.push_back(eval(*arg_symbols[i]));
-			else
-				arg_out.push_back({});
-		}
-
-		if (subroutine->returnValVar)
-			ret = eval(*subroutine->returnValVar);
-
-		eval.pop_frame();
 
 		for (int i = 0; i < (int) arg_symbols.size(); i++) {
 			const ast::Expression *arg = call.arguments()[i];
 			auto dir = arg_symbols[i]->direction;
 
 			if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
-				assign_rvalue(arg->as<ast::AssignmentExpression>(), arg_out[i]);
+				context.assign_rvalue(arg->as<ast::AssignmentExpression>(), arg_out[i]);
 		}
 
 		return ret;
@@ -1063,8 +716,8 @@ public:
 	{
 		auto cell = netlist.canvas->addCell(netlist.new_id(), ID($print));
 		transfer_attrs(call, cell);
-		set_effects_trigger(cell);
-		cell->parameters[ID::PRIORITY] = --effects_priority;
+		context.set_effects_trigger(cell);
+		cell->parameters[ID::PRIORITY] = --context.effects_priority;
 		std::vector<Yosys::VerilogFmtArg> fmt_args;
 		for (auto arg : call.arguments()) {
 			log_assert(arg);
@@ -1113,25 +766,27 @@ public:
 	void handle(const ast::BlockStatement &blk)
 	{
 		require(blk, blk.blockKind == ast::StatementBlockKind::Sequential)
+		EnterAutomaticScopeGuard guard(context.eval, blk.blockSymbol);
 		blk.body.visit(*this);
 	}
 
 	void handle(const ast::StatementList &list)
 	{
-		RTLIL::Wire *disable = eval.frames.back().disable;
+		Variable disable = context.get_disable_flag();
+
 		std::vector<SwitchHelper> sw_stack;
 
 		for (auto &stmt : list.list) {
-			RTLIL::SigSpec disable_rv = disable != nullptr ? substitute_rvalue(disable) : RTLIL::S0;
+			RTLIL::SigSpec disable_rv = disable ? context.substitute_rvalue(disable) : RTLIL::S0;
 			if (!disable_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(current_case, vstate, disable_rv);
+				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, disable_rv);
 				b.sw->statement = stmt;
 				b.enter_branch({RTLIL::S0});
-				current_case->statement = stmt;
+				context.current_case->statement = stmt;
 
 				// From a semantical POV the following is a no-op, but it allows us to
 				// do more constant folding.
-				do_simple_assign(slang::SourceLocation::NoLocation, disable, RTLIL::S0, true);
+				context.do_simple_assign(slang::SourceLocation::NoLocation, disable, RTLIL::S0, true);
 			} else if (disable_rv.as_bool()) {
 				break;
 			} else {
@@ -1155,24 +810,24 @@ public:
 		RTLIL::SigSpec condition = netlist.ReduceBool(
 			eval(*cond.conditions[0].expr)
 		);
-		SwitchHelper b(current_case, vstate, condition);
+		SwitchHelper b(context.current_case, context.vstate, condition);
 		b.sw->statement = &cond;
 
 		b.branch({RTLIL::S1}, [&](){
-			current_case->statement = &cond.ifTrue;
+			context.current_case->statement = &cond.ifTrue;
 			cond.ifTrue.visit(*this);
 		});
 
 		if (cond.ifFalse) {
 			b.branch({}, [&](){
-				current_case->statement = &cond.ifTrue;
+				context.current_case->statement = &cond.ifTrue;
 				cond.ifFalse->visit(*this);
 			});
 		}
 		b.finish(netlist);
 
 		// descend into an empty switch so we force action priority for follow-up statements
-		current_case = current_case->add_switch({})->add_case({});
+		context.current_case = context.current_case->add_switch({})->add_case({});
 	}
 
 	void handle(const ast::CaseStatement &stmt)
@@ -1193,7 +848,7 @@ public:
 		}
 
 		RTLIL::SigSpec dispatch = eval(stmt.expr);
-		SwitchHelper b(current_case, vstate,
+		SwitchHelper b(context.current_case, context.vstate,
 					   stmt.condition == ast::CaseStatementCondition::Inside ?
 					   RTLIL::SigSpec(RTLIL::S1) : dispatch);
 
@@ -1237,71 +892,70 @@ public:
 			}
 			require(stmt, !compares.empty());
 			b.branch(compares, [&]() {
-				current_case->statement = item.stmt;
+				context.current_case->statement = item.stmt;
 				item.stmt->visit(*this);
 			});
 		}
 
 		if (stmt.defaultCase) {
 			b.branch(std::vector<RTLIL::SigSpec>{}, [&]() {
-				current_case->statement = stmt.defaultCase;
+				context.current_case->statement = stmt.defaultCase;
 				stmt.defaultCase->visit(*this);
 			});
 		}
 		b.finish(netlist);
 
 		// descend into an empty switch so we force action priority for follow-up statements
-		current_case = current_case->add_switch({})->add_case({});
+		context.current_case = context.current_case->add_switch({})->add_case({});
 	}
 
 	RTLIL::Wire *add_nonstatic(RTLIL::IdString id, int width)
 	{
 		RTLIL::Wire *wire = netlist.canvas->addWire(id, width);
-		wire->attributes[ID($nonstatic)] = current_case->level;
+		wire->attributes[ID($nonstatic)] = context.current_case->level;
 		return wire;
 	}
 
 	void handle(const ast::WhileLoopStatement &stmt) {
-		RTLIL::Wire *break_ = add_nonstatic(netlist.new_id("break"), 1);
-		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
-
+		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 		std::vector<SwitchHelper> sw_stack;
-		enter_unrolling();
+		unroll_limit.enter_unrolling();
 		while (true) {
 			RTLIL::SigSpec cv = netlist.ReduceBool(eval(stmt.cond));
-			RTLIL::SigSpec break_rv = substitute_rvalue(break_);
+			RTLIL::SigSpec break_rv = context.vstate.evaluate(netlist, guard1.flag);
 			RTLIL::SigSpec joint_break = netlist.LogicOr(netlist.LogicNot(cv), break_rv);
 
 			if (!joint_break.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(current_case, vstate, joint_break);
+				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, joint_break);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S0});
-				current_case->statement = &stmt.body;
+				context.current_case->statement = &stmt.body;
 
 				// From a semantical POV the following is a no-op, but it allows us to
 				// do more constant folding.
-				do_simple_assign(slang::SourceLocation::NoLocation, break_, RTLIL::S0, true);
+				context.do_simple_assign(slang::SourceLocation::NoLocation, guard1.flag, RTLIL::S0, true);
 			} else if (joint_break.as_bool()) {
 				break;
 			} else {
 				log_assert(!joint_break.as_bool());
 			}
 
-			eval.push_frame(nullptr).break_ = break_;
-			stmt.body.visit(*this);
-			eval.pop_frame();
+			{
+				RegisterEscapeConstructGuard guard2(context, EscapeConstructKind::LoopBody, &stmt);
+				stmt.body.visit(*this);
+			}
 
-			if (!unroll_tick(&stmt))
+			if (!unroll_limit.unroll_tick(&stmt))
 				break;
 		}
-		exit_unrolling();
+		unroll_limit.exit_unrolling();
 
 		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
 			it->exit_branch();
 			it->finish(netlist);
 		}
 
-		current_case = current_case->add_switch({})->add_case({});
+		context.current_case = context.current_case->add_switch({})->add_case({});
 	}
 
 	void handle(const ast::ForLoopStatement &stmt) {
@@ -1313,36 +967,36 @@ public:
 			return;
 		}
 
-		RTLIL::Wire *break_ = add_nonstatic(netlist.new_id("break"), 1);
-		do_simple_assign(stmt.sourceRange.start(), break_, RTLIL::S0, true);
+		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 
 		std::vector<SwitchHelper> sw_stack;
-		enter_unrolling();
+		unroll_limit.enter_unrolling();
 		while (true) {
 			RTLIL::SigSpec cv = netlist.ReduceBool(eval(*stmt.stopExpr));
 
 			if (!cv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(current_case, vstate, cv);
+				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, cv);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S1});
-				current_case->statement = &stmt.body;
+				context.current_case->statement = &stmt.body;
 			} else if (!cv.as_bool()) {
 				break;
 			} else {
 				log_assert(cv.as_bool());
 			}
 
-			eval.push_frame(nullptr).break_ = break_;
-			stmt.body.visit(*this);
-			eval.pop_frame();
+			{
+				RegisterEscapeConstructGuard guard2(context, EscapeConstructKind::LoopBody, &stmt);
+				stmt.body.visit(*this);
+			}
 
-			RTLIL::SigSpec break_rv = substitute_rvalue(break_);
+			RTLIL::SigSpec break_rv = context.substitute_rvalue(guard1.flag);
 
 			if (!break_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(current_case, vstate, break_rv);
+				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, break_rv);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S0});
-				current_case->statement = &stmt.body;
+				context.current_case->statement = &stmt.body;
 			} else if (break_rv.as_bool()) {
 				break;
 			} else {
@@ -1352,26 +1006,26 @@ public:
 			for (auto step : stmt.steps)
 				eval(*step);
 
-			if (!unroll_tick(&stmt))
+			if (!unroll_limit.unroll_tick(&stmt))
 				break;
 		}
-		exit_unrolling();
+		unroll_limit.exit_unrolling();
 
 		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
 			it->exit_branch();
 			it->finish(netlist);
 		}
 
-		current_case = current_case->add_switch({})->add_case({});
+		context.current_case = context.current_case->add_switch({})->add_case({});
 	}
 
 	void handle(const ast::EmptyStatement&) {}
 
 	void init_nonstatic_variable(const ast::ValueSymbol &symbol) {
-		RTLIL::Wire *target = eval.wire(symbol);
-		log_assert(target);
+		Variable target = eval.variable(symbol);
+		log_assert((bool) target);
 
-		if (!target->width)
+		if (!target.bitwidth())
 			return;
 
 		RTLIL::SigSpec initval;
@@ -1380,7 +1034,7 @@ public:
 		else
 			initval = convert_const(symbol.getType().getDefaultValue());
 
-		do_simple_assign(
+		context.do_simple_assign(
 			symbol.location,
 			target,
 			initval,
@@ -1390,7 +1044,6 @@ public:
 
 	void handle(const ast::VariableSymbol &symbol) {
 		if (symbol.lifetime != ast::VariableLifetime::Static) {
-			eval.create_local(&symbol);
 			init_nonstatic_variable(symbol);
 		}
 	}
@@ -1398,59 +1051,28 @@ public:
 		stmt.symbol.visit(*this);
 	}
 
-	using Frame = EvalContext::Frame;
-
 	void handle(const ast::BreakStatement &brk)
 	{
-		log_assert(!eval.frames.empty());
-		auto &frame = eval.frames.back();
-		log_assert(frame.kind == Frame::LoopBody);
-		log_assert(frame.disable != nullptr && frame.break_ != nullptr);
-
-		do_simple_assign(brk.sourceRange.start(), frame.disable, RTLIL::S1, true);
-		do_simple_assign(brk.sourceRange.start(), frame.break_, RTLIL::S1, true);
-	}
+		context.signal_escape(brk.sourceRange.start(), EscapeConstructKind::Loop);
+	}\
 
 	void handle(const ast::ContinueStatement &brk)
 	{
-		log_assert(!eval.frames.empty());
-		auto &frame = eval.frames.back();
-		log_assert(frame.kind == Frame::LoopBody);
-		log_assert(frame.disable != nullptr && frame.break_ != nullptr);
-
-		do_simple_assign(brk.sourceRange.start(), frame.disable, RTLIL::S1, true);
+		context.signal_escape(brk.sourceRange.start(), EscapeConstructKind::LoopBody);
 	}
 
 	void handle(const ast::ReturnStatement &stmt)
 	{
-		log_assert(!eval.frames.empty());
-		auto it = eval.frames.end() - 1;
-		for (; it != eval.frames.begin(); it--) {
-			if (it->kind == Frame::FunctionBody)
-				break;
-		}
-		log_assert(it != eval.frames.begin());
-		int level = it - eval.frames.begin();
-
-		auto subroutine = it->subroutine;
+		auto subroutine = context.get_current_subroutine();
 		log_assert(subroutine && subroutine->subroutineKind == ast::SubroutineKind::Function);
 		log_assert(subroutine->returnValVar);
 
 		if (stmt.expr) {
-			do_simple_assign(stmt.sourceRange.start(), eval.wire(*subroutine->returnValVar),
-							 eval(*stmt.expr), true);
+			context.do_simple_assign(stmt.sourceRange.start(), eval.variable(*subroutine->returnValVar),
+									 eval(*stmt.expr), true);
 		}
 
-		// refetch the iterator (stack may have changed in the meantime)
-		log_assert(level < (int) eval.frames.size());
-		it = eval.frames.begin() + level;
-		for (; it != eval.frames.end(); it++) {
-			log_assert(it->disable != nullptr);
-			do_simple_assign(stmt.sourceRange.start(), it->disable, RTLIL::S1, true);
-			if (it->break_ != nullptr) {
-				do_simple_assign(stmt.sourceRange.start(), it->break_, RTLIL::S1, true);
-			}
-		}
+		context.signal_escape(stmt.sourceRange.start(), EscapeConstructKind::FunctionBody);
 	}
 
 	void handle(const ast::TimedStatement &stmt)
@@ -1472,74 +1094,31 @@ public:
 	}
 };
 
-EvalContext::Frame &EvalContext::push_frame(const ast::SubroutineSymbol *subroutine)
+int EvalContext::find_nest_level(const ast::Scope *scope)
 {
-	if (subroutine) {
-		std::string hier = subroutine->getHierarchicalPath();
-		log_debug("%s-> push (%s)\n", std::string(frames.size(), ' ').c_str(),
-				  hier.c_str());
-	} else {
-		log_debug("%s-> push\n", std::string(frames.size(), ' ').c_str());
-	}
+	const ast::Scope *upper_scope = scope;
 
-	auto &frame = frames.emplace_back();
-	frame.subroutine = subroutine;
-	if (frames.size() == 1) {
-		log_assert(!subroutine);
-		frame.kind = Frame::Implicit;
-	} else {
-		frame.disable = procedural->add_nonstatic(netlist.new_id("disable"), 1);
-		procedural->do_simple_assign(slang::SourceLocation::NoLocation,
-									 frame.disable, RTLIL::S0, true);
-		frame.kind = (subroutine != nullptr) ? Frame::FunctionBody : Frame::LoopBody;
-	}
-	return frame;
+	while (upper_scope && !scope_nest_level.count(upper_scope))
+		upper_scope = upper_scope->asSymbol().getParentScope();
+
+	ast_invariant(scope->asSymbol(), upper_scope != nullptr);
+	return scope_nest_level.at(upper_scope);
 }
 
-void EvalContext::create_local(const ast::Symbol *symbol)
-{
-	log_assert(procedural);
-	log_assert(!frames.empty());
-
-	{
-		std::string hier = symbol->getHierarchicalPath();
-		log_debug("%s- local (%s)\n", std::string(frames.size(), ' ').c_str(), hier.c_str());
-	}
-
-	log_assert(!frames.back().locals.count(symbol));
-	auto &variable = symbol->as<ast::VariableSymbol>();
-	log_assert(variable.lifetime == ast::VariableLifetime::Automatic);
-
-	frames.back().locals[symbol] = procedural->add_nonstatic(netlist.new_id("local"),
-												variable.getType().getBitstreamWidth());
-}
-
-void EvalContext::pop_frame()
-{
-	log_assert(!frames.empty());
-	frames.pop_back();
-
-	log_debug("%s<- pop\n", std::string(frames.size(), ' ').c_str());
-}
-
-RTLIL::Wire *EvalContext::wire(const ast::Symbol &symbol)
+Variable EvalContext::variable(const ast::ValueSymbol &symbol)
 {
 	if (ast::VariableSymbol::isKind(symbol.kind) &&
 			symbol.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic) {
-		for (auto it = frames.rbegin(); it != frames.rend(); it++) {
-			if (it->locals.count(&symbol))
-				return it->locals.at(&symbol);
-		}
-		ast_unreachable(symbol);
+		return Variable::from_symbol(&symbol, find_nest_level(symbol.getParentScope()));
 	} else {
-		return netlist.wire(symbol);
+		return Variable::from_symbol(&symbol);
 	}
 }
 
-RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
+VariableBits EvalContext::lhs(const ast::Expression &expr)
 {
 	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
-	RTLIL::SigSpec ret;
+	VariableBits ret;
 
 	if (!expr.type->isFixedSize()) {
 		auto &diag = netlist.add_diag(diag::FixedSizeRequired, expr.sourceRange);
@@ -1551,7 +1130,7 @@ RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 	case ast::ExpressionKind::NamedValue:
 	case ast::ExpressionKind::HierarchicalValue: // TODO: raise error if there's a boundary
 		{
-			const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
+			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
 			if (netlist.is_inferred_memory(symbol)) {
 				netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
 				goto error;
@@ -1563,14 +1142,14 @@ RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 				break;
 			}
 
-			ret = wire(symbol);
+			ret = variable(symbol);
 		}
 		break;
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(netlist.eval, sel);
-			RTLIL::SigSpec inner = lhs(sel.value());
+			Addressing<VariableBits> addr(netlist.eval, sel);
+			VariableBits inner = lhs(sel.value());
 			ret = addr.extract(inner, sel.type->getBitstreamWidth());
 		}
 		break;
@@ -1585,7 +1164,7 @@ RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 			require(expr, elemsel.value().type->isBitstreamType() && elemsel.value().type->hasFixedRange());
-			Addressing addr(*this, elemsel);
+			Addressing<VariableBits> addr(*this, elemsel);
 			ret = addr.extract(lhs(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
@@ -1606,7 +1185,7 @@ RTLIL::SigSpec EvalContext::lhs(const ast::Expression &expr)
 
 	if (0) {
 	error:
-		ret = netlist.canvas->addWire(netlist.new_id(), expr.type->getBitstreamWidth());
+		ret = Variable::dummy(expr.type->getBitstreamWidth());
 	}
 
 	log_assert(expr.type->isFixedSize());
@@ -1621,9 +1200,8 @@ RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assi
 
 	if (rsymbol->kind == ast::ExpressionKind::EmptyArgument) {
 		// early path
-		RTLIL::SigSpec ret = lhs(assign.left());
-		assert_nonstatic_free(ret);
-		return ret;
+		VariableBits ret = lhs(assign.left());
+		return netlist.convert_static(ret);
 	}
 
 	while (rsymbol->kind == ast::ExpressionKind::Conversion)
@@ -1633,7 +1211,7 @@ RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assi
 
 	RTLIL::SigSpec ret = netlist.canvas->addWire(netlist.new_id(), rsymbol->type->getBitstreamWidth());
 	netlist.GroupConnect(
-		lhs(assign.left()),
+		netlist.convert_static(lhs(assign.left())),
 		apply_nested_conversion(assign.right(), ret)
 	);
 	return ret;
@@ -1652,14 +1230,14 @@ RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 	case ast::SymbolKind::Variable:
 	case ast::SymbolKind::FormalArgument:
 		{
-			RTLIL::Wire *wire = this->wire(symbol);
-			log_assert(wire);
+			log_assert(ast::ValueSymbol::isKind(symbol.kind));
+			Variable var = variable(symbol.as<ast::ValueSymbol>());
+			log_assert((bool) var);
 			RTLIL::SigSpec value;
 			if (procedural)
-				value = procedural->substitute_rvalue(wire);
+				value = procedural->substitute_rvalue(var);
 			else
-				value = wire;
-			assert_nonstatic_free(value);
+				value = netlist.convert_static(var);
 			return value;
 		}
 		break;
@@ -1677,7 +1255,37 @@ RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 	}
 }
 
-RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression const &expr, bool in_lhs)
+VariableBits EvalContext::streaming_lhs(ast::StreamingConcatenationExpression const &expr)
+{
+	require(expr, expr.isFixedSize());
+	VariableBits cat;
+
+	for (auto stream : expr.streams()) {
+		require(*stream.operand, !stream.withExpr);
+		auto& op = *stream.operand;
+		VariableBits item;
+
+		if (op.kind == ast::ExpressionKind::Streaming)
+			item = streaming_lhs(op.as<ast::StreamingConcatenationExpression>());
+		else
+			item = lhs(*stream.operand);
+
+		cat = {cat, item};
+	}
+
+	require(expr, expr.getSliceSize() <= std::numeric_limits<int>::max());
+	int slice = expr.getSliceSize();
+	if (slice == 0) {
+		return cat;
+	} else {
+		VariableBits reorder;
+		for (int i = 0; i < cat.size(); i += slice)
+			reorder = {reorder, cat.extract(i, std::min(slice, cat.bitwidth() - i))};
+		return reorder;
+	}
+}
+
+RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression const &expr)
 {
 	require(expr, expr.isFixedSize());
 	RTLIL::SigSpec cat;
@@ -1688,9 +1296,9 @@ RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression cons
 		RTLIL::SigSpec item;
 
 		if (op.kind == ast::ExpressionKind::Streaming)
-			item = streaming(op.as<ast::StreamingConcatenationExpression>(), in_lhs);
+			item = streaming(op.as<ast::StreamingConcatenationExpression>());
 		else
-			item = in_lhs ? lhs(*stream.operand) : (*this)(*stream.operand);
+			item = (*this)(*stream.operand);
 
 		cat = {cat, item};
 	}
@@ -1949,7 +1557,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 
 				// evaluate the bitstream
 				auto &stream_expr = conv.operand().as<ast::StreamingConcatenationExpression>();
-				RTLIL::SigSpec stream = streaming(stream_expr, false);
+				RTLIL::SigSpec stream = streaming(stream_expr);
 
 				// pad to fit target size
 				ast_invariant(conv, stream.size() <= (int) expr.type->getBitstreamWidth());
@@ -1966,7 +1574,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(*this, sel);
+			Addressing<RTLIL::SigSpec> addr(*this, sel);
 			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
 		}
 		break;
@@ -2003,7 +1611,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				break;
 			}
 
-			Addressing addr(*this, elemsel);
+			Addressing<RTLIL::SigSpec> addr(*this, elemsel);
 			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
@@ -2073,7 +1681,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			if (call.isSystemCall() && (call.getSubroutineName() == "$display"
 					|| call.getSubroutineName() == "$write")) {
 				require(expr, procedural != nullptr);
-				procedural->handle_display(call);
+				StatementVisitor(*procedural).handle_display(call);
 			} else if (call.isSystemCall()) {
 				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
 				require(expr, call.arguments().size() == 1);
@@ -2081,17 +1689,18 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
 				if (procedural) {
-					ret = procedural->handle_call(call);
+					ret = StatementVisitor(*procedural).handle_call(call);
 				} else {
 					require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
-					UpdateTiming implicit;
-					ProceduralVisitor visitor(netlist, implicit, ProceduralVisitor::ContinuousAssign);
+					ProcessTiming implicit;
+					ProceduralContext context(netlist, implicit);
+					StatementVisitor visitor(context);
 					visitor.eval.ignore_ast_constants = ignore_ast_constants;
 					ret = visitor.handle_call(call);
 
 					RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 					transfer_attrs(call, proc);
-					visitor.root_case->copy_into(&proc->root_case);
+					context.root_case->copy_into(&proc->root_case);
 				}
 			}
 		}
@@ -2131,7 +1740,7 @@ EvalContext::EvalContext(NetlistContext &netlist)
 {
 }
 
-EvalContext::EvalContext(NetlistContext &netlist, ProceduralVisitor &procedural)
+EvalContext::EvalContext(NetlistContext &netlist, ProceduralContext &procedural)
 	: netlist(netlist), procedural(&procedural),
 	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
 {
@@ -2235,33 +1844,28 @@ public:
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(body, proc);
 
-		UpdateTiming implicit_timing;
-		ProceduralVisitor visitor(netlist, implicit_timing, ProceduralVisitor::AlwaysProcedure);
-		body.visit(visitor);
+		ProcessTiming implicit_timing;
 
-		RTLIL::SigSpec all_driven = visitor.all_driven();
+		ProceduralContext procedure(netlist, implicit_timing);
+		body.visit(StatementVisitor(procedure));
 
-		Yosys::pool<RTLIL::SigBit> dangling;
+		VariableBits all_driven = procedure.all_driven();
+		Yosys::pool<VariableBit> dangling;
 		if (symbol.procedureKind != ast::ProceduralBlockKind::AlwaysComb) {
-			Yosys::pool<RTLIL::SigBit> driven_pool = {all_driven.begin(), all_driven.end()};
+			Yosys::pool<VariableBit> driven_pool = {all_driven.begin(), all_driven.end()};
 			dangling =
-				detect_possibly_unassigned_subset(driven_pool, visitor.root_case);
+				detect_possibly_unassigned_subset(driven_pool, procedure.root_case);
 		}
-
-		RTLIL::SigSpec dangling_;
-		for (auto bit : dangling)
-			dangling_.append(bit);
-		dangling_.sort_and_unify();
 
 		// left-hand side and right-hand side of the connections to be made
 		RTLIL::SigSpec cl, cr;
-		RTLIL::SigSpec latch_driven;
+		VariableBits latch_driven;
 
-		for (auto driven_bit : visitor.all_driven()) {
+		for (auto driven_bit : all_driven) {
 			if (!dangling.count(driven_bit)) {
 				// No latch inferred
-				cl.append(driven_bit);
-				cr.append(visitor.vstate.visible_assignments.at(driven_bit));
+				cl.append(netlist.convert_static(driven_bit));
+				cr.append(procedure.vstate.visible_assignments.at(driven_bit));
 			} else {
 				latch_driven.append(driven_bit);
 			}
@@ -2277,7 +1881,7 @@ public:
 		if (!latch_driven.empty()) {
 			// map from a driven signal to the corresponding enable/staging signal
 			// TODO: SigSig needlessly costly here
-			Yosys::dict<RTLIL::SigBit, RTLIL::SigSig> signaling;
+			Yosys::dict<VariableBit, RTLIL::SigSig> signaling;
 			RTLIL::SigSpec enables;
 
 			for (auto bit : latch_driven) {
@@ -2285,24 +1889,25 @@ public:
 				RTLIL::SigBit en = netlist.canvas->addWire(netlist.new_id(), 1);
 				RTLIL::SigBit staging = netlist.canvas->addWire(netlist.new_id(), 1);
 				RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en,
-														staging, bit, true);
+														staging, netlist.convert_static(bit), true);
 				signaling[bit] = {en, staging};
 				enables.append(en);
 				transfer_attrs(symbol, cell);
 			}
 
-			visitor.root_case->aux_actions.push_back(
+			procedure.root_case->aux_actions.push_back(
 						{enables, RTLIL::SigSpec(RTLIL::S0, enables.size())});
-			visitor.root_case->insert_latch_signaling(netlist, signaling);
+			procedure.root_case->insert_latch_signaling(netlist, signaling);
 		}
 
-		visitor.root_case->copy_into(&proc->root_case);
+		procedure.root_case->copy_into(&proc->root_case);
 		netlist.GroupConnect(cl, cr);
 	}
 
 	void handle_ff_process(const ast::ProceduralBlockSymbol &symbol,
 						   const ast::SignalEventControl &clock,
-						   std::vector<const ast::Statement *> prologue,
+						   const ast::StatementBlockSymbol *prologue_block,
+						   std::vector<const ast::Statement *> prologue_statements,
 						   const ast::Statement &sync_body,
 						   std::span<AsyncBranch> async)
 	{
@@ -2312,7 +1917,7 @@ public:
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(timed.stmt, proc);
 
-		UpdateTiming prologue_timing;
+		ProcessTiming prologue_timing;
 		{
 			prologue_timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
 			for (auto &abranch : async)	{
@@ -2321,36 +1926,41 @@ public:
 				prologue_timing.triggers.push_back({sig, abranch.polarity, nullptr});
 			}
 		}
-		ProceduralVisitor prologue_visitor(netlist, prologue_timing,
-										   ProceduralVisitor::AlwaysProcedure);
-		for (auto stmt : prologue)
-			stmt->visit(prologue_visitor);
-		prologue_visitor.copy_case_tree_into(proc->root_case);
+		ProceduralContext prologue(netlist, prologue_timing);
+		EnterAutomaticScopeGuard prologue_guard(prologue.eval, prologue_block);
+		{
+			StatementVisitor visitor(prologue);
+			for (auto stmt : prologue_statements)
+				stmt->visit(visitor);
+		}
+		prologue.copy_case_tree_into(proc->root_case);
 
 		struct Aload {
 			RTLIL::SigBit trigger;
 			bool trigger_polarity;
-			Yosys::dict<RTLIL::SigBit, RTLIL::SigBit> values;
+			VariableState values;
 			const ast::Statement *ast_node;
 		};
 		std::vector<Aload> aloads;
 		RTLIL::SigSpec prior_branch_taken;
 
-		for (auto &abranch : async) {
-			RTLIL::SigSpec sig = netlist.eval(abranch.trigger);
+		for (auto &async_branch : async) {
+			RTLIL::SigSpec sig = netlist.eval(async_branch.trigger);
 			log_assert(sig.size() == 1);
 
-			UpdateTiming branch_timing;
-			RTLIL::SigSpec sig_depol = abranch.polarity ? sig : netlist.LogicNot(sig);
+			ProcessTiming branch_timing;
+			RTLIL::SigSpec sig_depol = async_branch.polarity ? sig : netlist.LogicNot(sig);
 			branch_timing.background_enable = netlist.LogicAnd(netlist.LogicNot(prior_branch_taken), sig_depol);
 			prior_branch_taken.append(sig_depol);
 
-			ProceduralVisitor visitor(netlist, branch_timing, ProceduralVisitor::AlwaysProcedure);
-			visitor.inherit_state(prologue_visitor);
-			abranch.body.visit(visitor);
-			visitor.copy_case_tree_into(proc->root_case);
+			ProceduralContext branch(netlist, branch_timing);
+			EnterAutomaticScopeGuard branch_guard(branch.eval, prologue_block);
+
+			branch.inherit_state(prologue);
+			async_branch.body.visit(StatementVisitor(branch));
+			branch.copy_case_tree_into(proc->root_case);
 			aloads.push_back({
-				sig, abranch.polarity, visitor.vstate.visible_assignments, &abranch.body
+				sig, async_branch.polarity, branch.vstate, &async_branch.body
 			});
 			// TODO: check for non-constant load values and warn about sim/synth mismatch
 		}
@@ -2361,54 +1971,54 @@ public:
 		}
 
 		{
-			UpdateTiming timing;
+			ProcessTiming timing;
 			timing.background_enable = netlist.LogicNot(prior_branch_taken);
 			timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
-			ProceduralVisitor visitor(netlist, timing, ProceduralVisitor::AlwaysProcedure);
-			visitor.inherit_state(prologue_visitor);
-			sync_body.visit(visitor);
-			visitor.copy_case_tree_into(proc->root_case);
 
-			RTLIL::SigSpec driven = visitor.all_driven();
-			for (RTLIL::SigChunk driven_chunk : driven.chunks()) {
-				log_assert(netlist.wire_hdl_types.count(driven_chunk.wire));
+			ProceduralContext sync_procedure(netlist, timing);
+			EnterAutomaticScopeGuard guard(sync_procedure.eval, prologue_block);
+			sync_procedure.inherit_state(prologue);
+			sync_body.visit(StatementVisitor(sync_procedure));
+			sync_procedure.copy_case_tree_into(proc->root_case);
 
-				RTLIL::SigSpec staging_chunk = driven_chunk;
-				staging_chunk.replace(visitor.vstate.visible_assignments);
+			// FIXME: ignores variables not driven from the sync procedure
+			VariableBits driven = sync_procedure.all_driven();
+			for (VariableChunk driven_chunk : driven.chunks()) {
+				const ast::Type *type = &driven_chunk.variable.get_symbol()->getType();
+				RTLIL::SigSpec assigned = sync_procedure.vstate.evaluate(netlist, driven_chunk);
 
 				RTLIL::Cell *cell;
 				if (aloads.empty()) {
-					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, netlist.wire_hdl_types.at(driven_chunk.wire))) {
-						cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + name),
+					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
+						cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
 												timing.triggers[0].signal,
-												staging_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
-												named_chunk,
+												assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+												netlist.convert_static(named_chunk),
 												timing.triggers[0].edge_polarity);
 						transfer_attrs(symbol, cell);
 					}
 				} else if (aloads.size() == 1) {
-					RTLIL::SigSpec aload_chunk = driven_chunk;
-					aload_chunk.replace(aloads[0].values);
+					VariableBits aldff_q;
+					VariableBits dffe_q; // fallback
 
-					RTLIL::SigSpec aldff_q;
-					RTLIL::SigSpec dffe_q; // fallback
-
-					for (int i = 0; i < driven_chunk.size(); i++) {
-						if (aload_chunk[i] != RTLIL::SigSpec(driven_chunk)[i])
-							aldff_q.append(RTLIL::SigSpec(driven_chunk)[i]);
+					for (int i = 0; i < driven_chunk.bitwidth(); i++) {
+						// Is this variable bit assigned to from the async branch?
+						// Depending on this we either use $aldff or $dffe to drive it
+						if (aloads[0].values.visible_assignments.count(driven_chunk[i]))
+							aldff_q.append(driven_chunk[i]);
 						else
-							dffe_q.append(RTLIL::SigSpec(driven_chunk)[i]);
+							dffe_q.append(driven_chunk[i]);
 					}
 
 					if (!aldff_q.empty()) {
 						for (auto driven_chunk2 : aldff_q.chunks())
-						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, netlist.wire_hdl_types.at(driven_chunk.wire))) {
-							cell = netlist.canvas->addAldff(netlist.canvas->uniquify("$driver$" + name),
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
+							cell = netlist.canvas->addAldff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
 													timing.triggers[0].signal,
 													aloads[0].trigger,
-													staging_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
-													named_chunk,
-													aload_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
+													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+													netlist.convert_static(named_chunk),
+													aloads[0].values.evaluate(netlist, named_chunk),
 													timing.triggers[0].edge_polarity,
 													aloads[0].trigger_polarity);
 							transfer_attrs(symbol, cell);
@@ -2416,17 +2026,19 @@ public:
 					}
 
 					if (!dffe_q.empty()) {
-						auto &diag = netlist.add_diag(diag::MissingAload, aloads[0].ast_node->sourceRange);
-						diag << std::string(log_signal(dffe_q));
-						diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+						for (auto driven_chunk2 : dffe_q.chunks()) {
+							auto &diag = netlist.add_diag(diag::MissingAload, aloads[0].ast_node->sourceRange);
+							diag << netlist.id(*driven_chunk2.variable.get_symbol()).str() + driven_chunk2.slice_text();
+							diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+						}
 
 						for (auto driven_chunk2 : dffe_q.chunks())
-						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, netlist.wire_hdl_types.at(driven_chunk.wire))) {
-							cell = netlist.canvas->addDffe(netlist.canvas->uniquify("$driver$" + name),
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
+							cell = netlist.canvas->addDffe(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
 													timing.triggers[0].signal,
 													aloads[0].trigger,
-													staging_chunk.extract(named_chunk.offset - driven_chunk.offset, named_chunk.width),
-													named_chunk,
+													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+													netlist.convert_static(named_chunk),
 													timing.triggers[0].edge_polarity,
 													!aloads[0].trigger_polarity);
 							transfer_attrs(symbol, cell);
@@ -2501,20 +2113,21 @@ public:
 		if (port.isNullPort)
 			return;
 
-		RTLIL::SigSpec internal_signal;
+		VariableBits internal_signal;
 
-		if (auto expr = port.getInternalExpr())
+		if (auto expr = port.getInternalExpr()) {
 			internal_signal = netlist.eval.lhs(*expr);
-		else
-			internal_signal = netlist.wire(*port.internalSymbol);
+		} else {
+			ast_invariant(port, ast::ValueSymbol::isKind(port.internalSymbol->kind));
+			internal_signal = Variable::from_symbol(&port.internalSymbol->as<ast::ValueSymbol>());
+		}
 
-		log_assert(internal_signal.size() == signal.size());
-		assert_nonstatic_free(internal_signal);
+		log_assert(internal_signal.bitwidth() == signal.size());
 
 		if (port.direction == ast::ArgumentDirection::Out) {
-			netlist.canvas->connect(signal, internal_signal);
+			netlist.canvas->connect(signal, netlist.convert_static(internal_signal));
 		} else if (port.direction == ast::ArgumentDirection::In) {
-			netlist.canvas->connect(internal_signal, signal);
+			netlist.canvas->connect(netlist.convert_static(internal_signal), signal);
 		} else {
 			// TODO: better location
 			auto &diag = netlist.add_diag(diag::BadInlinedPortConnection, port.location);
@@ -2645,7 +2258,7 @@ public:
 					auto &assign = expr.as<ast::AssignmentExpression>();
 					ast::Expression const *right = &assign.right();
 
-					signal = netlist.eval.lhs(assign.left());
+					signal = netlist.convert_static(netlist.eval.lhs(assign.left()));
 					assert_nonstatic_free(signal);
 
 					while (right->kind == ast::ExpressionKind::Conversion) {
@@ -2836,15 +2449,14 @@ public:
 
 		if (expr.left().kind == ast::ExpressionKind::Streaming) {
 			auto& stream_lexpr = expr.left().as<ast::StreamingConcatenationExpression>();
-			RTLIL::SigSpec lvalue = netlist.eval.streaming(stream_lexpr, true);
+			VariableBits lvalue = netlist.eval.streaming_lhs(stream_lexpr);
 			ast_invariant(expr, rvalue.size() >= lvalue.size());
-			netlist.canvas->connect(lvalue, rvalue);
+			netlist.canvas->connect(netlist.convert_static(lvalue), rvalue.extract(0, lvalue.size()));
 			return;
 		}
 
-		RTLIL::SigSpec lhs = netlist.eval.lhs(expr.left());
-		assert_nonstatic_free(lhs);
-		netlist.canvas->connect(lhs, rvalue);
+		VariableBits lhs = netlist.eval.lhs(expr.left());
+		netlist.canvas->connect(netlist.convert_static(lhs), rvalue);
 	}
 
 	void handle(const ast::GenerateBlockSymbol &sym)
@@ -3199,18 +2811,30 @@ RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
+	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
-	wire_hdl_types[w] = &symbol.getType();
 	return w;
 }
 
 RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
 {
-	RTLIL::Wire *wire = canvas->wire(id(symbol));
-	if (!wire)
+	auto it = wire_cache.find(&symbol);
+	if (it == wire_cache.end())
 		wire_missing(*this, symbol);
-	log_assert(wire);
-	return wire;
+	return it->second;
+}
+
+RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
+{
+	RTLIL::SigSpec ret;
+
+	for (auto vchunk : bits.chunks()) {
+		log_assert(vchunk.variable.kind == Variable::Static);
+		RTLIL::SigChunk chunk{wire(*vchunk.variable.get_symbol()), vchunk.base, vchunk.length};
+		ret.append(chunk);
+	}
+
+	return ret;
 }
 
 NetlistContext::NetlistContext(

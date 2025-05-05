@@ -13,11 +13,13 @@ endif()
 
 add_library(yosys-slang ${LIBRARY_TYPE}
     abort_helpers.cc
+    addressing.cc
     addressing.h
     async_pattern.cc
     async_pattern.h
     blackboxes.cc
     builder.cc
+    cases.cc
     cases.h
     diag.cc
     diag.h
@@ -25,8 +27,11 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     initial_eval.h
     memory.h
     naming.cc
+    procedural.cc
     slang_frontend.cc
     slang_frontend.h
+    variables.cc
+    variables.h
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
 target_include_directories(yosys-slang PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

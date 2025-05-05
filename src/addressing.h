@@ -5,9 +5,14 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #pragma once
+#include "slang/ast/expressions/SelectExpressions.h"
+#include "slang/ast/types/Type.h"
+#include "slang_frontend.h"
+
 namespace slang_frontend {
 
 // TODO: audit for overflows
+template <typename Signal>
 struct Addressing {
 	const ast::Expression &expr;
 
@@ -15,19 +20,19 @@ struct Addressing {
 	NetlistContext &netlist;
 	slang::ConstantRange range;
 
-	using Signal = RTLIL::SigSpec;
+	using IndexSignal = RTLIL::SigSpec;
 	const RTLIL::State S0 = RTLIL::S0;
 	const RTLIL::State S1 = RTLIL::S1;
 	const RTLIL::State Sx = RTLIL::Sx;
 
 	// these summed together are the zero-based index of the bottom item
 	// of the selection
-	Signal raw_signal;
+	IndexSignal raw_signal;
 	int base_offset;
 
 	int stride = 1;
 
-	void interpret_index(Signal signal, int width_down=1, int width_up=1)
+	void interpret_index(IndexSignal signal, int width_down=1, int width_up=1)
 	{
 		if (range.isLittleEndian()) {
 			base_offset = -range.right - width_down + 1;
@@ -74,7 +79,7 @@ struct Addressing {
 			break;
 		case ast::RangeSelectionKind::IndexedUp:
 			{
-				Signal signal = eval.eval_signed(sel.left());
+				IndexSignal signal = eval.eval_signed(sel.left());
 				require(sel, sel.right().constant);
 				int right_sel = sel.right().constant->integer().as<int>().value();
 				interpret_index(signal, 1, right_sel);
@@ -82,7 +87,7 @@ struct Addressing {
 			break;
 		case ast::RangeSelectionKind::IndexedDown:
 			{
-				Signal signal = eval.eval_signed(sel.left());
+				IndexSignal signal = eval.eval_signed(sel.left());
 				require(sel, sel.right().constant);
 				int right_sel = sel.right().constant->integer().as<int>().value();
 				interpret_index(signal, right_sel, 1);
@@ -305,21 +310,7 @@ struct Addressing {
 		}
 	}
 
-	Signal extract(Signal val, int width)
-	{
-		ast_invariant(expr, raw_signal.is_fully_def());
-		int offset = raw_signal.as_const().as_int(true) + base_offset;
-
-		Signal ret;
-		ret.append(Signal(RTLIL::Sx, std::clamp(-offset * stride, 0, width)));
-		int start = std::clamp(offset * stride, 0, val.size());
-		int end = std::clamp(offset * stride + width, 0, val.size());
-		ret.append(val.extract(start, end - start));
-		ret.append(Signal(RTLIL::Sx, std::clamp(width - (-offset * stride + val.size()), 0, width)));
-		log_assert(ret.size() == width);
-
-		return ret;
-	}
+	Signal extract(Signal val, int width);
 
 	Signal embed(Signal val, int output_len, int stride, RTLIL::State padding)
 	{
