@@ -16,6 +16,8 @@
 #endif
 
 template<> struct Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : Yosys::hashlib::hash_ptr_ops {};
+template<> struct Yosys::hashlib::hash_ops<const slang::ast::Scope*> : Yosys::hashlib::hash_ptr_ops {};
+template<> struct Yosys::hashlib::hash_ops<void*> : Yosys::hashlib::hash_ptr_ops {};
 
 namespace slang {
 	struct ConstantRange;
