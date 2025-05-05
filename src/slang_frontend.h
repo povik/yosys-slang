@@ -213,8 +213,8 @@ public:
 	Case *current_case;
 
 private:
-	Yosys::pool<VariableBit> seen_blocking_assignment;
-	Yosys::pool<VariableBit> seen_nonblocking_assignment;
+	Yosys::pool<Variable> seen_blocking_assignment;
+	Yosys::pool<Variable> seen_nonblocking_assignment;
 	std::vector<RTLIL::Cell *> preceding_memwr;
 
 public:

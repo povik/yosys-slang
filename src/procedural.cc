@@ -177,15 +177,15 @@ void ProceduralContext::do_assign(slang::SourceLocation loc, VariableBits lvalue
 	crop_zero_mask(mask, unmasked_rvalue);
 	crop_zero_mask(mask, mask);
 
-	for (auto bit : lvalue) {
-		if (bit.variable.kind == Variable::Static) {
+	for (auto chunk : lvalue.chunks()) {
+		if (chunk.variable.kind == Variable::Static) {
 			// TODO: proper message on blocking/nonblocking mixing
 			if (blocking) {
-				log_assert(!seen_nonblocking_assignment.count(bit));
-				seen_blocking_assignment.insert(bit);
+				log_assert(!seen_nonblocking_assignment.count(chunk.variable));
+				seen_blocking_assignment.insert(chunk.variable);
 			} else {
-				log_assert(!seen_blocking_assignment.count(bit));
-				seen_nonblocking_assignment.insert(bit);
+				log_assert(!seen_blocking_assignment.count(chunk.variable));
+				seen_nonblocking_assignment.insert(chunk.variable);
 			}
 		} else {
 			// This is expected to be an AST invariant -- we don't have a symbol
@@ -218,14 +218,14 @@ void ProceduralContext::do_simple_assign(
 RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 {
 	RTLIL::SigSpec subed;
-	for (auto bit : bits) {
+	for (auto chunk : bits.chunks()) {
 		// We disallow mixing of blocking and non-blocking assignments to the
 		// same variable from the same process. That simplifies the handling
 		// here.
-		if (bit.variable.kind != Variable::Static || seen_blocking_assignment.count(bit))
-			subed.append(vstate.evaluate(netlist, VariableBits(bit)));
+		if (chunk.variable.kind != Variable::Static || seen_blocking_assignment.count(chunk.variable))
+			subed.append(vstate.evaluate(netlist, chunk));
 		else
-			subed.append(netlist.convert_static(bit));
+			subed.append(netlist.convert_static(chunk));
 	}
 	return subed;
 }
