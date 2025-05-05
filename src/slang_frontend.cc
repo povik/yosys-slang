@@ -1245,7 +1245,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 		{
 			auto &valsym = symbol.as<ast::ValueSymbol>();
 			require(valsym, valsym.getInitializer());
-			auto exprconst = valsym.getInitializer()->constant;
+			auto exprconst = valsym.getInitializer()->getConstant();
 			require(valsym, exprconst && exprconst->isInteger());
 			return convert_svint(exprconst->integer());
 		}
@@ -1658,8 +1658,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Replication:
 		{
 			const auto &repl = expr.as<ast::ReplicationExpression>();
-			require(expr, repl.count().constant); // TODO: message
-			int reps = repl.count().constant->integer().as<int>().value(); // TODO: checking
+			require(expr, repl.count().getConstant()); // TODO: message
+			int reps = repl.count().getConstant()->integer().as<int>().value(); // TODO: checking
 			RTLIL::SigSpec concat = (*this)(repl.concat());
 			for (int i = 0; i < reps; i++)
 				ret.append(concat);
