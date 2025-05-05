@@ -1,7 +1,10 @@
 version: 2
 updates:
 - package-ecosystem: gitsubmodule
-  directory: "/"
+  directory: "/third_party/"
+  ignore:
+  # dependabot doesn't support upgrading to tagged versions only, disable fmt to reduce noise
+  - dependency-name: "fmt"
   schedule:
     interval: weekly
     # UTC
