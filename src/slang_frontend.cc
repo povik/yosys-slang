@@ -2811,17 +2811,17 @@ RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
+	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
 	return w;
 }
 
 RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
 {
-	RTLIL::Wire *wire = canvas->wire(id(symbol));
-	if (!wire)
+	auto it = wire_cache.find(&symbol);
+	if (it == wire_cache.end())
 		wire_missing(*this, symbol);
-	log_assert(wire);
-	return wire;
+	return it->second;
 }
 
 RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)

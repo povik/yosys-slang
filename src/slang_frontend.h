@@ -435,6 +435,9 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// Used to implement modports on uncollapsed levels of hierarchy
 	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
 
+	// Cache per-symbol Wire* pointers
+	Yosys::dict<const ast::Symbol*, RTLIL::Wire *> wire_cache;
+
 	// With this flag set we will not elaborate this netlist; we set this when
 	// `scopes_remap` is incomplete due to errors in processing the instantiation
 	// of `realm` somewhere in the input.
@@ -461,6 +464,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 		emitted_mems.swap(other.emitted_mems);
 		scopes_remap.swap(other.scopes_remap);
+		wire_cache.swap(other.wire_cache);
 		detected_memories.swap(other.detected_memories);
 		canvas = other.canvas;
 		other.canvas = nullptr;
