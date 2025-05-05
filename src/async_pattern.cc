@@ -188,10 +188,10 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 
 			if (condition->kind == ast::ExpressionKind::BinaryOp
 					&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
-					&& condition->as<ast::BinaryExpression>().right().constant
+					&& condition->as<ast::BinaryExpression>().right().getConstant()
 					&& condition->as<ast::BinaryExpression>().right().type->getBitWidth() == 1
-					&& !condition->as<ast::BinaryExpression>().right().constant->hasUnknown()
-					&& condition->as<ast::BinaryExpression>().right().constant->isTrue()) {
+					&& !condition->as<ast::BinaryExpression>().right().getConstant()->hasUnknown()
+					&& condition->as<ast::BinaryExpression>().right().getConstant()->isTrue()) {
 				auto& biop = condition->as<ast::BinaryExpression>();
 				did_something = true;
 				condition = &biop.left();
@@ -199,9 +199,9 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 
 			if (condition->kind == ast::ExpressionKind::BinaryOp
 					&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
-					&& condition->as<ast::BinaryExpression>().right().constant
-					&& !condition->as<ast::BinaryExpression>().right().constant->hasUnknown()
-					&& condition->as<ast::BinaryExpression>().right().constant->isFalse()) {
+					&& condition->as<ast::BinaryExpression>().right().getConstant()
+					&& !condition->as<ast::BinaryExpression>().right().getConstant()->hasUnknown()
+					&& condition->as<ast::BinaryExpression>().right().getConstant()->isFalse()) {
 				auto& biop = condition->as<ast::BinaryExpression>();
 				polarity = !polarity;
 				did_something = true;
