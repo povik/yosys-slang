@@ -115,28 +115,67 @@ public:
 		return ret;
 	}
 
-	std::vector<VariableChunk> chunks()
+	class iterator
 	{
-		std::vector<VariableChunk> ret;
-		bool valid = false;
+	private:
+		const VariableBits &bits;
+		int offset;
 		VariableChunk chunk;
-		for (VariableBit bit : *this) {
-			if (valid && bit.variable == chunk.variable &&
-					bit.offset == chunk.base + chunk.length) {
-				chunk.length++;
-			} else {
-				if (valid)
-					ret.push_back(chunk);
-				chunk.variable = bit.variable;
-				chunk.base = bit.offset;
-				chunk.length = 1;
-				valid = true;
+
+	public:
+		using iterator_category = std::input_iterator_tag;
+		using value_type = Variable;
+		using difference_type = ptrdiff_t;
+		using pointer = const Variable *;
+		using reference = const Variable &;
+
+		iterator(const VariableBits &bits, int offset) : bits(bits), offset(offset)
+		{
+			if (offset < bits.size()) {
+				chunk = {bits[offset].variable, bits[offset].offset, 1};
+				fixup_chunk();
 			}
 		}
-		if (valid)
-			ret.push_back(chunk);
-		return ret;
-	}
+
+		iterator &operator++()
+		{
+			offset += chunk.length;
+			if (offset < bits.size()) {
+				chunk = {bits[offset].variable, bits[offset].offset, 1};
+				fixup_chunk();
+			}
+			return *this;
+		}
+
+		void fixup_chunk()
+		{
+			while (offset + chunk.length < bits.size() &&
+					bits[offset + chunk.length].variable == chunk.variable &&
+					bits[offset + chunk.length].offset == chunk.base + chunk.length) {
+				chunk.length++;
+			}
+		}
+
+		bool operator==(const iterator &other) const { return offset == other.offset; }
+		bool operator!=(const iterator &other) const { return !(*this == other); }
+		VariableChunk operator*() const { return chunk; }
+	};
+
+	class chunk_list
+	{
+	public:
+		iterator begin() const { return iterator(bits, 0); };
+		iterator end() const { return iterator(bits, bits.size()); };
+
+	protected:
+		chunk_list(const VariableBits &bits) : bits(bits) {};
+		friend class VariableBits;
+
+	private:
+		const VariableBits &bits;
+	};
+
+	chunk_list chunks() const { return chunk_list(*this); }
 
 	int bitwidth() { return (int)size(); }
 };

@@ -2827,11 +2827,13 @@ RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
 RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 {
 	RTLIL::SigSpec ret;
-	for (auto vbit : bits) {
-		log_assert(vbit.variable.kind == Variable::Static);
-		RTLIL::SigBit bit{wire(*vbit.variable.get_symbol()), vbit.offset};
-		ret.append(bit);
+
+	for (auto vchunk : bits.chunks()) {
+		log_assert(vchunk.variable.kind == Variable::Static);
+		RTLIL::SigChunk chunk{wire(*vchunk.variable.get_symbol()), vchunk.base, vchunk.length};
+		ret.append(chunk);
 	}
+
 	return ret;
 }
 
