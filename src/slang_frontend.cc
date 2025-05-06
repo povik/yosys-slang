@@ -2479,7 +2479,7 @@ public:
 
 	void add_internal_wires(const ast::InstanceBodySymbol &body)
 	{
-		std::unordered_set<const slang::ast::SubroutineSymbol *> visitedSubroutines;
+		std::unordered_set<const slang::ast::SubroutineSymbol *> visited_subroutines;
 		body.visit(ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
 			if (!sym.getType().isFixedSize())
 				return;
