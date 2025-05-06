@@ -15,6 +15,12 @@
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/Type.h"
 
+// Fix for Yosys declaring ceil_log2 as both inline and non-inline
+// but not defining the non-inline one; be sure to include utils.h
+// with the inline definition to prevent linkage errors on some
+// platforms
+#include "kernel/utils.h"
+
 #include "addressing.h"
 #include "cases.h"
 #include "diag.h"
