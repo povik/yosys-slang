@@ -93,3 +93,13 @@ wire t;
 r10n n1();
 assign t = n1.n;
 endmodule
+
+module r11(input a, input b, input c, output y);
+	let andor(a, b, c) = a && b || c;
+	assign y = andor(a, b, c);
+endmodule
+
+module r12();
+	interface class c1#(type T = logic);
+	endclass
+endmodule

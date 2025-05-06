@@ -2660,6 +2660,8 @@ public:
 	void handle(const ast::EmptyMemberSymbol&) {}
 	void handle(const ast::ModportSymbol&) {}
 	void handle(const ast::InterfacePortSymbol&) {}
+	void handle(const ast::GenericClassDefSymbol&) {}
+	void handle(const ast::LetDeclSymbol&) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{
