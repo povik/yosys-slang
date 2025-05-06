@@ -103,3 +103,7 @@ module r12();
 	interface class c1#(type T = logic);
 	endclass
 endmodule
+
+module r13();
+	specparam delay = 50;
+endmodule
