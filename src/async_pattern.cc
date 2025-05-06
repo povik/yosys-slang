@@ -98,6 +98,15 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 	case ast::TimingControlKind::EventList:
 		log_abort();
 
+	case ast::TimingControlKind::Delay:
+		{
+			if (!settings.ignore_timing.value_or(false))
+				issuer.add_diag(diag::UnsynthesizableFeature, ev->sourceRange);
+			else
+				implicit = true;
+			break;
+		}
+
 	default:
 		issuer.add_diag(diag::UnsynthesizableFeature, ev->sourceRange);
 		break;

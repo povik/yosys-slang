@@ -41,4 +41,7 @@ end
 global clocking @(posedge clk); endclocking
 clocking ff @(posedge clk); endclocking
 
+logic e;
+always #5 e = ~e;
+
 endmodule

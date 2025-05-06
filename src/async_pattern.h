@@ -16,8 +16,8 @@ namespace slang {
 namespace slang_frontend {
 
 struct TimingPatternInterpretor {
-	TimingPatternInterpretor(DiagnosticIssuer& issuer)
-		: issuer(issuer) {};
+	TimingPatternInterpretor(SynthesisSettings &settings, DiagnosticIssuer& issuer)
+		: settings(settings), issuer(issuer) {};
 
 	struct AsyncBranch {
 		const ast::Expression &trigger;
@@ -47,6 +47,7 @@ private:
 								 std::vector<const ast::SignalEventControl *> triggers,
 								 const ast::Statement &body);
 
+	SynthesisSettings& settings;
 	DiagnosticIssuer& issuer;
 };
 

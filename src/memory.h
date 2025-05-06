@@ -5,6 +5,8 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #pragma once
+#include "slang_frontend.h"
+
 namespace slang_frontend {
 
 class DiagnosticIssuer;
@@ -16,8 +18,10 @@ struct InferredMemoryDetector :
 	std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve;
 	bool disallow_implicit = false;
 
-	InferredMemoryDetector(bool disallow_implicit, std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve)
-		: TimingPatternInterpretor((DiagnosticIssuer&) *this), should_dissolve(should_dissolve), disallow_implicit(disallow_implicit) {}
+	InferredMemoryDetector(SynthesisSettings &settings, std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve)
+		: TimingPatternInterpretor(settings, (DiagnosticIssuer&) *this),
+		  should_dissolve(should_dissolve),
+		  disallow_implicit(settings.no_implicit_memories.value_or(false)) {}
 
 	void process(const ast::Symbol &root)
 	{
