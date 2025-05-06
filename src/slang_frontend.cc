@@ -2479,6 +2479,7 @@ public:
 
 	void add_internal_wires(const ast::InstanceBodySymbol &body)
 	{
+		std::unordered_set<const slang::ast::SubroutineSymbol *> visitedSubroutines;
 		body.visit(ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
 			if (!sym.getType().isFixedSize())
 				return;
@@ -2514,6 +2515,18 @@ public:
 		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
 			if (should_dissolve(sym))
 				visitor.visitDefault(sym);
+		}, [&](auto& visitor, const ast::CallExpression &call) {
+			if (call.isSystemCall())
+				return;
+			auto* subroutine = std::get<0>(call.subroutine);
+			subroutine->visit(visitor);
+		}, [&](auto& visitor, const ast::SubroutineSymbol& subroutine) {
+			if (visitedSubroutines.contains(&subroutine))
+				return;
+
+			visitedSubroutines.emplace(&subroutine);
+			for (auto &member : subroutine.members())
+				member.visit(visitor);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
 			if (sym.isUninstantiated)
