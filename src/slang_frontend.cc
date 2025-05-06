@@ -2646,6 +2646,11 @@ public:
 		}
 	}
 
+	void handle(const ast::ClockingBlockSymbol& symbol) {
+		if (!netlist.settings.ignore_timing.value_or(false))
+			netlist.add_diag(diag::UnsynthesizableFeature, symbol.location);
+	}
+
 	void handle(const ast::Type&) {}
 	void handle(const ast::NetType&) {}
 	void handle(const ast::ForwardingTypedefSymbol&) {}

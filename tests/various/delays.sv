@@ -38,5 +38,7 @@ initial begin
     $display(foo);
 end
 
+global clocking @(posedge clk); endclocking
+clocking ff @(posedge clk); endclocking
 
 endmodule
