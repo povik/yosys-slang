@@ -2521,10 +2521,10 @@ public:
 			auto* subroutine = std::get<0>(call.subroutine);
 			subroutine->visit(visitor);
 		}, [&](auto& visitor, const ast::SubroutineSymbol& subroutine) {
-			if (visitedSubroutines.contains(&subroutine))
+			if (visited_subroutines.contains(&subroutine))
 				return;
 
-			visitedSubroutines.emplace(&subroutine);
+			visited_subroutines.emplace(&subroutine);
 			for (auto &member : subroutine.members())
 				member.visit(visitor);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
