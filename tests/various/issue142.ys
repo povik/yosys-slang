@@ -1,0 +1,11 @@
+read_slang --top top <<EOF
+module top(output [7:0] y);
+	sm sm(.y(y));
+endmodule
+
+module sm(output [7:0] y);
+	reg [7:0] r = 94; 
+	assign y = r;
+endmodule
+EOF
+sat -verify -prove y 94

@@ -2583,8 +2583,9 @@ public:
 					}
 				}
 			}
-		}, [&](auto&, const ast::InstanceSymbol&) {
-			/* do not descend into other modules */
+		}, [&](auto& visitor, const ast::InstanceSymbol& symbol) {
+			if (should_dissolve(symbol))
+				visitor.visitDefault(symbol);
 		}, [&](auto&, const ast::ProceduralBlockSymbol&) {
 			/* do not descend into procedural blocks */
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
