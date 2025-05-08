@@ -15,4 +15,4 @@ module top(
 	sm sm1();
 endmodule
 EOF
-dump
+dump =*
