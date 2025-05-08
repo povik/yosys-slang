@@ -49,6 +49,9 @@ using Yosys::log_id;
 using Yosys::log_signal;
 using Yosys::ys_debug;
 using Yosys::ceil_log2;
+#ifndef log_debug
+using Yosys::log_debug;
+#endif
 namespace RTLIL = ::Yosys::RTLIL;
 namespace ast = ::slang::ast;
 namespace ID = ::Yosys::RTLIL::ID;
