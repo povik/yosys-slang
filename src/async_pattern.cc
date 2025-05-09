@@ -25,8 +25,9 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 			|| symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
 
 	if (symbol.getBody().kind == ast::StatementKind::Block ||
-		symbol.getBody().kind == ast::StatementKind::ConcurrentAssertion) {
-		// short-circuit for SVA
+		symbol.getBody().kind == ast::StatementKind::ConcurrentAssertion ||
+		symbol.getBody().kind == ast::StatementKind::ImmediateAssertion) {
+		// short-circuit for SVA; free-standing assertion
 		handle_comb_like_process(symbol, symbol.getBody());
 		return;
 	} else if (symbol.getBody().kind != ast::StatementKind::Timed) {

@@ -107,3 +107,7 @@ endmodule
 module r13();
 	specparam delay = 50;
 endmodule
+
+module r14(input x);
+	assert #0 (x);
+endmodule
