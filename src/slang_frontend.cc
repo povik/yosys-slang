@@ -2649,7 +2649,7 @@ public:
 
 	void handle(const ast::ClockingBlockSymbol& symbol) {
 		if (!netlist.settings.ignore_timing.value_or(false))
-			netlist.add_diag(diag::UnsynthesizableFeature, symbol.location);
+			netlist.add_diag(diag::GenericTimingUnsyn, symbol.location);
 	}
 
 	void handle(const ast::Type&) {}
