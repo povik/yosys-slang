@@ -2736,8 +2736,6 @@ public:
 						netlist.canvas->connect(cell->getPort(ID::Y), netlist.eval.connection_lhs(assign));
 					}
 				}
-				if (cell->type == ID($buf))
-					cell->setParam(ID::WIDTH, y.size());
 				break;
 			}
 		default:
