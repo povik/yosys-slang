@@ -2786,7 +2786,7 @@ public:
 			}
 		}
 		if (cell->type == ID($buf) && !Yosys::yosys_celltypes.cell_known(cell->type))
-			cell->type = ID($_BUF_); // backwards compatibility for yosys < 0.46 (no $buf cells)
+			cell->type = ID($pos); // backwards compatibility for yosys < 0.46 (no $buf cells)
 		cell->fixup_parameters();
 		transfer_attrs(sym, cell);
 		if (inv_y) {
