@@ -2755,7 +2755,7 @@ public:
 					inv_en |= (yosys_type.substr(yosys_type.length() - 4) == "pmos"); // pmos has inverted en
 					auto a = netlist.eval(*ports[1]);
 					auto en = netlist.eval(*ports[2]);
-					if (!inv_en)
+					if (inv_en)
 						cell = netlist.canvas->addMux("\\" + yosys_name, a, z, en, y);
 					else
 						cell = netlist.canvas->addMux("\\" + yosys_name, z, a, en, y);
@@ -2767,8 +2767,8 @@ public:
 					auto a = netlist.eval(*ports[1]);
 					auto n_en = netlist.eval(*ports[2]);
 					auto p_en = netlist.eval(*ports[3]);
-					auto nmos = netlist.canvas->addMux("$" + yosys_name + "_nmos", a, z, n_en, y);
-					auto pmos = netlist.canvas->addMux("$" + yosys_name + "_pmos", z, a, p_en, y);
+					auto nmos = netlist.canvas->addMux("$" + yosys_name + "_nmos", z, a, n_en, y);
+					auto pmos = netlist.canvas->addMux("$" + yosys_name + "_pmos", a, z, p_en, y);
 					transfer_attrs(sym, nmos);
 					cell = pmos; // transfer_attrs to pmos after switch block
 				}
