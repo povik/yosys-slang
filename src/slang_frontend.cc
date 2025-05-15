@@ -1352,6 +1352,10 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	RTLIL::SigSpec ret;
 	size_t repl_count;
 
+	// TODO: Interconnect (untyped) is unimplemented, waiting on slang width resolution
+	if (expr.type->isUntypedType())
+		unimplemented(expr);
+
 	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
 	if (!(expr.type->isFixedSize() || expr.type->isVoid())) {
 		auto &diag = netlist.add_diag(diag::FixedSizeRequired, expr.sourceRange);
