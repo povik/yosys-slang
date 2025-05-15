@@ -2706,7 +2706,7 @@ public:
 					yosys_type = yosys_type.substr(1);
 				}
 				if (ports.size() == 3) {
-					// word-level primitivecell for 2 inputs
+					// word-level primitive cell for 2 inputs
 					cell = netlist.canvas->addCell("\\" + yosys_name, "$" + yosys_type);
 					cell->setPort(ID::A, netlist.eval(*ports[1]));
 					cell->setPort(ID::B, netlist.eval(*ports[2]));
