@@ -2680,6 +2680,112 @@ public:
 		visitDefault(sym);
 	}
 
+	void handle(const ast::PrimitiveInstanceSymbol &sym)
+	{
+		auto ports = sym.getPortConnections();
+		std::string yosys_type(sym.primitiveType.name);
+		std::string yosys_name(sym.name);
+		bool inv_y = false;
+		bool inv_en = false;
+		RTLIL::Cell *cell;
+		auto &assign = ports.front()->as<ast::AssignmentExpression>();
+		auto y = netlist.eval.connection_lhs(assign);
+		auto z = RTLIL::Const(RTLIL::Sz, 1);
+		switch (sym.primitiveType.primitiveKind) {
+		case ast::PrimitiveSymbol::PrimitiveKind::NInput:
+			{
+				// and, or, xor, xnor, nand, nor
+				// First port is output, all others are inputs
+				if (yosys_type[0] == 'n') {
+					// nand/nor === not(and/or)
+					inv_y = true;
+					yosys_type = yosys_type.substr(1);
+				}
+				if (ports.size() == 3) {
+					// word-level primitivecell for 2 inputs
+					cell = netlist.canvas->addCell("\\" + yosys_name, "$" + yosys_type);
+					cell->setPort(ID::A, netlist.eval(*ports[1]));
+					cell->setPort(ID::B, netlist.eval(*ports[2]));
+				} else {
+					// reduce_* cell for 3 or more inputs
+					cell = netlist.canvas->addCell("\\" + yosys_name, "$reduce_" + yosys_type);
+					RTLIL::SigSpec a;
+					for (auto port : ports)
+						if (port != ports.front())
+							a.append(netlist.eval(*port));
+					cell->setPort(ID::A, a);
+				}
+				cell->setPort(ID::Y, y);
+				break;
+			}
+		case ast::PrimitiveSymbol::PrimitiveKind::NOutput:
+			{
+				// buf, inv
+				// Last port is input, all others are outputs
+				cell = netlist.canvas->addCell("\\" + yosys_name, "$" + yosys_type);
+				cell->setPort(ID::A, netlist.eval(*(ports.back())));
+				cell->setPort(ID::Y, y);
+				for (auto port : ports) {
+					if (port != ports.front() && port != ports.back()) {
+						auto &assign = port->as<ast::AssignmentExpression>();
+						netlist.canvas->connect(cell->getPort(ID::Y), netlist.eval.connection_lhs(assign));
+					}
+				}
+				break;
+			}
+		default:
+			{
+				if (yosys_type == "pulldown")
+					// pulldown is equivalent to: buffer with constant 0 input
+					cell = netlist.canvas->addBuf("\\" + yosys_name, RTLIL::SigSpec(0, 1), y);
+				else if (yosys_type == "pullup")
+					// pullup is equivalent to: buffer with constant 1 input
+					cell = netlist.canvas->addBuf("\\" + yosys_name, RTLIL::SigSpec(1, 1), y);
+				else if (yosys_type.substr(0, 5) == "bufif" || yosys_type.substr(0, 5) == "notif" ||
+								 yosys_type == "pmos" || yosys_type == "rpmos" ||
+								 yosys_type == "nmos" || yosys_type == "rnmos") {
+					// These are all just tri-state buffers, with some having inverted enable/output
+					// Use $mux instead of $tribuf to avoid Yosys issues...
+					inv_y = (yosys_type.substr(0, 5) == "notif"); // notif has inverted output
+					inv_en = (yosys_type.substr(yosys_type.length() - 3) == "if0"); // *if0 has inverted en
+					inv_en |= (yosys_type.substr(yosys_type.length() - 4) == "pmos"); // pmos has inverted en
+					auto a = netlist.eval(*ports[1]);
+					auto en = netlist.eval(*ports[2]);
+					if (!inv_en)
+						cell = netlist.canvas->addMux("\\" + yosys_name, a, z, en, y);
+					else
+						cell = netlist.canvas->addMux("\\" + yosys_name, z, a, en, y);
+				} else if (yosys_type == "cmos" || yosys_type == "rcmos") {
+					// cmos (w, datain, ncontrol, pcontrol);
+					// is equivalent to:
+					// nmos (w, datain, ncontrol); pmos (w, datain, pcontrol);
+					// Use $mux instead of $tribuf to avoid Yosys issues...
+					auto a = netlist.eval(*ports[1]);
+					auto n_en = netlist.eval(*ports[2]);
+					auto p_en = netlist.eval(*ports[3]);
+					auto nmos = netlist.canvas->addMux("$" + yosys_name + "_nmos", a, z, n_en, y);
+					auto pmos = netlist.canvas->addMux("$" + yosys_name + "_pmos", z, a, p_en, y);
+					transfer_attrs(sym, nmos);
+					cell = pmos; // transfer_attrs to pmos after switch block
+				}
+				else {
+					// bidir (tran/rtran/tranif0/rtranif0/tranif1/rtranif1) are unsupported
+					unimplemented(sym); 
+				}
+			}
+		}
+		cell->fixup_parameters();
+		transfer_attrs(sym, cell);
+		if (inv_y) {
+			// Invert output signal where needed
+			netlist.canvas->rename(cell->name, "$" + yosys_name + "_yinv");
+			auto mid_wire = netlist.canvas->addWire("$" + yosys_name + "_mid", y.size());
+			auto inv_cell = netlist.canvas->addNot("\\" + yosys_name, mid_wire, y);
+			cell->setPort(ID::Y, mid_wire);
+			transfer_attrs(sym, inv_cell);
+		}
+	}
+
 	void handle(const ast::Symbol &sym)
 	{
 		unimplemented(sym);
