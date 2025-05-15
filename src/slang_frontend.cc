@@ -2735,6 +2735,8 @@ public:
 						netlist.canvas->connect(cell->getPort(ID::Y), netlist.eval.connection_lhs(assign));
 					}
 				}
+				if (cell->type == ID($buf))
+					cell->setParam(ID::WIDTH, y.size());
 				break;
 			}
 		default:
@@ -2786,7 +2788,8 @@ public:
 				}
 			}
 		}
-		cell->fixup_parameters();
+		if (cell->type != ID($buf)) // backwards compatibility for Yosys versions < 0.46
+			cell->fixup_parameters();
 		transfer_attrs(sym, cell);
 		if (inv_y) {
 			// Invert output signal where needed
