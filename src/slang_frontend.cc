@@ -2739,12 +2739,20 @@ public:
 			}
 		default:
 			{
-				if (yosys_type == "pulldown")
+				if (yosys_type == "pulldown") {
 					// pulldown is equivalent to: buffer with constant 0 input
-					cell = netlist.canvas->addBuf("\\" + yosys_name, RTLIL::SigSpec(0, 1), y);
-				else if (yosys_type == "pullup")
+					cell = netlist.canvas->addCell("\\" + yosys_name, ID($buf));
+					cell->setPort(ID::A, RTLIL::SigSpec(0, 1));
+					cell->setPort(ID::Y, y);
+					cell->setParam(ID::WIDTH, 1);
+				}
+				else if (yosys_type == "pullup") {
 					// pullup is equivalent to: buffer with constant 1 input
-					cell = netlist.canvas->addBuf("\\" + yosys_name, RTLIL::SigSpec(1, 1), y);
+					cell = netlist.canvas->addCell("\\" + yosys_name, ID($buf));
+					cell->setPort(ID::A, RTLIL::SigSpec(1, 1));
+					cell->setPort(ID::Y, y);
+					cell->setParam(ID::WIDTH, 1);
+				}
 				else if (yosys_type.substr(0, 5) == "bufif" || yosys_type.substr(0, 5) == "notif" ||
 								 yosys_type == "pmos" || yosys_type == "rpmos" ||
 								 yosys_type == "nmos" || yosys_type == "rnmos") {
