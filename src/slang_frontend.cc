@@ -19,6 +19,7 @@
 #include "slang/util/Util.h"
 
 #include "kernel/bitpattern.h"
+#include "kernel/celltypes.h"
 #include "kernel/fmt.h"
 #include "kernel/register.h"
 #include "kernel/rtlil.h"
@@ -2746,14 +2747,12 @@ public:
 					cell = netlist.canvas->addCell("\\" + yosys_name, ID($buf));
 					cell->setPort(ID::A, RTLIL::SigSpec(0, 1));
 					cell->setPort(ID::Y, y);
-					cell->setParam(ID::WIDTH, 1);
 				}
 				else if (yosys_type == "pullup") {
 					// pullup is equivalent to: buffer with constant 1 input
 					cell = netlist.canvas->addCell("\\" + yosys_name, ID($buf));
 					cell->setPort(ID::A, RTLIL::SigSpec(1, 1));
 					cell->setPort(ID::Y, y);
-					cell->setParam(ID::WIDTH, 1);
 				}
 				else if (yosys_type.substr(0, 5) == "bufif" || yosys_type.substr(0, 5) == "notif" ||
 								 yosys_type == "pmos" || yosys_type == "rpmos" ||
@@ -2788,8 +2787,9 @@ public:
 				}
 			}
 		}
-		if (cell->type != ID($buf)) // backwards compatibility for Yosys versions < 0.46
-			cell->fixup_parameters();
+		if (cell->type == ID($buf) && !Yosys::yosys_celltypes.cell_known(cell->type))
+			cell->type = ID($_BUF_); // backwards compatibility for yosys < 0.46 (no $buf cells)
+		cell->fixup_parameters();
 		transfer_attrs(sym, cell);
 		if (inv_y) {
 			// Invert output signal where needed
