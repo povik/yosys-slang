@@ -66,31 +66,30 @@ struct Addressing {
 		switch (sel.getSelectionKind()) {
 		case ast::RangeSelectionKind::Simple:
 			{
-				require(sel, sel.left().getConstant() && sel.right().getConstant());
+				auto lv = sel.left().eval(eval.const_), rv = sel.right().eval(eval.const_);
+				ast_invariant(sel, lv.isInteger() && rv.isInteger());
 				raw_signal = {S0};
 
-				int right_sel = sel.right().getConstant()->integer().as<int>().value();
-
 				if (range.isLittleEndian())
-					base_offset = right_sel - range.right;
+					base_offset = rv.integer().as<int>().value() - range.right;
 				else
-					base_offset = range.right - right_sel;
+					base_offset = range.right - rv.integer().as<int>().value();
 			}
 			break;
 		case ast::RangeSelectionKind::IndexedUp:
 			{
 				IndexSignal signal = eval.eval_signed(sel.left());
-				require(sel, sel.right().getConstant());
-				int right_sel = sel.right().getConstant()->integer().as<int>().value();
-				interpret_index(signal, 1, right_sel);
+				auto rv = sel.right().eval(eval.const_);
+				ast_invariant(sel, rv.isInteger());
+				interpret_index(signal, 1, rv.integer().as<int>().value());
 			}
 			break;
 		case ast::RangeSelectionKind::IndexedDown:
 			{
 				IndexSignal signal = eval.eval_signed(sel.left());
-				require(sel, sel.right().getConstant());
-				int right_sel = sel.right().getConstant()->integer().as<int>().value();
-				interpret_index(signal, right_sel, 1);
+				auto rv = sel.right().eval(eval.const_);
+				ast_invariant(sel, rv.isInteger());
+				interpret_index(signal, rv.integer().as<int>().value(), 1);
 			}
 			break;
 		}
