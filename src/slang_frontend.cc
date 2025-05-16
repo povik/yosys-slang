@@ -2870,9 +2870,18 @@ RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 	RTLIL::SigSpec ret;
 
 	for (auto vchunk : bits.chunks()) {
-		log_assert(vchunk.variable.kind == Variable::Static);
-		RTLIL::SigChunk chunk{wire(*vchunk.variable.get_symbol()), vchunk.base, vchunk.length};
-		ret.append(chunk);
+		switch (vchunk.variable.kind) {
+		case Variable::Static: {
+			RTLIL::SigChunk chunk{wire(*vchunk.variable.get_symbol()),
+					vchunk.base, vchunk.length};
+			ret.append(chunk);
+		} break;
+		case Variable::Dummy:
+			ret.append(canvas->addWire(new_id("dummy"), vchunk.length));
+			break;
+		default:
+			log_abort();
+		}
 	}
 
 	return ret;
