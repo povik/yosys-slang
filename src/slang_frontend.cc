@@ -1178,6 +1178,20 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 											expr.type->getBitstreamWidth());
 		}
 		break;
+	case ast::ExpressionKind::Conversion:
+		{
+			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
+			if (conv.operand().kind != ast::ExpressionKind::Streaming) {
+				const ast::Type &from = conv.operand().type->getCanonicalType();
+				const ast::Type &to = conv.type->getCanonicalType();
+				if (to.isBitstreamType() && from.isBitstreamType() &&
+						from.getBitstreamWidth() == to.getBitstreamWidth()) {
+					ret = lhs(conv.operand());
+					break;
+				}
+			}
+		}
+		[[fallthrough]];
 	default:
 		netlist.add_diag(diag::UnsupportedLhs, expr.sourceRange);
 		goto error;
