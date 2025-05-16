@@ -111,3 +111,13 @@ endmodule
 module r14(input x);
 	assert #0 (x);
 endmodule
+
+module r15sub(input [7:0] allbits, input [1:0] onebit, output bitout);
+endmodule
+
+module r15();
+	wire [17:10] bitout;
+	reg [7:0] allbits;
+	reg [15:0] onebit;
+	r15sub sub [7:0] (allbits, onebit, bitout);
+endmodule
