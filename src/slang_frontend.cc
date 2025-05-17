@@ -2846,6 +2846,17 @@ RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 	std::ostringstream path;
 	build_hierpath2(*this, path, symbol.getParentScope());
 	path << symbol.name;
+
+	if (symbol.kind == ast::SymbolKind::Instance) {
+		auto &inst = symbol.as<ast::InstanceSymbolBase>();
+		if (!inst.arrayPath.empty()) {
+			slang::SmallVector<slang::ConstantRange, 8> dimensions;
+			inst.getArrayDimensions(dimensions);
+			for (size_t i = 0; i < inst.arrayPath.size(); i++)
+				path << "[" << ((int) inst.arrayPath[i]) + dimensions[i].lower() << "]";
+		}
+	}
+
 	return RTLIL::escape_id(path.str());
 }
 
