@@ -2248,11 +2248,7 @@ public:
 
 			sym.body.visit(ast::makeVisitor([&](auto&, const ast::ParameterSymbol &symbol) {
 				RTLIL::Const val = convert_const(symbol.getValue());
-				if (symbol.defaultValSyntax
-						&& symbol.defaultValSyntax->kind == syntax::SyntaxKind::Declarator
-						&& symbol.defaultValSyntax->as<syntax::DeclaratorSyntax>().initializer
-						&& symbol.defaultValSyntax->as<syntax::DeclaratorSyntax>()
-							.initializer->expr->kind == syntax::SyntaxKind::StringLiteralExpression
+				if (symbol.isImplicitString(slang::SourceRange(sym.location, sym.location))
 						&& val.size() % 8 == 0) {
 					val.flags |= RTLIL::CONST_FLAG_STRING;
 				}
