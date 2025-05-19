@@ -2247,7 +2247,16 @@ public:
 			}
 
 			sym.body.visit(ast::makeVisitor([&](auto&, const ast::ParameterSymbol &symbol) {
-				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), convert_const(symbol.getValue()));
+				RTLIL::Const val = convert_const(symbol.getValue());
+				if (symbol.defaultValSyntax
+						&& symbol.defaultValSyntax->kind == syntax::SyntaxKind::Declarator
+						&& symbol.defaultValSyntax->as<syntax::DeclaratorSyntax>().initializer
+						&& symbol.defaultValSyntax->as<syntax::DeclaratorSyntax>()
+							.initializer->expr->kind == syntax::SyntaxKind::StringLiteralExpression
+						&& val.size() % 8 == 0) {
+					val.flags |= RTLIL::CONST_FLAG_STRING;
+				}
+				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), val);
 			}, [&](auto&, const ast::TypeParameterSymbol &symbol) {
 				netlist.add_diag(diag::BboxTypeParameter, symbol.location);
 			}, [&](auto&, const ast::InstanceSymbol&) {

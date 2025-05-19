@@ -1,0 +1,14 @@
+logger -expect log hello 1
+read_slang --keep-hierarchy <<EOF
+(* blackbox *)
+module box();
+	parameter foo = "bar";
+endmodule
+
+module top();
+	box #(
+		.foo("hello")
+	) b();
+endmodule
+EOF
+dump =*
