@@ -1,0 +1,46 @@
+logger -expect log hello 1
+logger -expect log giraffe 1
+logger -expect log saturn-1 1
+read_slang --keep-hierarchy <<EOF
+(* blackbox *)
+module box();
+	parameter foo = "bar";
+endmodule
+
+module top();
+	box #(
+		.foo("hello")
+	) b();
+endmodule
+EOF
+dump =*
+
+design -reset
+read_slang --keep-hierarchy <<EOF
+(* blackbox *)
+module box();
+	parameter foo = "giraffe";
+endmodule
+
+module top();
+	box #(
+		.foo()
+	) b();
+endmodule
+EOF
+dump =*
+
+design -reset
+read_slang --keep-hierarchy <<EOF
+(* blackbox *)
+module box();
+	parameter foo = "bar";
+endmodule
+
+module top();
+	box #(
+		.foo($sformatf("%s-%1d", "saturn", 1))
+	) b();
+endmodule
+EOF
+dump =*

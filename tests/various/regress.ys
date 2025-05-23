@@ -1,1 +1,3 @@
 read_slang regress.sv
+design -reset
+read_slang -D KEEP_HIERARCHY --keep-hierarchy regress.sv

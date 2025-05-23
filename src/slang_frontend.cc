@@ -1179,6 +1179,20 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 											expr.type->getBitstreamWidth());
 		}
 		break;
+	case ast::ExpressionKind::Conversion:
+		{
+			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
+			if (conv.operand().kind != ast::ExpressionKind::Streaming) {
+				const ast::Type &from = conv.operand().type->getCanonicalType();
+				const ast::Type &to = conv.type->getCanonicalType();
+				if (to.isBitstreamType() && from.isBitstreamType() &&
+						from.getBitstreamWidth() == to.getBitstreamWidth()) {
+					ret = lhs(conv.operand());
+					break;
+				}
+			}
+		}
+		[[fallthrough]];
 	default:
 		netlist.add_diag(diag::UnsupportedLhs, expr.sourceRange);
 		goto error;
@@ -1246,9 +1260,9 @@ RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 		{
 			auto &valsym = symbol.as<ast::ValueSymbol>();
 			require(valsym, valsym.getInitializer());
-			auto exprconst = valsym.getInitializer()->getConstant();
-			require(valsym, exprconst && exprconst->isInteger());
-			return convert_svint(exprconst->integer());
+			auto exprconst = valsym.getInitializer()->eval(this->const_);
+			require(valsym, exprconst.isInteger());
+			return convert_svint(exprconst.integer());
 		}
 		break;
 	default:
@@ -1663,8 +1677,9 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Replication:
 		{
 			const auto &repl = expr.as<ast::ReplicationExpression>();
-			require(expr, repl.count().getConstant()); // TODO: message
-			int reps = repl.count().getConstant()->integer().as<int>().value(); // TODO: checking
+			auto count = repl.count().eval(const_);
+			ast_invariant(expr, count.isInteger());
+			int reps = count.integer().as<int>().value(); // TODO: checking int cast
 			RTLIL::SigSpec concat = (*this)(repl.concat());
 			for (int i = 0; i < reps; i++)
 				ret.append(concat);
@@ -2233,7 +2248,12 @@ public:
 			}
 
 			sym.body.visit(ast::makeVisitor([&](auto&, const ast::ParameterSymbol &symbol) {
-				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), convert_const(symbol.getValue()));
+				RTLIL::Const val = convert_const(symbol.getValue());
+				if (symbol.isImplicitString(slang::SourceRange(sym.location, sym.location))
+						&& val.size() % 8 == 0) {
+					val.flags |= RTLIL::CONST_FLAG_STRING;
+				}
+				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), val);
 			}, [&](auto&, const ast::TypeParameterSymbol &symbol) {
 				netlist.add_diag(diag::BboxTypeParameter, symbol.location);
 			}, [&](auto&, const ast::InstanceSymbol&) {
@@ -2981,6 +3001,18 @@ RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 	std::ostringstream path;
 	build_hierpath2(*this, path, symbol.getParentScope());
 	path << symbol.name;
+
+	if (symbol.kind == ast::SymbolKind::Instance ||
+			symbol.kind == ast::SymbolKind::PrimitiveInstance) {
+		auto &inst = symbol.as<ast::InstanceSymbolBase>();
+		if (!inst.arrayPath.empty()) {
+			slang::SmallVector<slang::ConstantRange, 8> dimensions;
+			inst.getArrayDimensions(dimensions);
+			for (size_t i = 0; i < inst.arrayPath.size(); i++)
+				path << "[" << ((int) inst.arrayPath[i]) + dimensions[i].lower() << "]";
+		}
+	}
+
 	return RTLIL::escape_id(path.str());
 }
 
@@ -3005,9 +3037,18 @@ RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 	RTLIL::SigSpec ret;
 
 	for (auto vchunk : bits.chunks()) {
-		log_assert(vchunk.variable.kind == Variable::Static);
-		RTLIL::SigChunk chunk{wire(*vchunk.variable.get_symbol()), vchunk.base, vchunk.length};
-		ret.append(chunk);
+		switch (vchunk.variable.kind) {
+		case Variable::Static: {
+			RTLIL::SigChunk chunk{wire(*vchunk.variable.get_symbol()),
+					vchunk.base, vchunk.length};
+			ret.append(chunk);
+		} break;
+		case Variable::Dummy:
+			ret.append(canvas->addWire(new_id("dummy"), vchunk.length));
+			break;
+		default:
+			log_abort();
+		}
 	}
 
 	return ret;

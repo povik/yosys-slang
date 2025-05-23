@@ -45,6 +45,7 @@ module r6;
 	assign {>>{ a }} = b;
 endmodule
 
+`ifndef KEEP_HIERARCHY
 module r7submod(input logic [3:0] i);
 	logic [3:0] w;
 	assign w = i + 1;
@@ -57,6 +58,7 @@ module r7(input logic [3:0] i, output logic [3:0] out);
 		out <= w_fetched;
 	end
 endmodule
+`endif
 
 module r8();
 // `bit` type memories have implicit initialization
@@ -77,6 +79,7 @@ module r9();
 	r9_blackbox box();
 endmodule
 
+`ifndef KEEP_HIERARCHY
 // issue #129
 module r10n();
 wire n;
@@ -93,6 +96,7 @@ wire t;
 r10n n1();
 assign t = n1.n;
 endmodule
+`endif
 
 module r11(input a, input b, input c, output y);
 	let andor(a, b, c) = a && b || c;
@@ -110,4 +114,21 @@ endmodule
 
 module r14(input x);
 	assert #0 (x);
+endmodule
+
+module r15sub(input [7:0] allbits, input [1:0] onebit, output bitout);
+endmodule
+
+module r15();
+	wire [17:10] bitout;
+	reg [7:0] allbits;
+	reg [15:0] onebit;
+	r15sub sub [7:0] (allbits, onebit, bitout);
+endmodule
+
+module r16();
+	wire [3:0] in;
+	wire [3:0] out;
+	wire invert;
+	xor X[3:0] (out, in, invert);
 endmodule
