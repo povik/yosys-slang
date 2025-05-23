@@ -3002,7 +3002,8 @@ RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 	build_hierpath2(*this, path, symbol.getParentScope());
 	path << symbol.name;
 
-	if (symbol.kind == ast::SymbolKind::Instance) {
+	if (symbol.kind == ast::SymbolKind::Instance ||
+			symbol.kind == ast::SymbolKind::PrimitiveInstance) {
 		auto &inst = symbol.as<ast::InstanceSymbolBase>();
 		if (!inst.arrayPath.empty()) {
 			slang::SmallVector<slang::ConstantRange, 8> dimensions;

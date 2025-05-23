@@ -125,3 +125,10 @@ module r15();
 	reg [15:0] onebit;
 	r15sub sub [7:0] (allbits, onebit, bitout);
 endmodule
+
+module r16();
+	wire [3:0] in;
+	wire [3:0] out;
+	wire invert;
+	xor X[3:0] (out, in, invert);
+endmodule
