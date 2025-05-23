@@ -132,3 +132,13 @@ module r16();
 	wire invert;
 	xor X[3:0] (out, in, invert);
 endmodule
+
+// false memory inference on function argument
+module r17();
+	function f(int arg [1:0]);
+	endfunction
+	always_comb begin
+		int v [1:0];
+		f(v);
+	end
+endmodule

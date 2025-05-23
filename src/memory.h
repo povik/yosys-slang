@@ -31,7 +31,8 @@ struct InferredMemoryDetector :
 					symbol.getType().hasFixedRange() &&
 					(!disallow_implicit || find_user_hint(symbol)) &&
 					symbol.getParentScope()->getContainingInstance() &&
-					symbol.getParentScope()->getContainingInstance()->parentInstance->isModule())
+					symbol.getParentScope()->getContainingInstance()->parentInstance->isModule() &&
+					symbol.kind != ast::SymbolKind::FormalArgument)
 				memory_candidates.insert(&symbol);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol &symbol) {
 			if (symbol.isUninstantiated)
