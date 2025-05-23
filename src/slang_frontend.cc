@@ -19,6 +19,7 @@
 #include "slang/util/Util.h"
 
 #include "kernel/bitpattern.h"
+#include "kernel/celltypes.h"
 #include "kernel/fmt.h"
 #include "kernel/register.h"
 #include "kernel/rtlil.h"
@@ -2704,6 +2705,155 @@ public:
 		visitDefault(sym);
 	}
 
+	void handle(const ast::PrimitiveInstanceSymbol &sym)
+	{
+		auto ports = sym.getPortConnections();
+		auto type = sym.primitiveType.name;
+		RTLIL::IdString op;
+		bool inv_y = false;
+		RTLIL::Cell *cell;
+		ast_invariant(sym, ports.front()->kind == ast::ExpressionKind::Assignment);
+		auto &assign = ports.front()->as<ast::AssignmentExpression>();
+		auto y = netlist.eval.connection_lhs(assign);
+		switch (sym.primitiveType.primitiveKind) {
+		case ast::PrimitiveSymbol::PrimitiveKind::NInput:
+			{
+				// and, or, xor, xnor, nand, nor
+				if (!type.compare("and")) {
+					op = (ports.size() == 3) ? ID($and) : ID($reduce_and);
+				} else if (!type.compare("or")) {
+					op = (ports.size() == 3) ? ID($or) : ID($reduce_or);
+				} else if (!type.compare("nand")) {
+					op = (ports.size() == 3) ? ID($and) : ID($reduce_and);
+					inv_y = 1;
+				} else if (!type.compare("nor")) {
+					op = (ports.size() == 3) ? ID($or) : ID($reduce_or);
+					inv_y = 1;
+				} else if (!type.compare("xor")) {
+					op = (ports.size() == 3) ? ID($xor) : ID($reduce_xor);
+				} else if (!type.compare("xnor")) {
+					op = (ports.size() == 3) ? ID($xnor) : ID($reduce_xnor);
+				} else {
+					ast_unreachable(sym);
+				}
+				cell = netlist.canvas->addCell(netlist.id(sym), op);
+				if (ports.size() == 3) {
+					// word-level primitive cell for 2 input ports
+					cell->setPort(ID::A, netlist.eval(*ports[1]));
+					cell->setPort(ID::B, netlist.eval(*ports[2]));
+				} else {
+					// reduce_* cell for 3 or more input ports
+					RTLIL::SigSpec a;
+					for (auto port : ports)
+						if (port != ports.front())
+							a.append(netlist.eval(*port));
+					cell->setPort(ID::A, a);
+				}
+				cell->setPort(ID::Y, y);
+				break;
+			}
+		case ast::PrimitiveSymbol::PrimitiveKind::NOutput:
+			{
+				// buf, not
+				// Last port is input, all others are outputs
+				if (!type.compare("buf")) {
+					op = ID($buf);
+				} else if (!type.compare("not")) {
+					op = ID($not);
+				} else {
+					ast_unreachable(sym);
+				}
+				cell = netlist.canvas->addCell(netlist.id(sym), op);
+				cell->setPort(ID::A, netlist.eval(*(ports.back())));
+				cell->setPort(ID::Y, y);
+				for (auto port : ports) {
+					if (port != ports.front() && port != ports.back()) {
+						auto &assign = port->as<ast::AssignmentExpression>();
+						netlist.canvas->connect(cell->getPort(ID::Y), netlist.eval.connection_lhs(assign));
+					}
+				}
+				break;
+			}
+		case ast::PrimitiveSymbol::PrimitiveKind::UserDefined:
+			{
+				// User-defined primitives (UDPs) are unsupported
+				netlist.add_diag(diag::UdpUnsupported, sym.location);
+				break;
+			}
+		default:
+			{
+				if (!type.compare("pulldown")) {
+					// pulldown is equivalent to: buffer with constant 0 input
+					cell = netlist.canvas->addCell(netlist.id(sym), ID($buf));
+					cell->setPort(ID::A, RTLIL::S0);
+					cell->setPort(ID::Y, y);
+				} else if (!type.compare("pullup")) {
+					// pullup is equivalent to: buffer with constant 1 input
+					cell = netlist.canvas->addCell(netlist.id(sym), ID($buf));
+					cell->setPort(ID::A, RTLIL::S1);
+					cell->setPort(ID::Y, y);
+				} else if (!type.compare("bufif0") || !type.compare("bufif1") ||
+				           !type.compare("notif0") || !type.compare("notif1") ||
+					         !type.compare("pmos")   || !type.compare("rpmos")  ||
+					         !type.compare("nmos")   || !type.compare("rnmos")) {
+					// These are all tri-state buffers, some having inverted enable/output
+					// Use $mux instead of $tribuf to avoid Yosys issues...
+					bool inv_a = false;
+					bool inv_en = false;
+					if (!type.compare("notif0")) {
+						inv_a = inv_en = true;
+					} else if (!type.compare("notif1")) {
+						inv_a = true;
+					} else if (!type.compare("bufif0")) {
+						inv_en = true;
+					} else if (!type.compare("pmos")) {
+						inv_en = true;
+					} else if (!type.compare("rpmos")) {
+						inv_en = true;
+					}
+					auto in = netlist.eval(*ports[1]);
+					if (inv_a) {
+						auto mid_wire = netlist.canvas->addWire(netlist.id(sym).str() + "_mid", in.size());
+						auto inv_cell = netlist.canvas->addNot(netlist.id(sym).str() + "_ainv", in, mid_wire);
+						in = mid_wire;
+						transfer_attrs(sym, inv_cell);
+					}
+					auto a = inv_en ? in : RTLIL::Sz;
+					auto b = inv_en ? RTLIL::Sz : in;
+					auto en = netlist.eval(*ports[2]);
+					cell = netlist.canvas->addMux(netlist.id(sym), a, b, en, y);
+				} else if (!type.compare("cmos") || !type.compare("rcmos")) {
+					// cmos (w, datain, ncontrol, pcontrol);
+					// is equivalent to:
+					// nmos (w, datain, ncontrol); pmos (w, datain, pcontrol);
+					// Use $mux instead of $tribuf to avoid Yosys issues...
+					auto a = netlist.eval(*ports[1]);
+					auto n_en = netlist.eval(*ports[2]);
+					auto p_en = netlist.eval(*ports[3]);
+					auto nmos = netlist.canvas->addMux(netlist.id(sym).str() + "_n", RTLIL::Sz, a, n_en, y);
+					auto pmos = netlist.canvas->addMux(netlist.id(sym).str() + "_p", a, RTLIL::Sz, p_en, y);
+					transfer_attrs(sym, nmos);
+					cell = pmos; // transfer_attrs to pmos after switch block
+				} else {
+					// bidir (tran/rtran/tranif0/rtranif0/tranif1/rtranif1) are unsupported
+					netlist.add_diag(diag::PrimTypeUnsupported, sym.location);
+				}
+			}
+		}
+		if (cell->type == ID($buf) && !Yosys::yosys_celltypes.cell_known(cell->type))
+			cell->type = ID($pos); // backwards compatibility for yosys < 0.46 (no $buf cells)
+		cell->fixup_parameters();
+		transfer_attrs(sym, cell);
+		if (inv_y) {
+			// Invert output signal where needed
+			netlist.canvas->rename(cell->name, netlist.id(sym).str() + "_yinv");
+			auto mid_wire = netlist.canvas->addWire(netlist.id(sym).str() + "_mid", y.size());
+			auto inv_cell = netlist.canvas->addNot(netlist.id(sym), mid_wire, y);
+			cell->setPort(ID::Y, mid_wire);
+			transfer_attrs(sym, inv_cell);
+		}
+	}
+
 	void handle(const ast::Symbol &sym)
 	{
 		unimplemented(sym);
@@ -3209,6 +3359,7 @@ struct SlangFrontend : Frontend {
 			log_push();
 			call(design, "undriven");
 			call(design, "proc_clean");
+			call(design, "tribuf");
 			call(design, "proc_rmdead");
 			call(design, "proc_prune");
 			call(design, "proc_init");

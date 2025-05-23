@@ -53,6 +53,8 @@ extern slang::DiagCode PortCorrespondence;
 extern slang::DiagCode UnsynthesizableFeature;
 extern slang::DiagCode SVAUnsupported;
 extern slang::DiagCode ForbiddenDemotion;
+extern slang::DiagCode UdpUnsupported;
+extern slang::DiagCode PrimTypeUnsupported;
 void setup_messages(slang::DiagnosticEngine &engine);
 };
 };

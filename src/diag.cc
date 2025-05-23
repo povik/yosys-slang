@@ -98,6 +98,8 @@ namespace diag {
 	DiagCode UnsynthesizableFeature(DiagSubsystem::Netlist, 1043);
 	DiagCode SVAUnsupported(DiagSubsystem::Netlist, 1044);
 	DiagCode ForbiddenDemotion(DiagSubsystem::Netlist, 1045);
+	DiagCode UdpUnsupported(DiagSubsystem::Netlist, 1046);
+	DiagCode PrimTypeUnsupported(DiagSubsystem::Netlist, 1047);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -216,6 +218,12 @@ namespace diag {
 
 		engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported");
 		engine.setSeverity(ForbiddenDemotion, DiagnosticSeverity::Error);
+
+		engine.setMessage(UdpUnsupported, "user-defined primitives unsupported");
+		engine.setSeverity(UdpUnsupported, DiagnosticSeverity::Error);
+
+		engine.setMessage(PrimTypeUnsupported, "primitives of type '{}' unsupported");
+		engine.setSeverity(PrimTypeUnsupported, DiagnosticSeverity::Error);
 	}
 };
 };
