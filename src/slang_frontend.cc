@@ -3319,6 +3319,7 @@ struct SlangFrontend : Frontend {
 			log_push();
 			call(design, "undriven");
 			call(design, "proc_clean");
+			call(design, "tribuf");
 			call(design, "proc_rmdead");
 			call(design, "proc_prune");
 			call(design, "proc_init");

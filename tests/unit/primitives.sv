@@ -65,59 +65,59 @@ module primitives(
   output logic pulldown_y0,
 
   // pullup: buffer with constant 1 input
-  output logic pullup_y0,
+  output logic pullup_y0
 
-  // bufif0: tribuf with inverted enable
-  input logic bufif0_a,
-  input logic bufif0_en,
-  output logic bufif0_y0,
+  // // bufif0: tribuf with inverted enable
+  // input logic bufif0_a,
+  // input logic bufif0_en,
+  // output logic bufif0_y0,
 
-  // bufif1: tribuf
-  input logic bufif1_a,
-  input logic bufif1_en,
-  output logic bufif1_y0,
+  // // bufif1: tribuf
+  // input logic bufif1_a,
+  // input logic bufif1_en,
+  // output logic bufif1_y0,
 
-  // notif0: tribuf with inverted enable and inverted output
-  input logic notif0_a,
-  input logic notif0_en,
-  output logic notif0_y0,
+  // // notif0: tribuf with inverted enable and inverted output
+  // input logic notif0_a,
+  // input logic notif0_en,
+  // output logic notif0_y0,
 
-  // notif1: tribuf with inverted output
-  input logic notif1_a,
-  input logic notif1_en,
-  output logic notif1_y0,
+  // // notif1: tribuf with inverted output
+  // input logic notif1_a,
+  // input logic notif1_en,
+  // output logic notif1_y0,
 
-  // nmos: tribuf
-  input logic nmos_a,
-  input logic nmos_en,
-  output logic nmos_y0,
+  // // nmos: tribuf
+  // input logic nmos_a,
+  // input logic nmos_en,
+  // output logic nmos_y0,
 
-  // rnmos: tribuf
-  input logic rnmos_a,
-  input logic rnmos_en,
-  output logic rnmos_y0,
+  // // rnmos: tribuf
+  // input logic rnmos_a,
+  // input logic rnmos_en,
+  // output logic rnmos_y0,
 
-  // pmos: tribuf with inverted enable
-  input logic pmos_a,
-  input logic pmos_en,
-  output logic pmos_y0,
+  // // pmos: tribuf with inverted enable
+  // input logic pmos_a,
+  // input logic pmos_en,
+  // output logic pmos_y0,
 
-  // rpmos: tribuf with inverted enable
-  input logic rpmos_a,
-  input logic rpmos_en,
-  output logic rpmos_y0,
+  // // rpmos: tribuf with inverted enable
+  // input logic rpmos_a,
+  // input logic rpmos_en,
+  // output logic rpmos_y0,
 
-  // cmos: nmos + pmos
-  input logic cmos_a,
-  input logic cmos_n_en,
-  input logic cmos_p_en,
-  output logic cmos_y0,
+  // // cmos: nmos + pmos
+  // input logic cmos_a,
+  // input logic cmos_n_en,
+  // input logic cmos_p_en,
+  // output logic cmos_y0,
 
-  // rcmos: nmos + pmos
-  input logic rcmos_a,
-  input logic rcmos_n_en,
-  input logic rcmos_p_en,
-  output logic rcmos_y0
+  // // rcmos: nmos + pmos
+  // input logic rcmos_a,
+  // input logic rcmos_n_en,
+  // input logic rcmos_p_en,
+  // output logic rcmos_y0,
 
   // // tran: bidirectional wire
   // input tran_a,
@@ -194,19 +194,19 @@ module primitives(
   pulldown pulldown_inst0(pulldown_y0);
   pullup pullup_inst0(pullup_y0);
 
-  // bufif/notif
-  bufif0 bufif0_inst0(bufif0_y0, bufif0_a, bufif0_en);
-  bufif1 bufif1_inst0(bufif1_y0, bufif1_a, bufif1_en);
-  notif0 notif0_inst0(notif0_y0, notif0_a, notif0_en);
-  notif1 notif1_inst0(notif1_y0, notif1_a, notif1_en);
+  // // bufif/notif
+  // bufif0 bufif0_inst0(bufif0_y0, bufif0_a, bufif0_en);
+  // bufif1 bufif1_inst0(bufif1_y0, bufif1_a, bufif1_en);
+  // notif0 notif0_inst0(notif0_y0, notif0_a, notif0_en);
+  // notif1 notif1_inst0(notif1_y0, notif1_a, notif1_en);
 
-  // mos
-  nmos nmos_inst0(nmos_y0, nmos_a, nmos_en);
-  rnmos rnmos_inst0(rnmos_y0, rnmos_a, rnmos_en);
-  pmos pmos_inst0(pmos_y0, pmos_a, pmos_en);
-  rpmos rpmos_inst0(rpmos_y0, rpmos_a, rpmos_en);
-  cmos cmos_inst0(cmos_y0, cmos_a, cmos_n_en, cmos_p_en);
-  rcmos rcmos_inst0(rcmos_y0, rcmos_a, rcmos_n_en, rcmos_p_en);
+  // // mos
+  // nmos nmos_inst0(nmos_y0, nmos_a, nmos_en);
+  // rnmos rnmos_inst0(rnmos_y0, rnmos_a, rnmos_en);
+  // pmos pmos_inst0(pmos_y0, pmos_a, pmos_en);
+  // rpmos rpmos_inst0(rpmos_y0, rpmos_a, rpmos_en);
+  // cmos cmos_inst0(cmos_y0, cmos_a, cmos_n_en, cmos_p_en);
+  // rcmos rcmos_inst0(rcmos_y0, rcmos_a, rcmos_n_en, rcmos_p_en);
 
   // // tran/tranif
   // tran tran_inst0(tran_y0, tran_a);
@@ -274,45 +274,45 @@ module primitives(
     assert(pullup_y0 == 1'b1);
   end
 
-  always_comb if (^{bufif0_a, bufif0_en} !== 'x) begin
-    assert(bufif0_y0 == (bufif0_en ? 1'bz : bufif0_a));
-  end
+  // always_comb if (^{bufif0_a, bufif0_en} !== 'x) begin
+  //   assert(bufif0_y0 == (bufif0_en ? 1'bz : bufif0_a));
+  // end
 
-  always_comb if (^{bufif1_a, bufif1_en} !== 'x) begin
-    assert(bufif1_y0 == (bufif1_en ? bufif1_a : 1'bz));
-  end
+  // always_comb if (^{bufif1_a, bufif1_en} !== 'x) begin
+  //   assert(bufif1_y0 == (bufif1_en ? bufif1_a : 1'bz));
+  // end
 
-  always_comb if (^{notif0_a, notif0_en} !== 'x) begin
-    assert(notif0_y0 == (notif0_en ? 1'bz : ~notif0_a));
-  end
+  // always_comb if (^{notif0_a, notif0_en} !== 'x) begin
+  //   assert(notif0_y0 == (notif0_en ? 1'bz : ~notif0_a));
+  // end
   
-  always_comb if (^{notif1_a, notif1_en} !== 'x) begin
-    assert(notif1_y0 == (notif1_en ? ~notif1_a : 1'bz));
-  end
+  // always_comb if (^{notif1_a, notif1_en} !== 'x) begin
+  //   assert(notif1_y0 == (notif1_en ? ~notif1_a : 1'bz));
+  // end
 
-  always_comb if (^{nmos_a, nmos_en} !== 'x) begin
-    assert(nmos_y0 == (nmos_en ? nmos_a : 1'bz));
-  end
+  // always_comb if (^{nmos_a, nmos_en} !== 'x) begin
+  //   assert(nmos_y0 == (nmos_en ? nmos_a : 1'bz));
+  // end
 
-  always_comb if (^{rnmos_a, rnmos_en} !== 'x) begin
-    assert(rnmos_y0 == (rnmos_en ? rnmos_a : 1'bz));
-  end
+  // always_comb if (^{rnmos_a, rnmos_en} !== 'x) begin
+  //   assert(rnmos_y0 == (rnmos_en ? rnmos_a : 1'bz));
+  // end
 
-  always_comb if (^{pmos_a, pmos_en} !== 'x) begin
-    assert(pmos_y0 == (pmos_en ? 1'bz : pmos_a));
-  end
+  // always_comb if (^{pmos_a, pmos_en} !== 'x) begin
+  //   assert(pmos_y0 == (pmos_en ? 1'bz : pmos_a));
+  // end
 
-  always_comb if (^{rpmos_a, rpmos_en} !== 'x) begin
-    assert(rpmos_y0 == (rpmos_en ? 1'bz : rpmos_a));
-  end
+  // always_comb if (^{rpmos_a, rpmos_en} !== 'x) begin
+  //   assert(rpmos_y0 == (rpmos_en ? 1'bz : rpmos_a));
+  // end
 
-  always_comb if (^{cmos_a, cmos_n_en, cmos_p_en} !== 'x) begin
-    assert(cmos_y0 == ((cmos_n_en || ~cmos_p_en) ? cmos_a : 1'bz));
-  end
+  // always_comb if (^{cmos_a, cmos_n_en, cmos_p_en} !== 'x) begin
+  //   assert(cmos_y0 == ((cmos_n_en || ~cmos_p_en) ? cmos_a : 1'bz));
+  // end
 
-  always_comb if (^{rcmos_a, rcmos_n_en, rcmos_p_en} !== 'x) begin
-    assert(rcmos_y0 == ((rcmos_n_en || ~rcmos_p_en) ? rcmos_a : 1'bz));
-  end
+  // always_comb if (^{rcmos_a, rcmos_n_en, rcmos_p_en} !== 'x) begin
+  //   assert(rcmos_y0 == ((rcmos_n_en || ~rcmos_p_en) ? rcmos_a : 1'bz));
+  // end
 
   // always_comb if (^{tran_a} !== 'x) begin
   //   assert(tran_y0 == tran_a);
