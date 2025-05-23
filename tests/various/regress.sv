@@ -142,3 +142,14 @@ module r17();
 		f(v);
 	end
 endmodule
+
+// return out of task
+module t18(
+    input logic [7:0] a, input logic [7:0] b, output logic [8:0] out
+);
+	task sum(logic [7:0] a, logic [7:0] b, output logic [8:0] out);
+	    out = a + b;
+	    return;
+	endtask;
+    always_comb sum(a, b, out);
+endmodule
