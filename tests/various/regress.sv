@@ -132,3 +132,24 @@ module r16();
 	wire invert;
 	xor X[3:0] (out, in, invert);
 endmodule
+
+// false memory inference on function argument
+module r17();
+	function f(int arg [1:0]);
+	endfunction
+	always_comb begin
+		int v [1:0];
+		f(v);
+	end
+endmodule
+
+// return out of task
+module t18(
+    input logic [7:0] a, input logic [7:0] b, output logic [8:0] out
+);
+	task sum(logic [7:0] a, logic [7:0] b, output logic [8:0] out);
+	    out = a + b;
+	    return;
+	endtask;
+    always_comb sum(a, b, out);
+endmodule

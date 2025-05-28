@@ -1065,10 +1065,11 @@ public:
 	void handle(const ast::ReturnStatement &stmt)
 	{
 		auto subroutine = context.get_current_subroutine();
-		log_assert(subroutine && subroutine->subroutineKind == ast::SubroutineKind::Function);
-		log_assert(subroutine->returnValVar);
+		log_assert(subroutine);
 
 		if (stmt.expr) {
+			ast_invariant(stmt, subroutine->subroutineKind == ast::SubroutineKind::Function);
+			log_assert(subroutine->returnValVar);
 			context.do_simple_assign(stmt.sourceRange.start(), eval.variable(*subroutine->returnValVar),
 									 eval(*stmt.expr), true);
 		}

@@ -148,8 +148,10 @@ namespace diag {
 		engine.setMessage(NoteUsageBlame, "inference prevented by variable usage here");
 		engine.setSeverity(NoteUsageBlame, DiagnosticSeverity::Note);
 
-		engine.setSeverity(unsynthesizable, DiagnosticSeverity::Error);
-		engine.setSeverity(sanity, DiagnosticSeverity::Error);
+		for (auto code : unsynthesizable.getDiags())
+			engine.setSeverity(code, DiagnosticSeverity::Error);
+		for (auto code : sanity.getDiags())
+			engine.setSeverity(code, DiagnosticSeverity::Error);
 
 		engine.setMessage(UnrollLimitExhausted, "unroll limit of {} exhausted [--unroll-limit=]");
 		engine.setSeverity(UnrollLimitExhausted, DiagnosticSeverity::Error);
