@@ -182,4 +182,43 @@ initial begin
 	$t(4'bxxxx ==? 4'b0000);
 end
 
+function automatic [15:0] decrpre(logic [7:0] v);
+	logic [7:0] a;
+	logic [7:0] b;
+	a = v--;
+	b = v;
+	return {a, b};
+endfunction
+
+function automatic [15:0] decrpost(logic [7:0] v);
+	logic [7:0] a;
+	logic [7:0] b;
+	a = --v;
+	b = v;
+	return {a, b};
+endfunction
+
+function automatic [15:0] incrpre(logic [7:0] v);
+	logic [7:0] a;
+	logic [7:0] b;
+	a = v++;
+	b = v;
+	return {a, b};
+endfunction
+
+function automatic [15:0] incrpost(logic [7:0] v);
+	logic [7:0] a;
+	logic [7:0] b;
+	a = ++v;
+	b = v;
+	return {a, b};
+endfunction
+
+initial begin
+	$t(decrpre(8'h7));
+	$t(decrpost(8'h7));
+	$t(incrpre(8'h7));
+	$t(incrpost(8'h7));
+end
+
 endmodule

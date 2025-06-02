@@ -1445,23 +1445,29 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			const ast::UnaryExpression &unop = expr.as<ast::UnaryExpression>();
 			RTLIL::SigSpec left = (*this)(unop.operand());
 
-			if (unop.op == ast::UnaryOperator::Postincrement
-					|| unop.op == ast::UnaryOperator::Preincrement) {
+			using UnOp = ast::UnaryOperator;
+
+			if (unop.op == UnOp::Postincrement || unop.op == UnOp::Preincrement) {
 				require(expr, procedural != nullptr);
-				procedural->do_simple_assign(expr.sourceRange.start(), lhs(unop.operand()),
-					ret = netlist.Biop(ID($add), left, {RTLIL::S0, RTLIL::S1},
-							 unop.operand().type->isSigned(), unop.operand().type->isSigned(),
-							 left.size()), true);
+				RTLIL::SigSpec add1 = netlist.Biop(
+						ID($add), left, {RTLIL::S0, RTLIL::S1},
+						unop.operand().type->isSigned(), unop.operand().type->isSigned(),
+						left.size());
+				procedural->do_simple_assign(expr.sourceRange.start(),
+											 lhs(unop.operand()), add1, true);
+				ret = (unop.op == UnOp::Preincrement) ? add1 : left;
 				break;
 			}
 
-			if (unop.op == ast::UnaryOperator::Postdecrement
-					|| unop.op == ast::UnaryOperator::Predecrement) {
+			if (unop.op == UnOp::Postdecrement || unop.op == UnOp::Predecrement) {
 				require(expr, procedural != nullptr);
-				procedural->do_simple_assign(expr.sourceRange.start(), lhs(unop.operand()),
-					ret = netlist.Biop(ID($sub), left, {RTLIL::S0, RTLIL::S1},
-							 unop.operand().type->isSigned(), unop.operand().type->isSigned(),
-							 left.size()), true);
+				RTLIL::SigSpec sub1 = netlist.Biop(
+						ID($sub), left, {RTLIL::S0, RTLIL::S1},
+						unop.operand().type->isSigned(), unop.operand().type->isSigned(),
+						left.size());
+				procedural->do_simple_assign(expr.sourceRange.start(),
+											 lhs(unop.operand()), sub1, true);
+				ret = (unop.op == UnOp::Predecrement) ? sub1 : left;
 				break;
 			}
 
@@ -1469,16 +1475,16 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 
 			RTLIL::IdString type;
 			switch (unop.op) {
-			case ast::UnaryOperator::Minus: type = ID($neg); break;
-			case ast::UnaryOperator::Plus: type = ID($pos); break;
-			case ast::UnaryOperator::LogicalNot: type = ID($logic_not); break;
-			case ast::UnaryOperator::BitwiseNot: type = ID($not); break;
-			case ast::UnaryOperator::BitwiseOr: type = ID($reduce_or); break;
-			case ast::UnaryOperator::BitwiseAnd: type = ID($reduce_and); break;
-			case ast::UnaryOperator::BitwiseNand: type = ID($reduce_and); invert = true; break;
-			case ast::UnaryOperator::BitwiseNor: type = ID($reduce_or); invert = true; break;
-			case ast::UnaryOperator::BitwiseXor: type = ID($reduce_xor); break;
-			case ast::UnaryOperator::BitwiseXnor: type = ID($reduce_xnor); break;
+			case UnOp::Minus: type = ID($neg); break;
+			case UnOp::Plus: type = ID($pos); break;
+			case UnOp::LogicalNot: type = ID($logic_not); break;
+			case UnOp::BitwiseNot: type = ID($not); break;
+			case UnOp::BitwiseOr: type = ID($reduce_or); break;
+			case UnOp::BitwiseAnd: type = ID($reduce_and); break;
+			case UnOp::BitwiseNand: type = ID($reduce_and); invert = true; break;
+			case UnOp::BitwiseNor: type = ID($reduce_or); invert = true; break;
+			case UnOp::BitwiseXor: type = ID($reduce_xor); break;
+			case UnOp::BitwiseXnor: type = ID($reduce_xnor); break;
 			default:
 				ast_unreachable(unop);
 			}
