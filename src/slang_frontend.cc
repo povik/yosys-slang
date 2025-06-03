@@ -534,6 +534,13 @@ public:
 		void branch(std::vector<RTLIL::SigSpec> compare,
 					std::function<void()> f)
 		{
+			// TODO: extend detection
+			if (compare.size() == 1 && compare[0].is_fully_def() &&
+					sw->signal.is_fully_def() && sw->signal != compare[0]) {
+				// dead branch
+				return;
+			}
+
 			enter_branch(compare);
 			f();
 			exit_branch();
@@ -2701,6 +2708,7 @@ public:
 	void handle(const ast::GenericClassDefSymbol&) {}
 	void handle(const ast::LetDeclSymbol&) {}
 	void handle(const ast::SpecparamSymbol&) {}
+	void handle(const ast::DefParamSymbol&) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{

@@ -144,7 +144,7 @@ module r17();
 endmodule
 
 // return out of task
-module t18(
+module r18(
     input logic [7:0] a, input logic [7:0] b, output logic [8:0] out
 );
 	task sum(logic [7:0] a, logic [7:0] b, output logic [8:0] out);
@@ -152,4 +152,32 @@ module t18(
 	    return;
 	endtask;
     always_comb sum(a, b, out);
+endmodule
+
+// defparam
+module r19sub();
+	parameter s = 0;
+	initial begin
+		if (s == 0)
+			$error("bad");
+	end
+endmodule
+module r19();
+	r19sub inst();
+	defparam inst.s = 1;
+endmodule
+
+// recursion
+module r20(input [31:0] x, output [31:0] q);
+	function automatic [31:0] pow;
+		input [31:0] base;
+		input [31:0] exp;
+		begin
+			if (exp > 0)
+				pow = base * pow(base, exp - 1);
+			else
+				pow = 1;
+		end
+	endfunction
+	assign q = pow(x, 3);
 endmodule
