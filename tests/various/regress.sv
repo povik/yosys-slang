@@ -144,7 +144,7 @@ module r17();
 endmodule
 
 // return out of task
-module t18(
+module r18(
     input logic [7:0] a, input logic [7:0] b, output logic [8:0] out
 );
 	task sum(logic [7:0] a, logic [7:0] b, output logic [8:0] out);
@@ -152,4 +152,17 @@ module t18(
 	    return;
 	endtask;
     always_comb sum(a, b, out);
+endmodule
+
+// defparam
+module r19sub();
+	parameter s = 0;
+	initial begin
+		if (s == 0)
+			$error("bad");
+	end
+endmodule
+module r19();
+	r19sub inst();
+	defparam inst.s = 1;
 endmodule
