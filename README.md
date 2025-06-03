@@ -2,7 +2,9 @@
 
 yosys-slang is a Yosys plugin providing a new command (`read_slang`) for loading SystemVerilog designs.
 
-yosys-slang builds on top of the [slang](https://github.com/MikePopoloski/slang) library to provide comprehensive SystemVerilog support.
+yosys-slang builds on top of the [slang](https://github.com/MikePopoloski/slang) library to provide comprehensive SystemVerilog support. The plugin supports an (informally defined) synthesizable subset of SystemVerilog in version IEEE 1800-2017 or IEEE 1800-2023.
+
+Please open GitHub issues for missing features and/or confusing error messages.
 
 The plugin is available prebuilt as part of
 
@@ -10,15 +12,15 @@ The plugin is available prebuilt as part of
 
  * [IIC-OSIC-TOOLS](https://github.com/iic-jku/iic-osic-tools) from Johannes Kepler University
 
-## Status
+## News
 
-<a href="http://asic.ethz.ch/2024/MLEM.html"><img align="right" width="150" height="150" src="docs/mlem.jpg"></a>
+<a href="http://asic.ethz.ch/2024/MLEM.html"><img align="right" width="100" height="100" src="docs/mlem.jpg"></a>
 
-**News:** ETH Zürich has used yosys-slang for a chip tapeout. [Meet MLEM](http://asic.ethz.ch/2024/MLEM.html).
+*2025/05:* [Koopa](http://asic.ethz.ch/2025/Koopa.html) taped out using yosys-slang.
 
-**News:** The [Microelectronics Design Center](https://dz.ethz.ch/) at ETH Zürich is now sponsoring yosys-slang development for usage in ASIC synthesis flows!
+*2024/12:* ETH Zürich have used yosys-slang for a chip tapeout. [Meet MLEM](http://asic.ethz.ch/2024/MLEM.html).
 
-yosys-slang understands a synthesizable subset of SystemVerilog. Please open GitHub issues for missing features and/or confusing error messages.
+## Compatibility
 
 yosys-slang can parse a number of open-source IPs, including:
 
@@ -35,10 +37,6 @@ yosys-slang can parse a number of open-source IPs, including:
  * [RSD RISC-V Out-of-Order Superscalar Processor](https://github.com/rsd-devel/rsd/)
 
 For details see the [compat suite repository](https://github.com/povik/yosys-slang-compat-suite) which documents sample command lines.
-
-yosys-slang is on the [CHIPS Alliance sv-tests dashboard](https://chipsalliance.github.io/sv-tests-results/) where failing test cases and their error messages (with useful line numbers and AST dumps!) can be browsed. Note some tests on the sv-tests dashboard are misconfigured for testing a synthesis tool.
-
-If you wish to sponsor the project's development, and prioritize certain features, please get in touch.
 
 ## Building
 
@@ -84,6 +82,23 @@ Sample usage:
 
 Contributions are welcome! If you intent to develop a particular feature, feel free to get in touch and consult on the appropriate approach.
 
+## Supporters
+
+The following organizations have supported the project and contributed to yosys-slang development:
+
+ * [Microelectronics Design Center of ETH Zürich](https://dz.ethz.ch/)
+
+ * [PULP platform](https://pulp-platform.org/)
+
+ * [Silimate](https://www.silimate.com/)
+
+ * [YosysHQ](https://www.yosyshq.com/)
+
 ## License
 
-The main glue code (`slang_frontend.cc` `slang_frontend.h` `memory.h` `addressing.h`) is distributed under the ISC license, see `LICENSE`. The `initial_eval.cc` code contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
+The bulk of yosys-slang source code is is distributed under the ISC license, see `LICENSE`. An exception is `src/initial_eval.cc` which contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
+
+In addition, yosys-slang embeds
+
+ * slang, Copyright (c) Michael Popoloski, see `third_party/slang/` for license information 
+ * {fmt}, Copyright (c) Victor Zverovich and {fmt} contributors, see `third_party/fmt/` for license information 
