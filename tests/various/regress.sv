@@ -166,3 +166,18 @@ module r19();
 	r19sub inst();
 	defparam inst.s = 1;
 endmodule
+
+// recursion
+module r20(input [31:0] x, output [31:0] q);
+	function automatic [31:0] pow;
+		input [31:0] base;
+		input [31:0] exp;
+		begin
+			if (exp > 0)
+				pow = base * pow(base, exp - 1);
+			else
+				pow = 1;
+		end
+	endfunction
+	assign q = pow(x, 3);
+endmodule
