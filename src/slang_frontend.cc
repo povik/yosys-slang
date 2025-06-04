@@ -2724,6 +2724,7 @@ public:
 	{
 		auto ports = sym.getPortConnections();
 		auto type = sym.primitiveType.name;
+		auto id = (!sym.name.compare("")) ? netlist.new_id() : netlist.id(sym);
 		RTLIL::IdString op;
 		bool inv_y = false;
 		RTLIL::Cell *cell;
@@ -2751,7 +2752,7 @@ public:
 				} else {
 					ast_unreachable(sym);
 				}
-				cell = netlist.canvas->addCell(netlist.id(sym), op);
+				cell = netlist.canvas->addCell(id, op);
 				if (ports.size() == 3) {
 					// word-level primitive cell for 2 input ports
 					cell->setPort(ID::A, netlist.eval(*ports[1]));
@@ -2778,7 +2779,7 @@ public:
 				} else {
 					ast_unreachable(sym);
 				}
-				cell = netlist.canvas->addCell(netlist.id(sym), op);
+				cell = netlist.canvas->addCell(id, op);
 				cell->setPort(ID::A, netlist.eval(*(ports.back())));
 				cell->setPort(ID::Y, y);
 				for (auto port : ports) {
@@ -2799,12 +2800,12 @@ public:
 			{
 				if (!type.compare("pulldown")) {
 					// pulldown is equivalent to: buffer with constant 0 input
-					cell = netlist.canvas->addCell(netlist.id(sym), ID($buf));
+					cell = netlist.canvas->addCell(id, ID($buf));
 					cell->setPort(ID::A, RTLIL::S0);
 					cell->setPort(ID::Y, y);
 				} else if (!type.compare("pullup")) {
 					// pullup is equivalent to: buffer with constant 1 input
-					cell = netlist.canvas->addCell(netlist.id(sym), ID($buf));
+					cell = netlist.canvas->addCell(id, ID($buf));
 					cell->setPort(ID::A, RTLIL::S1);
 					cell->setPort(ID::Y, y);
 				} else if (!type.compare("bufif0") || !type.compare("bufif1") ||
@@ -2828,15 +2829,15 @@ public:
 					}
 					auto in = netlist.eval(*ports[1]);
 					if (inv_a) {
-						auto mid_wire = netlist.canvas->addWire(netlist.id(sym).str() + "_mid", in.size());
-						auto inv_cell = netlist.canvas->addNot(netlist.id(sym).str() + "_ainv", in, mid_wire);
+						auto mid_wire = netlist.canvas->addWire(id.str() + "_mid", in.size());
+						auto inv_cell = netlist.canvas->addNot(id.str() + "_ainv", in, mid_wire);
 						in = mid_wire;
 						transfer_attrs(sym, inv_cell);
 					}
 					auto a = inv_en ? in : RTLIL::Sz;
 					auto b = inv_en ? RTLIL::Sz : in;
 					auto en = netlist.eval(*ports[2]);
-					cell = netlist.canvas->addMux(netlist.id(sym), a, b, en, y);
+					cell = netlist.canvas->addMux(id, a, b, en, y);
 				} else if (!type.compare("cmos") || !type.compare("rcmos")) {
 					// cmos (w, datain, ncontrol, pcontrol);
 					// is equivalent to:
@@ -2845,8 +2846,8 @@ public:
 					auto a = netlist.eval(*ports[1]);
 					auto n_en = netlist.eval(*ports[2]);
 					auto p_en = netlist.eval(*ports[3]);
-					auto nmos = netlist.canvas->addMux(netlist.id(sym).str() + "_n", RTLIL::Sz, a, n_en, y);
-					auto pmos = netlist.canvas->addMux(netlist.id(sym).str() + "_p", a, RTLIL::Sz, p_en, y);
+					auto nmos = netlist.canvas->addMux(id.str() + "_n", RTLIL::Sz, a, n_en, y);
+					auto pmos = netlist.canvas->addMux(id.str() + "_p", a, RTLIL::Sz, p_en, y);
 					transfer_attrs(sym, nmos);
 					cell = pmos; // transfer_attrs to pmos after switch block
 				} else {
@@ -2861,9 +2862,9 @@ public:
 		transfer_attrs(sym, cell);
 		if (inv_y) {
 			// Invert output signal where needed
-			netlist.canvas->rename(cell->name, netlist.id(sym).str() + "_yinv");
-			auto mid_wire = netlist.canvas->addWire(netlist.id(sym).str() + "_mid", y.size());
-			auto inv_cell = netlist.canvas->addNot(netlist.id(sym), mid_wire, y);
+			netlist.canvas->rename(cell->name, id.str() + "_yinv");
+			auto mid_wire = netlist.canvas->addWire(id.str() + "_mid", y.size());
+			auto inv_cell = netlist.canvas->addNot(id, mid_wire, y);
 			cell->setPort(ID::Y, mid_wire);
 			transfer_attrs(sym, inv_cell);
 		}
