@@ -1346,7 +1346,9 @@ RTLIL::SigSpec EvalContext::apply_conversion(const ast::ConversionExpression &co
 	log_assert(op.size() == (int) from.getBitstreamWidth());
 
 	if (from.isIntegral() && to.isIntegral()) {
-		op.extend_u0((int) to.getBitWidth(), to.isSigned());
+		bool sign_extend = (conv.conversionKind == ast::ConversionKind::Propagated)
+								? to.isSigned() : from.isSigned();
+		op.extend_u0((int) to.getBitWidth(), sign_extend);
 		return op;
 	} else if (from.isBitstreamType() && to.isBitstreamType()) {
 		require(conv, from.getBitstreamWidth() == to.getBitstreamWidth());

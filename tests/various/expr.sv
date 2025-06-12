@@ -221,4 +221,13 @@ initial begin
 	$t(incrpost(8'h7));
 end
 
+// casting and signedness
+parameter type hpdcache_mem_id_t = logic [3:0];
+function logic f2();
+	automatic hpdcache_mem_id_t icache_miss_id_i;
+	icache_miss_id_i = hpdcache_mem_id_t'(1 << 3);
+	return (8 == int'(icache_miss_id_i));
+endfunction
+initial $t(f2());
+
 endmodule
