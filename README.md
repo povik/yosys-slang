@@ -42,7 +42,7 @@ For details see the [compat suite repository](https://github.com/povik/yosys-sla
 
 *Prerequisities:*
 
- * Yosys installed: supported versions are **0.44 0.45 0.46 0.47 0.48 0.49 0.50 0.51 0.52 0.53**
+ * Yosys installed: supported versions are **0.44 0.45 0.46 0.47 0.48 0.49 0.50 0.51 0.52 0.53 0.54**
 
  * C++ compiler: GCC 11 and clang 17 are minimum supported versions
 
