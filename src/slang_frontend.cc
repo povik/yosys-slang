@@ -2564,8 +2564,7 @@ public:
 				return;
 
 			visited_subroutines.emplace(&subroutine);
-			for (auto &member : subroutine.members())
-				member.visit(visitor);
+			visitor.visitDefault(subroutine);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
 			if (sym.isUninstantiated)

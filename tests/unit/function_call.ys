@@ -5,6 +5,11 @@ function logic [8:0] my_sum(logic [7:0] a, logic [7:0] b);
     return out;
 endfunction;
 
+// add indirectin
+function logic [8:0] my_sum2(logic [7:0] a, logic [7:0] b);
+    return my_sum(a, b);
+endfunction;
+
 module mwe (
     input logic  i_clk,
     input logic  i_rst_n,
@@ -16,7 +21,7 @@ module mwe (
         if (~i_rst_n) begin
             o1 <= 0;
         end else begin
-            o1 <= my_sum(in,3);
+            o1 <= my_sum2(in,3);
         end
     end
 
