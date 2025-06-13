@@ -43,6 +43,7 @@ namespace slang {
 namespace slang_frontend {
 
 using Yosys::log;
+using Yosys::log_flush;
 using Yosys::log_error;
 using Yosys::log_warning;
 using Yosys::log_id;

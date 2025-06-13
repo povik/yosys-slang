@@ -103,6 +103,8 @@ template<typename T>
 	if (netlist.scopes_remap.empty()) {
 		log(" (none)\n");
 	}
+	// Ensure previous log() calls are written before exit
+	log_flush();
 	log_error("Internal frontend error at %s:%d, see details above\n", file, line);
 }
 
