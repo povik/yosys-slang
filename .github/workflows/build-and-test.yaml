@@ -100,7 +100,7 @@ jobs:
       - name: Pack build
         shell: bash
         run: |
-          tar -cvf build.tar build/slang.so tests/third_party/yosys/
+          tar -cvf build.tar build tests/third_party/yosys/
       - name: Store build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -140,8 +140,10 @@ jobs:
           cd tests/third_party/yosys
           sudo make install
       - name: Run tests
+        shell: bash
         run: |
-          tests/run.sh
+          cd build
+          ctest --rerun-failed --output-on-failure
   test-croc-boot:
     runs-on: ubuntu-24.04
     needs: [build, define-matrix]

@@ -42,3 +42,6 @@ set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_AS_PLUGIN
 set_target_properties(slang_slang PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_AS_PLUGIN})
 
 add_subdirectory(src)
+
+enable_testing()
+add_subdirectory(tests)

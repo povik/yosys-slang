@@ -2,6 +2,14 @@ set(YOSYS_CONFIG "yosys-config" CACHE STRING "Location of yosys-config utility")
 message(STATUS "Using yosys: ${YOSYS_CONFIG}")
 
 execute_process(
+    COMMAND ${YOSYS_CONFIG} --bindir
+    OUTPUT_VARIABLE YOSYS_BINDIR 
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY
+)
+message(STATUS "yosys-config --bindir: ${YOSYS_BINDIR}")
+
+execute_process(
     COMMAND ${YOSYS_CONFIG} --datdir
     OUTPUT_VARIABLE YOSYS_DATDIR
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -38,4 +46,5 @@ if(WIN32)
     target_link_libraries(yosys::yosys INTERFACE yosys_exe)
 endif()
 
+set(YOSYS_BINDIR ${YOSYS_BINDIR} PARENT_SCOPE)
 set(YOSYS_DATDIR ${YOSYS_DATDIR} PARENT_SCOPE)
