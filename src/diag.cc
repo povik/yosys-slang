@@ -100,6 +100,11 @@ namespace diag {
 	DiagCode ForbiddenDemotion(DiagSubsystem::Netlist, 1045);
 	DiagCode UdpUnsupported(DiagSubsystem::Netlist, 1046);
 	DiagCode PrimTypeUnsupported(DiagSubsystem::Netlist, 1047);
+	DiagCode ReferenceAcrossKeptHierBoundary(DiagSubsystem::Netlist, 1048);
+	DiagCode NoteModuleBlackboxBecauseAttribute(DiagSubsystem::Netlist, 1049);
+	DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1050);
+	DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1051);
+	DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1052);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -226,6 +231,17 @@ namespace diag {
 
 		engine.setMessage(PrimTypeUnsupported, "primitives of type '{}' unsupported");
 		engine.setSeverity(PrimTypeUnsupported, DiagnosticSeverity::Error);
+
+		engine.setMessage(ReferenceAcrossKeptHierBoundary, "hierarchical reference across preserved module boundary");
+		engine.setSeverity(ReferenceAcrossKeptHierBoundary, DiagnosticSeverity::Error);
+		engine.setMessage(NoteModuleBlackboxBecauseAttribute, "module '{}' is a blackbox because of attribute");
+		engine.setSeverity(NoteModuleBlackboxBecauseAttribute, DiagnosticSeverity::Note);
+		engine.setMessage(NoteModuleBlackboxBecauseEmpty, "module '{}'' is a blackbox because of empty body");
+		engine.setSeverity(NoteModuleBlackboxBecauseEmpty, DiagnosticSeverity::Note);
+		engine.setMessage(NoteModuleNotDissolvedBecauseBlackbox, "instance of module '{}' will not dissolve because the module is a blackbox");
+		engine.setSeverity(NoteModuleNotDissolvedBecauseBlackbox, DiagnosticSeverity::Note);
+		engine.setMessage(NoteModuleNotDissolvedBecauseKeepHierarchy, "instance of module '{}' will not dissolve because of '--keep-hierarchy' option");
+		engine.setSeverity(NoteModuleNotDissolvedBecauseKeepHierarchy, DiagnosticSeverity::Note);
 	}
 };
 };

@@ -480,6 +480,16 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	Yosys::pool<const ast::Symbol *> detected_memories;
 	bool is_inferred_memory(const ast::Symbol &symbol);
 	bool is_inferred_memory(const ast::Expression &expr);
+
+	bool is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox=nullptr);
+	bool should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved=nullptr);
+
+	// Find the "realm" for given symbol, i.e. the containing instance body which is not
+	// getting dissolved (if we are flattening this will be the top body)
+	const ast::InstanceBodySymbol &find_symbol_realm(const ast::Symbol &symbol);
+	const ast::InstanceBodySymbol &find_common_ancestor(const ast::InstanceBodySymbol &a, const ast::InstanceBodySymbol &b);
+	bool check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range);
+
 };
 
 // slang_frontend.cc

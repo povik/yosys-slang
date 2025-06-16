@@ -22,6 +22,7 @@ set(ALL_TESTS
     various/timescale.ys
     various/top_attr.ys
     various/unknown_cells.ys
+    various/hierref_error.ys
 )
 foreach(test_script ${ALL_TESTS})
     set(test_fullpath "${CMAKE_CURRENT_SOURCE_DIR}/${test_script}")

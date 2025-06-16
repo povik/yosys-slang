@@ -1,0 +1,50 @@
+test_slangdiag -expect "hierarchical reference across preserved module boundary"
+read_slang --keep-hierarchy <<EOF
+module submod();
+	wire w = 1;
+endmodule
+
+module top();
+	submod i1();
+	wire g = i1.w;
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "hierarchical reference across preserved module boundary"
+read_slang --keep-hierarchy <<EOF
+module submod();
+	wire w = $root.top.g;
+endmodule
+
+module top();
+	submod i1();
+	wire g = 1;
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "hierarchical reference across preserved module boundary"
+read_slang <<EOF
+(* blackbox *)
+module submod();
+	wire w = 1;
+endmodule
+
+module top();
+	submod i1();
+	wire g = i1.w;
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "hierarchical reference across preserved module boundary"
+read_slang --empty-blackboxes <<EOF
+module submod(output w);
+endmodule
+
+module top();
+	submod i1();
+	wire g = i1.w;
+endmodule
+EOF

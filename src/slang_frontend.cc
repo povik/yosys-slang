@@ -1136,8 +1136,16 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 	}
 
 	switch (expr.kind) {
+	case ast::ExpressionKind::HierarchicalValue:
+		{
+			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
+			if (!netlist.scopes_remap.count(symbol.getParentScope())
+					&& !netlist.check_hier_ref(symbol, expr.sourceRange)) {
+				goto error;
+			}
+		}
+		[[fallthrough]];
 	case ast::ExpressionKind::NamedValue:
-	case ast::ExpressionKind::HierarchicalValue: // TODO: raise error if there's a boundary
 		{
 			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
 			if (netlist.is_inferred_memory(symbol)) {
@@ -1437,8 +1445,16 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			ret.extend_u0(expr.type->getBitstreamWidth());
 			break;
 		}
-	case ast::ExpressionKind::NamedValue:
 	case ast::ExpressionKind::HierarchicalValue:
+		{
+			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
+			if (!netlist.scopes_remap.count(symbol.getParentScope())
+					&& !netlist.check_hier_ref(symbol, expr.sourceRange)) {
+				goto error;
+			}
+		}
+		[[fallthrough]];
+	case ast::ExpressionKind::NamedValue:
 		{
 			const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
 			if (netlist.is_inferred_memory(symbol)) {
@@ -1871,7 +1887,7 @@ public:
 	PopulateNetlist(HierarchyQueue &queue, NetlistContext &netlist)
 		: TimingPatternInterpretor(netlist.settings, (DiagnosticIssuer&) netlist),
 		  queue(queue), netlist(netlist), settings(netlist.settings),
-		  mem_detect(settings, std::bind(&PopulateNetlist::should_dissolve, this, std::placeholders::_1)),
+		  mem_detect(settings, std::bind(&NetlistContext::should_dissolve, &netlist, std::placeholders::_1, nullptr)),
 		  initial_eval(netlist, &netlist.compilation, netlist.canvas,
 					   netlist.settings.ignore_timing.value_or(false)) {}
 
@@ -2171,64 +2187,10 @@ public:
 		}
 	}
 
-	bool is_blackbox(const ast::DefinitionSymbol &sym)
-	{
-		for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
-			if (attr->name == "blackbox"sv && !attr->getValue().isFalse())
-				return true;
-		}
-
-		if (settings.empty_blackboxes.value_or(false))
-			return is_decl_empty_module(*sym.getSyntax());
-
-		return false;
-	}
-
-	bool should_dissolve(const ast::InstanceSymbol &sym)
-	{
-		// blackboxes are never dissolved
-		if (sym.isModule() && is_blackbox(sym.body.getDefinition()))
-			return false;
-
-		// interfaces are always dissolved
-		if (sym.isInterface())
-			return true;
-
-		// the rest depends on the hierarchy mode
-		switch (settings.hierarchy_mode()) {
-		case SynthesisSettings::NONE:
-			return true;
-		case SynthesisSettings::BEST_EFFORT: {
-			for (auto *conn : sym.getPortConnections()) {
-				switch (conn->port.kind) {
-				case ast::SymbolKind::Port:
-				case ast::SymbolKind::MultiPort:
-					break;
-				case ast::SymbolKind::InterfacePort:
-					if (!conn->getIfaceConn().second)
-						return true;
-					break;
-				default:
-					return true;
-					break;
-				}
-			}
-
-			if (!sym.isModule())
-				return true;
-
-			return false;
-			}
-		case SynthesisSettings::ALL:
-		default:
-			return false;
-		}
-	}
-
 	void handle(const ast::InstanceSymbol &sym)
 	{
 		// blackboxes get special handling no matter the hierarchy mode
-		if (sym.isModule() && is_blackbox(sym.body.getDefinition())) {
+		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
 
 			for (auto *conn : sym.getPortConnections()) {
@@ -2280,7 +2242,7 @@ public:
 			return;
 		}
 
-		if (should_dissolve(sym)) {
+		if (netlist.should_dissolve(sym)) {
 			sym.body.visit(*this);
 
 			for (auto *conn : sym.getPortConnections()) {
@@ -2554,7 +2516,7 @@ public:
 				netlist.add_wire(sym);
 			}
 		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
-			if (should_dissolve(sym))
+			if (netlist.should_dissolve(sym))
 				visitor.visitDefault(sym);
 		}, [&](auto& visitor, const ast::CallExpression &call) {
 			if (call.isSystemCall())
@@ -2583,7 +2545,7 @@ public:
 				initval = sym.getInitializer()->eval(initial_eval.context);
 			initial_eval.context.createLocal(&sym, initval);
 		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
-			if (should_dissolve(sym))
+			if (netlist.should_dissolve(sym))
 				visitor.visitDefault(sym);
 		}, [&](auto& visitor, const ast::GenerateBlockSymbol& sym) {
 			/* stop at uninstantiated generate blocks */
@@ -2624,7 +2586,7 @@ public:
 				}
 			}
 		}, [&](auto& visitor, const ast::InstanceSymbol& symbol) {
-			if (should_dissolve(symbol))
+			if (netlist.should_dissolve(symbol))
 				visitor.visitDefault(symbol);
 		}, [&](auto&, const ast::ProceduralBlockSymbol&) {
 			/* do not descend into procedural blocks */
@@ -3039,6 +3001,151 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
 	return w;
+}
+
+bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)
+{
+	for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
+		if (attr->name == "blackbox"sv && !attr->getValue().isFalse()) {
+			if (why_blackbox) {
+				auto &note = why_blackbox->addNote(diag::NoteModuleBlackboxBecauseAttribute,
+													attr->location);
+				note << sym.name;
+			}
+			return true;
+		}
+	}
+
+	if (settings.empty_blackboxes.value_or(false)) {
+		if (why_blackbox) {
+			auto &note = why_blackbox->addNote(diag::NoteModuleBlackboxBecauseEmpty, sym.location);
+			note << sym.name;
+		}
+		return is_decl_empty_module(*sym.getSyntax());
+	}
+
+	return false;
+}
+
+bool NetlistContext::should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved)
+{
+	// blackboxes are never dissolved
+	if (sym.isModule() && is_blackbox(sym.body.getDefinition())) {
+		if (why_not_dissolved) {
+			auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseBlackbox, sym.location);
+			note << sym.body.name;
+			// insert note about blackbox reason
+			is_blackbox(sym.body.getDefinition(), why_not_dissolved);
+		}
+		return false;
+	}
+
+	// interfaces are always dissolved
+	if (sym.isInterface())
+		return true;
+
+	// the rest depends on the hierarchy mode
+	switch (settings.hierarchy_mode()) {
+	case SynthesisSettings::NONE:
+		return true;
+	case SynthesisSettings::BEST_EFFORT: {
+		for (auto *conn : sym.getPortConnections()) {
+			switch (conn->port.kind) {
+			case ast::SymbolKind::Port:
+			case ast::SymbolKind::MultiPort:
+				break;
+			case ast::SymbolKind::InterfacePort:
+				if (!conn->getIfaceConn().second)
+					return true;
+				break;
+			default:
+				return true;
+				break;
+			}
+		}
+
+		if (!sym.isModule())
+			return true;
+
+		return false;
+		}
+	case SynthesisSettings::ALL:
+		if (why_not_dissolved) {
+			auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseKeepHierarchy, sym.location);
+			note << sym.body.name;
+		}
+	default:
+		return false;
+	}
+}
+
+const ast::InstanceBodySymbol &NetlistContext::find_symbol_realm(const ast::Symbol &symbol)
+{
+	const ast::Scope *scope = symbol.getParentScope();
+
+	while (true) {
+		const ast::Symbol &scope_symbol = scope->asSymbol();
+		if (scope_symbol.kind == ast::SymbolKind::InstanceBody) {
+			auto parent = scope_symbol.as<ast::InstanceBodySymbol>().parentInstance;
+			log_assert(parent->getParentScope());
+			if (parent->getParentScope()->asSymbol().kind == ast::SymbolKind::Root
+					|| !should_dissolve(*parent)) {
+				return scope_symbol.as<ast::InstanceBodySymbol>();
+			} else {
+				scope = parent->getParentScope();
+			}
+		} else {
+			scope = scope->asSymbol().getParentScope();
+		}
+	}
+}
+
+const ast::InstanceBodySymbol &NetlistContext::find_common_ancestor(const ast::InstanceBodySymbol &a,
+																  	const ast::InstanceBodySymbol &b)
+{
+	auto path = [&](const ast::InstanceBodySymbol *body) -> std::vector<const ast::InstanceBodySymbol*> {
+		std::vector<const ast::InstanceBodySymbol*> path;
+		path.push_back(body);
+		while (body->parentInstance->getParentScope()->asSymbol().kind !=
+					ast::SymbolKind::Root) {
+			body = &find_symbol_realm(*body->parentInstance);
+			path.push_back(body);
+			log_assert(body->parentInstance);
+			log_assert(body->parentInstance->getParentScope());
+		}
+		std::reverse(std::begin(path), std::end(path));
+		return path;
+	};
+
+	auto pa = path(&a);
+	auto pb = path(&b);
+
+	int i = 0;
+	for (; i < std::min(pa.size(), pb.size()); i++) {
+		if (pa[i] != pb[i])
+			break;
+	}
+	log_assert(i > 0);
+	return *pa[i - 1];
+}
+
+bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range)
+{
+	const ast::InstanceBodySymbol &symbol_realm = find_symbol_realm(symbol);
+
+	if (&symbol_realm != &realm) {
+		auto &diag = add_diag(diag::ReferenceAcrossKeptHierBoundary, range);
+		auto &common = find_common_ancestor(symbol_realm, realm);
+		if (&symbol_realm != &common) {
+			// emit diagnostic for boundary on the hierarchical path to the symbol
+			(void) should_dissolve(*symbol_realm.parentInstance, &diag);
+		} else {
+			// emit diagnostic for boundary on the hierarchical path to the expression
+			(void) should_dissolve(*realm.parentInstance, &diag);
+		}
+		return false;
+	}
+	return true;
 }
 
 RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)

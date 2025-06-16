@@ -55,6 +55,12 @@ extern slang::DiagCode SVAUnsupported;
 extern slang::DiagCode ForbiddenDemotion;
 extern slang::DiagCode UdpUnsupported;
 extern slang::DiagCode PrimTypeUnsupported;
+extern slang::DiagCode ReferenceAcrossKeptHierBoundary;
+extern slang::DiagCode NoteModuleBlackboxBecauseAttribute;
+extern slang::DiagCode NoteModuleBlackboxBecauseEmpty;
+extern slang::DiagCode NoteModuleNotDissolvedBecauseBlackbox;
+extern slang::DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy;
+
 void setup_messages(slang::DiagnosticEngine &engine);
 };
 };
