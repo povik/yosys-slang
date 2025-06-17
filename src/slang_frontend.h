@@ -317,13 +317,13 @@ struct RTLILBuilder {
 	using SigSpec = RTLIL::SigSpec;
 
 	RTLIL::Module *canvas;
+	Yosys::dict<RTLIL::IdString, RTLIL::Const> staged_attributes;
 
 	unsigned next_id = 0;
 	std::string new_id(std::string base = std::string());
 
 	SigSpec ReduceBool(SigSpec a);
 
-	SigSpec Sub(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Demux(SigSpec a, SigSpec s);
 	SigSpec Le(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Ge(SigSpec a, SigSpec b, bool is_signed);
@@ -354,6 +354,34 @@ struct RTLILBuilder {
 			done += chunk.size();
 		}
 	}
+
+private:
+	std::pair<std::string, SigSpec> add_y_wire(int width);
+	// apply attributes to newly created cell
+	void bless_cell(RTLIL::Cell *cell);
+};
+
+class AttributeGuard {
+public:
+	AttributeGuard(RTLILBuilder &builder)
+		: builder(builder)
+	{
+		save.swap(builder.staged_attributes);
+	}
+
+	~AttributeGuard()
+	{
+		save.swap(builder.staged_attributes);
+	}
+
+	void set(RTLIL::IdString id, RTLIL::Const value)
+	{
+		builder.staged_attributes[id] = value;
+	}
+
+private:
+	RTLILBuilder &builder;
+	Yosys::dict<RTLIL::IdString, RTLIL::Const> save;
 };
 
 class DiagnosticIssuer {

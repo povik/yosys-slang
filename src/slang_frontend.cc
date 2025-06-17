@@ -214,6 +214,30 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 }
 template void transfer_attrs<const ast::Symbol>(const ast::Symbol &from, RTLIL::AttrObject *to);
 
+template<typename T>
+void transfer_attrs(T &from, AttributeGuard &guard)
+{
+	auto src = format_src(from);
+	if (!src.empty())
+		guard.set(ID::src, src);
+
+	for (auto attr : global_compilation->getAttributes(from)) {
+		RTLIL::Const value = convert_const(attr->getValue());
+
+		// slang converts string literals to integer constants per the spec;
+		// we need to dig into the syntax tree to recover the information
+		if (attr->getSyntax() &&
+			attr->getSyntax()->kind == syntax::SyntaxKind::AttributeSpec &&
+			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value &&
+			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value->expr->kind ==
+				syntax::SyntaxKind::StringLiteralExpression) {
+			value.flags |= RTLIL::CONST_FLAG_STRING;
+		}
+
+		guard.set(id(attr->name), value);
+	}
+}
+template void transfer_attrs<const ast::Symbol>(const ast::Symbol &from, AttributeGuard &guard);
 };
 
 #include "cases.h"
@@ -639,6 +663,7 @@ public:
 		cell->setParam(ID::PRIORITY, --context.effects_priority);
 		cell->setPort(ID::ARGS, {});
 		cell->setPort(ID::A, netlist.ReduceBool(eval(stmt.cond)));
+		transfer_attrs(stmt, cell);
 	}
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt) {
@@ -1373,6 +1398,9 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
 	size_t repl_count;
+
+	AttributeGuard guard(netlist);
+	transfer_attrs(expr, guard);
 
 	// TODO: Interconnect (untyped) is unimplemented, waiting on slang width resolution
 	if (expr.type->isUntypedType())
