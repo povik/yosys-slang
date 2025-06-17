@@ -214,10 +214,6 @@ void transfer_attrs(T &from, RTLIL::AttrObject *to)
 }
 template void transfer_attrs<const ast::Symbol>(const ast::Symbol &from, RTLIL::AttrObject *to);
 
-#define assert_nonstatic_free(signal) \
-	for (auto bit : (signal)) \
-		log_assert(!(bit.wire && bit.wire->get_bool_attribute(ID($nonstatic))));
-
 };
 
 #include "cases.h"
@@ -915,13 +911,6 @@ public:
 
 		// descend into an empty switch so we force action priority for follow-up statements
 		context.current_case = context.current_case->add_switch({})->add_case({});
-	}
-
-	RTLIL::Wire *add_nonstatic(RTLIL::IdString id, int width)
-	{
-		RTLIL::Wire *wire = netlist.canvas->addWire(id, width);
-		wire->attributes[ID($nonstatic)] = context.current_case->level;
-		return wire;
 	}
 
 	void handle(const ast::WhileLoopStatement &stmt) {
@@ -2262,7 +2251,6 @@ public:
 					ast::Expression const *right = &assign.right();
 
 					signal = netlist.convert_static(netlist.eval.lhs(assign.left()));
-					assert_nonstatic_free(signal);
 
 					while (right->kind == ast::ExpressionKind::Conversion) {
 						auto &conv = right->as<ast::ConversionExpression>();
