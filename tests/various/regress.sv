@@ -181,3 +181,12 @@ module r20(input [31:0] x, output [31:0] q);
 	endfunction
 	assign q = pow(x, 3);
 endmodule
+
+// $fatal with bad arg type
+module top(input clk);
+    always @(posedge clk) begin
+        // ... long procedure
+        if (0)
+        	$fatal("foo");
+    end
+endmodule
