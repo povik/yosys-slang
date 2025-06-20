@@ -3269,6 +3269,9 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 	}
 	settings.disable_instance_caching = disable_inst_caching.value();
 
+	// we cannot handle references into unknown modules
+	driver.options.compilationFlags[ast::CompilationFlags::DisallowRefsToUnknownInstances] = true;
+
 	// revisit slang#1326 in case of issues with this override
 	auto &time_scale = driver.options.timeScale;
 	if (!time_scale.has_value()) {

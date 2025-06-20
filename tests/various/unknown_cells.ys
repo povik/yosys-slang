@@ -2,4 +2,23 @@ read_verilog <<EOF
 module sky130_fd_sc_hd__clkbuf_1(input wire A, output wire X);
 endmodule
 EOF
-read_slang --ignore-unknown-modules unknown_cells.sv
+read_slang --ignore-unknown-modules <<EOF
+module bsg_clkbuf #(parameter width_p=2)
+   (input    [width_p-1:0] i
+    , output [width_p-1:0] o
+    );
+
+    for (genvar j = 0; j < width_p; j++)
+      sky130_fd_sc_hd__clkbuf_1 b (.X(o[j]), .A(i[j]));
+
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "hierarchical reference to unknown module instance 'bar' is not allowed"
+read_slang --ignore-unknown-modules --disallow-refs-to-unknown-instances <<EOF
+module test_top ();
+    foo bar ();
+    assign bar.a = !(bar.b);
+endmodule
+EOF
