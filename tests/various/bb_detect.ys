@@ -1,0 +1,33 @@
+read_slang <<EOF
+`celldefine
+module ff(output x);
+endmodule
+`endcelldefine
+
+module top(output m);
+	ff gg(.x(m));
+endmodule
+EOF
+select -assert-mod-count 1 =ff =A:blackbox %i
+
+design -reset
+read_slang --empty-blackboxes <<EOF
+module ff(output x);
+endmodule
+
+module top(output m);
+	ff gg(.x(m));
+endmodule
+EOF
+select -assert-mod-count 1 =ff =A:blackbox %i
+
+design -reset
+read_slang <<EOF
+module ff(output x);
+endmodule
+
+module top(output m);
+	ff gg(.x(m));
+endmodule
+EOF
+select -assert-mod-count 0 =ff =A:blackbox %i
