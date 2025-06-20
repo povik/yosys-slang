@@ -3,6 +3,7 @@ set(ALL_TESTS
     unit/function_call.ys
     unit/latch.ys
     unit/selftests.tcl
+    various/bb_detect.ys
     various/blackbox_scenarios.ys
     various/defaults.ys
     various/delays.ys
