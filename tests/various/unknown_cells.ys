@@ -16,7 +16,7 @@ EOF
 
 design -reset
 test_slangdiag -expect "hierarchical reference to unknown module instance 'bar' is not allowed"
-read_slang --ignore-unknown-modules --disallow-refs-to-unknown-instances <<EOF
+read_slang --ignore-unknown-modules <<EOF
 module test_top ();
     foo bar ();
     assign bar.a = !(bar.b);
