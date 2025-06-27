@@ -366,7 +366,15 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 		}
 	}
 
-	auto [id, y] = add_y_wire(y_width);
+	int msb_zeroes = 0;
+	if (op == ID($mul) && !a_signed && !b_signed) {
+		int as = a.size(), bs = b.size();
+		while (as > 0 && a[as - 1] == RTLIL::S0) as--;
+		while (bs > 0 && b[bs - 1] == RTLIL::S0) bs--;
+		msb_zeroes = std::max(0, y_width - (as + bs - 1));
+	}
+
+	auto [id, y] = add_y_wire(y_width - msb_zeroes);
 	Cell *cell = canvas->addCell(id, op);
 	cell->setPort(RTLIL::ID::A, a);
 	cell->setPort(RTLIL::ID::B, b);
@@ -374,10 +382,10 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 	cell->setParam(RTLIL::ID::B_WIDTH, b.size());
 	cell->setParam(RTLIL::ID::A_SIGNED, a_signed);
 	cell->setParam(RTLIL::ID::B_SIGNED, b_signed);
-	cell->setParam(RTLIL::ID::Y_WIDTH, y_width);
+	cell->setParam(RTLIL::ID::Y_WIDTH, y_width - msb_zeroes);
 	cell->setPort(RTLIL::ID::Y, y);
 	bless_cell(cell);
-	return y;
+	return {SigSpec(RTLIL::S0, msb_zeroes), y};
 }
 
 SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
