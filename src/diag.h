@@ -25,7 +25,6 @@ extern slang::DiagCode MissingAload;
 extern slang::DiagCode NoteProcessDriver;
 extern slang::DiagCode AlwaysFFBadTiming;
 extern slang::DiagCode MissingStopCondition;
-extern slang::DiagCode ComplexLatchLHS;
 extern slang::DiagCode BadMemoryExpr;
 extern slang::DiagCode MemoryNotInferred;
 extern slang::DiagCode NoteUsageBlame;

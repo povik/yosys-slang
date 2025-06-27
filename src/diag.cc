@@ -67,8 +67,6 @@ namespace diag {
 
 	DiagCode MissingStopCondition(DiagSubsystem::Netlist, 1017);
 
-	DiagCode ComplexLatchLHS(DiagSubsystem::Netlist, 1018);
-
 	DiagCode BadMemoryExpr(DiagSubsystem::Netlist, 1019);
 	DiagCode MemoryNotInferred(DiagSubsystem::Netlist, 1020);
 	DiagCode NoteUsageBlame(DiagSubsystem::Netlist, 1021);
@@ -141,9 +139,6 @@ namespace diag {
 
 		engine.setMessage(MissingStopCondition, "stop condition is missing; loop cannot be unrolled");
 		engine.setSeverity(MissingStopCondition, DiagnosticSeverity::Error);
-
-		engine.setMessage(ComplexLatchLHS, "complex lhs in assignment to latched variable '{}' unsupported");
-		engine.setSeverity(ComplexLatchLHS, DiagnosticSeverity::Error);
 
 		engine.setMessage(BadMemoryExpr, "unsupported operation on a memory variable");
 		engine.setSeverity(BadMemoryExpr, DiagnosticSeverity::Error);

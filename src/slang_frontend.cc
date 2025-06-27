@@ -1951,7 +1951,7 @@ public:
 			// map from a driven signal to the corresponding enable/staging signal
 			// TODO: SigSig needlessly costly here
 			Yosys::dict<VariableBit, RTLIL::SigSig> signaling;
-			RTLIL::SigSpec enables;
+			RTLIL::SigSpec enables, all_staging;
 
 			for (auto bit : latch_driven) {
 				// TODO: create latches in groups
@@ -1961,11 +1961,14 @@ public:
 														staging, netlist.convert_static(bit), true);
 				signaling[bit] = {en, staging};
 				enables.append(en);
+				all_staging.append(staging);
 				transfer_attrs(symbol, cell);
 			}
 
 			procedure.root_case->aux_actions.push_back(
 						{enables, RTLIL::SigSpec(RTLIL::S0, enables.size())});
+			procedure.root_case->aux_actions.push_back(
+						{all_staging, RTLIL::SigSpec(RTLIL::Sx, all_staging.size())});
 			procedure.root_case->insert_latch_signaling(netlist, signaling);
 		}
 
