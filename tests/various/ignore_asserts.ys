@@ -1,0 +1,8 @@
+read_slang --ignore-assertions <<EOF
+module top(input a, b);
+	property f(n);
+		a |=> b;
+	endproperty
+	assert property (f(1));
+endmodule
+EOF
