@@ -1953,16 +1953,19 @@ public:
 			Yosys::dict<VariableBit, RTLIL::SigSig> signaling;
 			RTLIL::SigSpec enables, all_staging;
 
-			for (auto bit : latch_driven) {
-				// TODO: create latches in groups
-				RTLIL::SigBit en = netlist.canvas->addWire(netlist.new_id(), 1);
-				RTLIL::SigBit staging = netlist.canvas->addWire(netlist.new_id(), 1);
-				RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en,
-														staging, netlist.convert_static(bit), true);
-				signaling[bit] = {en, staging};
+			latch_driven.sort_and_unify();
+			for (auto chunk : latch_driven.chunks()) {
+				RTLIL::SigSpec en = netlist.canvas->addWire(netlist.new_id(), chunk.bitwidth());
+				RTLIL::SigSpec staging = netlist.canvas->addWire(netlist.new_id(), chunk.bitwidth());
+				
+				for (int i = 0; i < chunk.bitwidth(); i++) {
+					RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en[i],
+											staging[i], netlist.convert_static(chunk[i]), true);
+					transfer_attrs(symbol, cell);
+					signaling[chunk[i]] = {en[i], staging[i]};
+				}
 				enables.append(en);
 				all_staging.append(staging);
-				transfer_attrs(symbol, cell);
 			}
 
 			procedure.root_case->aux_actions.push_back(
