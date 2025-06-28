@@ -40,6 +40,9 @@ struct Switch {
 	~Switch();
 	Case *add_case(std::vector<RTLIL::SigSpec> compare);
 	RTLIL::SwitchRule *lower();
+
+	// trivial switch has signal={}, one case, and no special attributes
+	bool trivial();
 };
 
 struct Case {
@@ -80,8 +83,27 @@ struct Case {
 		rule->compare = compare;
 		rule->actions.insert(rule->actions.end(), aux_actions.begin(), aux_actions.end());
 
-		for (auto switch_ : switches)
-			rule->switches.push_back(switch_->lower());
+		std::vector<Switch *>::iterator it, ite;
+		it = switches.begin();
+		ite = switches.end();
+		for (; it != ite; it++) {
+			// opportunistic optimization to reduce tree depth: helps runtime of proc_prune
+			while (it != ite && it + 1 == ite && (*it)->trivial() && !(*it)->cases[0]->statement) {
+				if (!(*it)->cases[0]->aux_actions.empty()) {
+					RTLIL::SwitchRule *sw = new RTLIL::SwitchRule;
+					rule->switches.push_back(sw);
+					sw->signal = {};
+					RTLIL::CaseRule *case2 = new RTLIL::CaseRule;
+					sw->cases.push_back(case2);
+					case2->actions = (*it)->cases[0]->aux_actions;
+				}
+				ite = (*it)->cases[0]->switches.end();
+				it = (*it)->cases[0]->switches.begin();
+			}
+			if (it == ite)
+				break;
+			rule->switches.push_back((*it)->lower());
+		}
 	}
 
 	RTLIL::CaseRule *lower()

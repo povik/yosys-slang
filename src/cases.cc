@@ -45,4 +45,13 @@ RTLIL::SwitchRule *Switch::lower()
 	return rule;
 }
 
+bool Switch::trivial()
+{
+	if (signal.empty() && !statement && !full_case && !parallel_case) {
+		if (cases.size() == 1 && cases[0]->compare.empty())
+			return true;
+	}
+	return false;
+}
+
 }; // namespace slang_frontend
