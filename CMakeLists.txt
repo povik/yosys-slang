@@ -22,6 +22,18 @@ if (APPLE AND BUILD_AS_PLUGIN)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -undefined dynamic_lookup")
 endif()
 
+option(WITH_UBSAN "Build with UndefinedBehaviorSanitizer" OFF)
+if(WITH_UBSAN)
+    add_compile_options(-fsanitize=undefined)
+    add_link_options(-fsanitize=undefined)
+endif()
+
+option(WITH_ASAN "Build with AddressSanitizer" OFF)
+if(WITH_ASAN)
+    add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+endif()
+
 include(FetchContent)
 
 # The log will show "-- Using remote fmt library", but that is misleading,
