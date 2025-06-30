@@ -1,0 +1,78 @@
+name: Collect coverage
+on: [push, pull_request]
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        yosys_version:
+          - v0.54
+    steps:
+      - name: Install Dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git build-essential llvm pkg-config cmake ccache gperf bison flex libreadline-dev gawk tcl-dev libffi-dev graphviz xdot python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Set up caching
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: slang-coverage-${{ hashFiles('third_party') }}-${{ hashFiles('src') }}
+          restore-keys: |
+            slang-coverage-${{ hashFiles('third_party') }}-${{ hashFiles('src') }}
+            slang-coverage-${{ hashFiles('third_party') }}-
+            slang-coverage-
+      - name: Set up ccache
+        run: |
+          ccache --max-size=2G -z
+      # This cache is shared with the `build-and-test.yaml` workflow.
+      - name: Cache Yosys build
+        id: cache-yosys
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-yosys
+        with:
+          path: tests/third_party/yosys
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.yosys_version }}
+      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
+        name: Pull Yosys
+        run: |
+          git clone --depth 1 --recursive \
+            --branch ${{ matrix.yosys_version }} \
+            -- https://github.com/YosysHQ/yosys.git tests/third_party/yosys
+      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
+        name: Build Yosys
+        shell: bash
+        run: |
+          cd tests/third_party/yosys
+          make config-gcc
+          echo "ENABLE_ABC := 0" >> Makefile.conf
+          make -j$(nproc)
+      - name: Install Yosys
+        shell: bash
+        run: |
+          cd tests/third_party/yosys
+          sudo make install
+      - name: Build yosys-slang
+        run: |
+          cd build
+          cmake .. -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DWITH_COVERAGE=ON
+          make
+      - name: Test yosys-slang
+        run: |
+          cd build
+          make test
+          make coverage
+      - name: Submit coverage
+        uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+          files: build/yosys-slang.info
+          verbose: true
+      - name: Print ccache statistics
+        run: |
+          ccache -s

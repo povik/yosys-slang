@@ -67,6 +67,7 @@ jobs:
       - name: Set up ccache
         run: |
           ccache --max-size=2G -z
+      # This cache is shared with the `coverage.yaml` workflow.
       - name: Cache Yosys build
         id: cache-yosys
         uses: actions/cache@v4
@@ -88,7 +89,7 @@ jobs:
           cd tests/third_party/yosys
           make config-gcc
           echo "ENABLE_ABC := 0" >> Makefile.conf
-          make -j6
+          make -j$(nproc)
       - name: Install Yosys
         shell: bash
         run: |
