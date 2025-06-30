@@ -41,8 +41,9 @@ EnterAutomaticScopeGuard::EnterAutomaticScopeGuard(EvalContext &context, const a
 EnterAutomaticScopeGuard::~EnterAutomaticScopeGuard()
 {
 	if (scope) {
-		log_assert(context.scope_nest_level.at(scope)-- >= 1);
-		if (context.scope_nest_level.at(scope) == 0)
+		auto new_nest_level = --context.scope_nest_level.at(scope);
+		log_assert(new_nest_level >= 0);
+		if (new_nest_level == 0)
 			context.scope_nest_level.erase(scope);
 		context.current_scope_nest_level = save_scope_nest_level;
 	}
