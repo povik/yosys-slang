@@ -94,10 +94,14 @@ jobs:
       - name: Build yosys-slang
         run: |
           make -j$(nproc) CMAKE_FLAGS="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Debug"
+      - name: Test yosys-slang
+        run: |
+          cd build
+          ctest --rerun-failed --output-on-failure
       - name: Pack build
         shell: bash
         run: |
-          tar -cvf build.tar build tests/third_party/yosys/
+          tar -cvf build.tar build/slang.so tests/third_party/yosys/
       - name: Store build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -107,39 +111,6 @@ jobs:
       - name: Print ccache statistics
         run: |
           ccache -s
-  test:
-    runs-on: ubuntu-24.04
-    needs: [build, define-matrix]
-    strategy:
-      matrix:
-        yosys_version: ${{ fromJSON(needs.define-matrix.outputs.all_versions) }}
-      fail-fast: false
-    steps:
-      - name: Install Dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git build-essential pkg-config cmake ccache gperf bison flex libreadline-dev gawk tcl-dev libffi-dev graphviz xdot python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-${{ matrix.yosys_version }}.tar
-      - name: Unpack build
-        shell: bash
-        run:
-          tar -xvf build.tar
-      - name: Install Yosys
-        shell: bash
-        run: |
-          sudo cp -r -t / tests/third_party/yosys/*
-      - name: Run tests
-        shell: bash
-        run: |
-          cd build
-          ctest --rerun-failed --output-on-failure
   test-croc-boot:
     runs-on: ubuntu-24.04
     needs: [build, define-matrix]
