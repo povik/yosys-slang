@@ -75,26 +75,22 @@ jobs:
           cache-name: cache-yosys
         with:
           path: tests/third_party/yosys
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.yosys_version }}
+          key: yosys-${{ runner.os }}-${{ matrix.yosys_version }}
       - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
         name: Pull Yosys
         run: |
+          cd tests/third_party
           git clone --depth 1 --recursive \
             --branch ${{ matrix.yosys_version }} \
-            -- https://github.com/YosysHQ/yosys.git tests/third_party/yosys
-      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
-        name: Build Yosys
-        shell: bash
-        run: |
-          cd tests/third_party/yosys
-          make config-gcc
-          echo "ENABLE_ABC := 0" >> Makefile.conf
-          make -j$(nproc)
+            -- https://github.com/YosysHQ/yosys.git yosys_build
+          make -C yosys_build config-gcc
+          echo "ENABLE_ABC := 0" >> yosys_build/Makefile.conf
+          make -C yosys_build -j$(nproc)
+          make -C yosys_build install DESTDIR=$(pwd)/yosys/
       - name: Install Yosys
         shell: bash
         run: |
-          cd tests/third_party/yosys
-          sudo make install
+          sudo cp -r -t / tests/third_party/yosys/*
       - name: Build yosys-slang
         run: |
           make -j$(nproc) CMAKE_FLAGS="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Debug"
@@ -138,8 +134,7 @@ jobs:
       - name: Install Yosys
         shell: bash
         run: |
-          cd tests/third_party/yosys
-          sudo make install
+          sudo cp -r -t / tests/third_party/yosys/*
       - name: Run tests
         shell: bash
         run: |
@@ -182,8 +177,7 @@ jobs:
       - name: Install Yosys
         shell: bash
         run: |
-          cd tests/third_party/yosys
-          sudo make install
+          sudo cp -r -t / tests/third_party/yosys/*
       - name: Cache Croc checkout
         id: cache-croc
         uses: actions/cache@v4
@@ -238,8 +232,7 @@ jobs:
       - name: Install Yosys
         shell: bash
         run: |
-          cd tests/third_party/yosys
-          sudo make install
+          sudo cp -r -t / tests/third_party/yosys/*
       - name: Pull IP sources
         run: |
           git clone https://github.com/povik/yosys-slang-compat-suite/ compat-suite --depth 1
