@@ -75,33 +75,33 @@ jobs:
           cache-name: cache-yosys
         with:
           path: tests/third_party/yosys
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.yosys_version }}
+          key: yosys-${{ runner.os }}-${{ matrix.yosys_version }}
       - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
         name: Pull Yosys
         run: |
+          cd tests/third_party
           git clone --depth 1 --recursive \
             --branch ${{ matrix.yosys_version }} \
-            -- https://github.com/YosysHQ/yosys.git tests/third_party/yosys
-      - if: ${{ steps.cache-yosys.outputs.cache-hit != 'true' }}
-        name: Build Yosys
-        shell: bash
-        run: |
-          cd tests/third_party/yosys
-          make config-gcc
-          echo "ENABLE_ABC := 0" >> Makefile.conf
-          make -j$(nproc)
+            -- https://github.com/YosysHQ/yosys.git yosys_build
+          make -C yosys_build config-gcc
+          echo "ENABLE_ABC := 0" >> yosys_build/Makefile.conf
+          make -C yosys_build -j$(nproc)
+          make -C yosys_build install DESTDIR=$(pwd)/yosys/
       - name: Install Yosys
         shell: bash
         run: |
-          cd tests/third_party/yosys
-          sudo make install
+          sudo cp -r -t / tests/third_party/yosys/*
       - name: Build yosys-slang
         run: |
           make -j$(nproc) CMAKE_FLAGS="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Debug"
+      - name: Test yosys-slang
+        run: |
+          cd build
+          ctest --rerun-failed --output-on-failure
       - name: Pack build
         shell: bash
         run: |
-          tar -cvf build.tar build tests/third_party/yosys/
+          tar -cvf build.tar build/slang.so tests/third_party/yosys/
       - name: Store build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -111,40 +111,6 @@ jobs:
       - name: Print ccache statistics
         run: |
           ccache -s
-  test:
-    runs-on: ubuntu-24.04
-    needs: [build, define-matrix]
-    strategy:
-      matrix:
-        yosys_version: ${{ fromJSON(needs.define-matrix.outputs.all_versions) }}
-      fail-fast: false
-    steps:
-      - name: Install Dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git build-essential pkg-config cmake ccache gperf bison flex libreadline-dev gawk tcl-dev libffi-dev graphviz xdot python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-${{ matrix.yosys_version }}.tar
-      - name: Unpack build
-        shell: bash
-        run:
-          tar -xvf build.tar
-      - name: Install Yosys
-        shell: bash
-        run: |
-          cd tests/third_party/yosys
-          sudo make install
-      - name: Run tests
-        shell: bash
-        run: |
-          cd build
-          ctest --rerun-failed --output-on-failure
   test-croc-boot:
     runs-on: ubuntu-24.04
     needs: [build, define-matrix]
@@ -182,8 +148,7 @@ jobs:
       - name: Install Yosys
         shell: bash
         run: |
-          cd tests/third_party/yosys
-          sudo make install
+          sudo cp -r -t / tests/third_party/yosys/*
       - name: Cache Croc checkout
         id: cache-croc
         uses: actions/cache@v4
@@ -238,8 +203,7 @@ jobs:
       - name: Install Yosys
         shell: bash
         run: |
-          cd tests/third_party/yosys
-          sudo make install
+          sudo cp -r -t / tests/third_party/yosys/*
       - name: Pull IP sources
         run: |
           git clone https://github.com/povik/yosys-slang-compat-suite/ compat-suite --depth 1
