@@ -2694,6 +2694,7 @@ public:
 	void handle(const ast::LetDeclSymbol&) {}
 	void handle(const ast::SpecparamSymbol&) {}
 	void handle(const ast::DefParamSymbol&) {}
+	void handle(const ast::SpecifyBlockSymbol&) {}
 
 	void handle(const ast::StatementBlockSymbol &sym)
 	{
