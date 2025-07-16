@@ -3519,10 +3519,15 @@ struct SlangFrontend : Frontend {
 		}
 
 		if (!settings.no_proc.value_or(false)) {
-			RTLIL::Selection emitted_modules = RTLIL::Selection::EmptySelection(design);
+			// Hack to get an empty selection in a way compatible with both pre and post Yosys v0.52
+			// Front of the selection stack should be a "full selection" at any time, and we can
+			// amend it.
+			RTLIL::Selection emitted_modules = design->selection_stack.front();
+			emitted_modules.full_selection = false;
 			for (auto name : emitted_module_names)
 				emitted_modules.selected_modules.insert(name);
-			design->push_selection(emitted_modules);
+
+			design->selection_stack.push_back(emitted_modules);
 
 			log_push();
 			call(design, "undriven");
@@ -3537,7 +3542,7 @@ struct SlangFrontend : Frontend {
 			call(design, "opt_expr -keepdc");
 			log_pop();
 
-			design->pop_selection();
+			design->selection_stack.pop_back();
 		}
 	}
 } SlangFrontend;
