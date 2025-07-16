@@ -473,8 +473,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	Yosys::dict<const ast::Symbol*, RTLIL::Wire *> wire_cache;
 
 	// With this flag set we will not elaborate this netlist; we set this when
-	// `scopes_remap` is incomplete due to errors in processing the instantiation
-	// of `realm` somewhere in the input.
+	// `scopes_remap` is incomplete due to errors in processing an instantiation
+	// of `realm`.
 	bool disabled = false;
 
 	NetlistContext(RTLIL::Design *design,

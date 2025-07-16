@@ -1,0 +1,22 @@
+read_verilog <<EOF
+module primi(d, q, clk);
+input wire clk;
+input wire d;
+output reg q;
+always @(posedge clk)
+	q <= d;
+endmodule
+EOF
+
+read_slang <<EOF
+(*blackbox*)
+module primi(d, q, clk);
+input wire clk;
+input wire d;
+output reg q;
+endmodule
+
+module top(input logic clk, input logic d, output logic q);
+	primi inst(.*);
+endmodule
+EOF

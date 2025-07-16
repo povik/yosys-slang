@@ -3395,6 +3395,8 @@ struct SlangFrontend : Frontend {
 		(void) filename;
 		log_header(design, "Executing SLANG frontend.\n");
 
+		// names of RTLIL modules added in this invocation; does not include blackboxes
+		std::vector<RTLIL::IdString> emitted_module_names;
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
 		SynthesisSettings settings;
@@ -3480,6 +3482,7 @@ struct SlangFrontend : Frontend {
 
 			for (int i = 0; i < (int) hqueue.queue.size(); i++) {
 				NetlistContext &netlist = *hqueue.queue[i];
+				emitted_module_names.push_back(netlist.canvas->name);
 
 				if (netlist.disabled)
 					continue;
@@ -3515,6 +3518,11 @@ struct SlangFrontend : Frontend {
 		}
 
 		if (!settings.no_proc.value_or(false)) {
+			RTLIL::Selection emitted_modules = RTLIL::Selection::EmptySelection(design);
+			for (auto name : emitted_module_names)
+				emitted_modules.selected_modules.insert(name);
+			design->push_selection(emitted_modules);
+
 			log_push();
 			call(design, "undriven");
 			call(design, "proc_clean");
@@ -3527,6 +3535,8 @@ struct SlangFrontend : Frontend {
 			call(design, "proc_clean");
 			call(design, "opt_expr -keepdc");
 			log_pop();
+
+			design->pop_selection();
 		}
 	}
 } SlangFrontend;

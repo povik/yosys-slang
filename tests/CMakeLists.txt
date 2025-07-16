@@ -38,6 +38,7 @@ set(ALL_TESTS
     various/intf_array_naming.ys
     various/intf_w_hierarchy.ys
     various/issue142.ys
+    various/issue208.ys
     various/issue50.ys
     various/mem_inference.ys
     various/meminit.ys
