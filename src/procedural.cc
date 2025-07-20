@@ -182,13 +182,24 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 
 	for (auto chunk : lvalue.chunks()) {
 		if (chunk.variable.kind == Variable::Static) {
-			// TODO: proper message on blocking/nonblocking mixing
 			if (blocking) {
-				log_assert(!seen_nonblocking_assignment.count(chunk.variable));
-				seen_blocking_assignment.insert(chunk.variable);
+				if (seen_nonblocking_assignment.count(chunk.variable)) {
+					auto &diag = netlist.add_diag(diag::BlockingAssignmentAfterNonblocking, loc);
+					diag << chunk.variable.get_symbol()->name;
+					diag.addNote(diag::NotePreviousAssignment,
+							seen_nonblocking_assignment.at(chunk.variable));
+				} else {
+					seen_blocking_assignment[chunk.variable] = loc;
+				}
 			} else {
-				log_assert(!seen_blocking_assignment.count(chunk.variable));
-				seen_nonblocking_assignment.insert(chunk.variable);
+				if (seen_blocking_assignment.count(chunk.variable)) {
+					auto &diag = netlist.add_diag(diag::NonblockingAssignmentAfterBlocking, loc);
+					diag << chunk.variable.get_symbol()->name;
+					diag.addNote(diag::NotePreviousAssignment,
+							seen_blocking_assignment.at(chunk.variable));
+				} else {
+					seen_nonblocking_assignment[chunk.variable] = loc;
+				}
 			}
 		} else {
 			// This is expected to be an AST invariant -- we don't have a symbol

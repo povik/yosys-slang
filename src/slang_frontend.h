@@ -215,8 +215,8 @@ public:
 
 private:
 	int flag_counter = 0;
-	Yosys::pool<Variable> seen_blocking_assignment;
-	Yosys::pool<Variable> seen_nonblocking_assignment;
+	Yosys::dict<Variable, slang::SourceLocation> seen_blocking_assignment;
+	Yosys::dict<Variable, slang::SourceLocation> seen_nonblocking_assignment;
 	std::vector<RTLIL::Cell *> preceding_memwr;
 
 public:

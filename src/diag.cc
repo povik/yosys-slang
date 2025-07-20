@@ -103,6 +103,9 @@ namespace diag {
 	DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1050);
 	DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1051);
 	DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1052);
+	DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1053);
+	DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1054);
+	DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1055);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -237,6 +240,13 @@ namespace diag {
 		engine.setSeverity(NoteModuleNotDissolvedBecauseBlackbox, DiagnosticSeverity::Note);
 		engine.setMessage(NoteModuleNotDissolvedBecauseKeepHierarchy, "instance of module '{}' will not dissolve because of '--keep-hierarchy' option");
 		engine.setSeverity(NoteModuleNotDissolvedBecauseKeepHierarchy, DiagnosticSeverity::Note);
+
+		engine.setMessage(BlockingAssignmentAfterNonblocking, "blocking assignment to variable '{}' is not supported after previous non-blocking assignment");
+		engine.setSeverity(BlockingAssignmentAfterNonblocking, DiagnosticSeverity::Error);
+		engine.setMessage(NonblockingAssignmentAfterBlocking, "non-blocking assignment to variable '{}' is not supported after previous blocking assignment");
+		engine.setSeverity(NonblockingAssignmentAfterBlocking, DiagnosticSeverity::Error);
+		engine.setMessage(NotePreviousAssignment, "previous assignment here");
+		engine.setSeverity(NotePreviousAssignment, DiagnosticSeverity::Note);
 	}
 };
 };

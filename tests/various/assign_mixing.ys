@@ -1,0 +1,23 @@
+test_slangdiag -expect "non-blocking assignment to variable 'x' is not supported after previous blocking assignment"
+read_slang <<EOF
+module top();
+	logic x, y;
+	always_comb begin
+		x = 0;
+		x <= 1;
+	end
+endmodule
+EOF
+
+design -reset
+
+test_slangdiag -expect "blocking assignment to variable 'y' is not supported after previous non-blocking assignment"
+read_slang <<EOF
+module top();
+	logic x, y;
+	always_comb begin
+		y <= 0;
+		y = 1;
+	end
+endmodule
+EOF
