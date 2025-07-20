@@ -229,3 +229,19 @@ specify
     specparam c = 1:2:3;
 endspecify
 endmodule
+
+// test for an edge case from way back
+module r24();
+	reg [31:0] y[0:0];
+	wire z;
+	wire [63:0] x;
+
+	always_comb begin
+		for (int i = 0; i < 32; i++) begin
+			if(~z) begin
+			end else begin
+				y[0][i] = x[2*i+1];
+			end
+		end
+	end
+endmodule
