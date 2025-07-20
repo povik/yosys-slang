@@ -35,6 +35,8 @@ set(ALL_TESTS
     various/expr.ys
     various/flop_naming.ys
     various/formal_stmts.ys
+    various/hierref_error.ys
+    various/ignore_asserts.ys
     various/intf_array_naming.ys
     various/intf_w_hierarchy.ys
     various/issue142.ys
@@ -49,7 +51,6 @@ set(ALL_TESTS
     various/timescale.ys
     various/top_attr.ys
     various/unknown_cells.ys
-    various/hierref_error.ys
 )
 
 foreach(test_script ${ALL_TESTS})
