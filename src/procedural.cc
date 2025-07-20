@@ -170,7 +170,7 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, VariableBits &target)
 	}
 }
 
-void ProceduralContext::do_assign(slang::SourceLocation loc, VariableBits lvalue,
+void ProceduralContext::update_variable_state(slang::SourceLocation loc, VariableBits lvalue,
 		RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking)
 {
 	log_assert((int)lvalue.size() == unmasked_rvalue.size());
@@ -215,7 +215,7 @@ void ProceduralContext::do_assign(slang::SourceLocation loc, VariableBits lvalue
 void ProceduralContext::do_simple_assign(
 		slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec rvalue, bool blocking)
 {
-	do_assign(loc, lvalue, rvalue, RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
+	update_variable_state(loc, lvalue, rvalue, RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
 }
 
 RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
@@ -394,7 +394,7 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 		preceding_memwr.push_back(memwr);
 	} else {
 		VariableBits lvalue = eval.lhs(*raw_lexpr);
-		do_assign(assign.sourceRange.start(), lvalue, raw_rvalue, raw_mask, blocking);
+		update_variable_state(assign.sourceRange.start(), lvalue, raw_rvalue, raw_mask, blocking);
 	}
 }
 

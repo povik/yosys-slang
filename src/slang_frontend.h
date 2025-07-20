@@ -234,7 +234,7 @@ public:
 
 	// For $check, $print cells
 	void set_effects_trigger(RTLIL::Cell *cell);
-	void do_assign(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking);
+	void update_variable_state(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking);
 	void do_simple_assign(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec rvalue, bool blocking);
 	RTLIL::SigSpec substitute_rvalue(VariableBits bits);
 	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue);
