@@ -40,7 +40,7 @@ endif()
 
 option(WITH_ASAN "Build with AddressSanitizer" OFF)
 if (WITH_ASAN)
-    add_compile_link_options(${sanitizer_options} -fsanitize=undefined)
+    add_compile_link_options(${sanitizer_options} -fsanitize=address)
 endif()
 
 include(FetchContent)
