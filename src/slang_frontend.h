@@ -72,38 +72,35 @@ public:
 	enum Kind {
 		Static,
 		Local,
-		Disable,
-		Break,
+		EscapeFlag,
 		Dummy,
 		Invalid
 	} kind;
 
 	static Variable from_symbol(const ast::ValueSymbol *symbol, int depth=-1);
-	static Variable disable_for_scope(const ast::Statement *statement, int depth);
-	static Variable break_for_scope(const ast::Statement *statement, int depth);
+	static Variable escape_flag(int id);
 	static Variable dummy(int width);
 
 	Variable();
 	const ast::ValueSymbol *get_symbol() const;
-	const ast::Statement *get_statement() const;
 	int bitwidth() const;
 	explicit operator bool() const;
 
-	bool operator==(const Variable &other) const { return sort_label() == other.sort_label(); }
-	bool operator<(const Variable &other) const { return sort_label() < other.sort_label(); }
+	bool operator==(const Variable &other) const { return hash_label() == other.hash_label(); }
+	bool operator<(const Variable &other) const;
 
 #if YS_HASHING_VERSION >= 1
-	[[nodiscard]] Yosys::Hasher hash_into(Yosys::Hasher h) const { h.eat(sort_label()); return h; }
+	[[nodiscard]] Yosys::Hasher hash_into(Yosys::Hasher h) const { h.eat(hash_label()); return h; }
 #else
-	int hash() const { return Yosys::hash_ops<SortLabel>::hash(sort_label()); }
+	int hash() const { return Yosys::hash_ops<HashLabel>::hash(hash_label()); }
 #endif
 	std::string text() const;
 
 private:
 	union {
 		const ast::ValueSymbol *symbol;
-		const ast::Statement *statement;
 		int width;
+		int id;
 	};
 	int depth = 0;
 
@@ -111,8 +108,8 @@ private:
 	Variable(enum Kind kind, const ast::Statement *statement, int depth);
 	Variable(enum Kind kind, int width);
 
-	typedef std::tuple<int, void *, int> SortLabel;
-	SortLabel sort_label() const;
+	typedef std::tuple<int, void *, int> HashLabel;
+	HashLabel hash_label() const;
 };
 
 struct EvalContext {
@@ -140,20 +137,18 @@ struct EvalContext {
 	RTLIL::SigSpec operator()(ast::Symbol const &symbol);
 
 	// Evaluates the given expression, inserts an extra sign bit if need
-	// be so that the result can be interpreted as a signed value
+	// be so that the result can always be interpreted as a signed value
 	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
 
-	// Describes the given LHS expression as a sequence of wirebits
+	// Describes the given LHS expression in terms of `VariableBits`, if possible.
 	//
-	// This method is a helper used to evaluate both procedural and non-procedural
-	// assignments. Not all expressions (not even all LHS-viable expressions)
-	// are in simple correspondence to wirebits, and as such they cannot be
-	// processed by this method and require special handling elsewhere.
+	// This doesn't handle dynamic addressing and streaming expressions,
+	// the caller needs to handle those separately.
 	VariableBits lhs(ast::Expression const &expr);
 
-	// Evaluate non-procedural connection LHS for connections expressed in
-	// terms of an assignment to `EmptyArgument`. This is a pattern found in
-	// the AST in module instance connections or for pattern assignments.
+	// Helper for cases where the AST uses `EmptyArgument` on the RHS of
+	// an assignment as a stand-in for a value implied by the context
+	// (instance output connection or inside pattern assignments)
 	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
 
 	EvalContext(NetlistContext &netlist);
@@ -219,6 +214,7 @@ public:
 	Case *current_case;
 
 private:
+	int flag_counter = 0;
 	Yosys::pool<Variable> seen_blocking_assignment;
 	Yosys::pool<Variable> seen_nonblocking_assignment;
 	std::vector<RTLIL::Cell *> preceding_memwr;

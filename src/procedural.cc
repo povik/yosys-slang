@@ -51,8 +51,7 @@ EnterAutomaticScopeGuard::~EnterAutomaticScopeGuard()
 
 RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(ProceduralContext &context,
 		EscapeConstructKind kind, const ast::SubroutineSymbol *subroutine)
-	: context(context), flag(Variable::disable_for_scope(
-								&subroutine->getBody(), context.eval.current_scope_nest_level))
+	: context(context), flag(Variable::escape_flag(context.flag_counter++))
 {
 	assert(kind == EscapeConstructKind::FunctionBody);
 	context.escape_stack.emplace_back();
@@ -65,11 +64,7 @@ RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(ProceduralContext &co
 
 RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(
 		ProceduralContext &context, EscapeConstructKind kind, const ast::Statement *statement)
-	: context(context),
-	  flag(kind == EscapeConstructKind::Loop
-					  ? Variable::break_for_scope(statement, context.eval.current_scope_nest_level)
-					  : Variable::disable_for_scope(
-								statement, context.eval.current_scope_nest_level))
+	: context(context), flag(Variable::escape_flag(context.flag_counter++))
 {
 	log_assert(kind == EscapeConstructKind::Loop || kind == EscapeConstructKind::LoopBody);
 	context.escape_stack.emplace_back();
@@ -126,6 +121,7 @@ void ProceduralContext::inherit_state(ProceduralContext &other)
 	seen_nonblocking_assignment = other.seen_nonblocking_assignment;
 	preceding_memwr = other.preceding_memwr;
 	vstate = other.vstate;
+	flag_counter = other.flag_counter;
 }
 
 void ProceduralContext::copy_case_tree_into(RTLIL::CaseRule &rule)
@@ -229,7 +225,8 @@ RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 		// We disallow mixing of blocking and non-blocking assignments to the
 		// same variable from the same process. That simplifies the handling
 		// here.
-		if (chunk.variable.kind != Variable::Static || seen_blocking_assignment.count(chunk.variable))
+		if (chunk.variable.kind != Variable::Static ||
+				seen_blocking_assignment.count(chunk.variable))
 			subed.append(vstate.evaluate(netlist, chunk));
 		else
 			subed.append(netlist.convert_static(chunk));
