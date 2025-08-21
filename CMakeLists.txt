@@ -1,4 +1,4 @@
-if (CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
+if (CMAKE_BINARY_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     message(FATAL_ERROR "In-tree builds are not supported. Instead, run:\ncmake . -B build <options> && cmake --build build")
 endif()
 
@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 project(yosys-slang CXX)
-set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
 option(BUILD_AS_PLUGIN "Build yosys-slang as a plugin" ON)
 mark_as_advanced(BUILD_AS_PLUGIN)
@@ -51,7 +51,7 @@ option(FMT_INSTALL OFF)
 FetchContent_Declare(
     fmt
     EXCLUDE_FROM_ALL
-    SOURCE_DIR ${CMAKE_SOURCE_DIR}/third_party/fmt
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fmt
 )
 
 set(SLANG_USE_MIMALLOC OFF)
