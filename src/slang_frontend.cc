@@ -2518,6 +2518,28 @@ public:
 					&& sym.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic)
 				return;
 
+			if (sym.kind == ast::SymbolKind::Net) {
+				auto &net = sym.as<ast::NetSymbol>();
+				switch (net.netType.netKind) {
+				case ast::NetType::WAnd:
+				case ast::NetType::WOr:
+				case ast::NetType::TriAnd:
+				case ast::NetType::TriOr:
+				case ast::NetType::Tri0:
+				case ast::NetType::Tri1:
+				case ast::NetType::TriReg:
+				case ast::NetType::Supply0:
+				case ast::NetType::Supply1:
+					{
+						auto &diag = netlist.add_diag(diag::NetTypeUnsupported, sym.location);
+						diag << net.netType.name;
+					}
+					break;
+				default:
+					break;
+				}
+			}
+
 			std::string kind{ast::toString(sym.kind)};
 			log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
 

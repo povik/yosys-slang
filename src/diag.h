@@ -62,6 +62,7 @@ extern slang::DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy;
 extern slang::DiagCode BlockingAssignmentAfterNonblocking;
 extern slang::DiagCode NonblockingAssignmentAfterBlocking;
 extern slang::DiagCode NotePreviousAssignment;
+extern slang::DiagCode NetTypeUnsupported;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 };

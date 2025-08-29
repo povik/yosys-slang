@@ -106,6 +106,7 @@ namespace diag {
 	DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1053);
 	DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1054);
 	DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1055);
+	DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1056);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -247,6 +248,9 @@ namespace diag {
 		engine.setSeverity(NonblockingAssignmentAfterBlocking, DiagnosticSeverity::Error);
 		engine.setMessage(NotePreviousAssignment, "previous assignment here");
 		engine.setSeverity(NotePreviousAssignment, DiagnosticSeverity::Note);
+
+		engine.setMessage(NetTypeUnsupported, "net type '{}' unsupported");
+		engine.setSeverity(NetTypeUnsupported, DiagnosticSeverity::Error);
 	}
 };
 };
