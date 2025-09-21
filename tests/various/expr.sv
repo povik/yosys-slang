@@ -230,4 +230,18 @@ function logic f2();
 endfunction
 initial $t(f2());
 
+// unpacked struct member access
+typedef struct {
+    logic a;
+    logic [1:0] b;
+    logic c;
+    logic d;
+} unpacked_t;
+function logic [4:0] f3();
+	unpacked_t x;
+	x = unpacked_t'(5'b1x100);
+	return {x.a, x.c, x.d, x.b};
+endfunction
+initial $t(f3());
+
 endmodule

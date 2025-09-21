@@ -1144,7 +1144,18 @@ Vector extract_struct_field(Vector value, const ast::MemberAccessExpression &exp
 	require(expr, expr.member.kind == ast::SymbolKind::Field);
 	const auto &member = expr.member.as<ast::FieldSymbol>();
 	require(expr, member.randMode == ast::RandMode::None);
-	return value.extract(member.bitOffset,
+	const auto &struct_symbol = member.getParentScope()->asSymbol();
+	require(expr, ast::Type::isKind(struct_symbol.kind));
+	uint64_t bit_offset = member.bitOffset;
+	// In the case of unpacked structs we need to flip slang's `bitOffset`
+	// as it doesn't correspond to the bit offsets in a bitstream serialization.
+	if (struct_symbol.as<ast::Type>().isUnpackedStruct()) {
+		auto &unpacked = struct_symbol.as<ast::UnpackedStructType>();
+		require(expr, unpacked.bitstreamWidth == unpacked.selectableWidth);
+		bit_offset = unpacked.bitstreamWidth - member.bitOffset
+					 - member.getType().getBitstreamWidth();
+	}
+	return value.extract(bit_offset,
 		expr.type->getBitstreamWidth());
 }
 
