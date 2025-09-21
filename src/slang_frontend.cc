@@ -1138,6 +1138,16 @@ Variable EvalContext::variable(const ast::ValueSymbol &symbol)
 	}
 }
 
+template <typename Vector>
+Vector extract_struct_field(Vector value, const ast::MemberAccessExpression &expr)
+{
+	require(expr, expr.member.kind == ast::SymbolKind::Field);
+	const auto &member = expr.member.as<ast::FieldSymbol>();
+	require(expr, member.randMode == ast::RandMode::None);
+	return value.extract(member.bitOffset,
+		expr.type->getBitstreamWidth());
+}
+
 VariableBits EvalContext::lhs(const ast::Expression &expr)
 {
 	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
@@ -1202,11 +1212,7 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 	case ast::ExpressionKind::MemberAccess:
 		{
 			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			require(expr, acc.member.kind == ast::SymbolKind::Field);
-			const auto &member = acc.member.as<ast::FieldSymbol>();
-			require(acc, member.randMode == ast::RandMode::None);
-			return lhs(acc.value()).extract(member.bitOffset,
-											expr.type->getBitstreamWidth());
+			return extract_struct_field(lhs(acc.value()), acc);
 		}
 		break;
 	case ast::ExpressionKind::Conversion:
@@ -1737,11 +1743,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::MemberAccess:
 		{
 			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			require(expr, acc.member.kind == ast::SymbolKind::Field);
-			const auto &member = acc.member.as<ast::FieldSymbol>();
-			require(acc, member.randMode == ast::RandMode::None);
-			return (*this)(acc.value()).extract(member.bitOffset,
-								expr.type->getBitstreamWidth());
+			return extract_struct_field((*this)(acc.value()), acc);
 		}
 		break;
 	case ast::ExpressionKind::Call:
