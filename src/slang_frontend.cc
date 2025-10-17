@@ -1250,7 +1250,6 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 		ret = Variable::dummy(expr.type->getBitstreamWidth());
 	}
 
-	log_assert(expr.type->isFixedSize());
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
 }
