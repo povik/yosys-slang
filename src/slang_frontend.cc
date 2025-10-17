@@ -1223,7 +1223,7 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 	case ast::ExpressionKind::MemberAccess:
 		{
 			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			return extract_struct_field(lhs(acc.value()), acc);
+			ret = extract_struct_field(lhs(acc.value()), acc);
 		}
 		break;
 	case ast::ExpressionKind::Conversion:
@@ -1754,7 +1754,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::MemberAccess:
 		{
 			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			return extract_struct_field((*this)(acc.value()), acc);
+			ret = extract_struct_field((*this)(acc.value()), acc);
 		}
 		break;
 	case ast::ExpressionKind::Call:
