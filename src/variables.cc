@@ -17,6 +17,13 @@ namespace slang_frontend {
 Variable Variable::from_symbol(const ast::ValueSymbol *symbol, int depth)
 {
 	assert(symbol);
+	// Local assertion variables are special - they're part of SVA checker FSMs
+	// and should be treated as static (module-level) variables
+	if (symbol->kind == ast::SymbolKind::LocalAssertionVar) {
+		assert(depth == -1);
+		return Variable(Static, symbol, 0);
+	}
+	
 	if (ast::VariableSymbol::isKind(symbol->kind) &&
 			symbol->as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic) {
 		assert(depth >= 0);

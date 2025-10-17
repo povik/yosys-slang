@@ -1,0 +1,1660 @@
+//
+// Yosys slang frontend
+//
+// Copyright 2025 Chaitanya Sharma <chaitanya@cognichip.ai>
+// Distributed under the terms of the ISC license, see LICENSE
+//
+#include "sva_converter.h"
+#include "diag.h"
+#include "slang/ast/Expression.h"
+#include "slang/ast/TimingControl.h"
+#include "slang/ast/Compilation.h"
+#include "slang/ast/types/AllTypes.h"
+#include "slang/ast/symbols/ValueSymbol.h"
+#include "slang/ast/symbols/MemberSymbols.h"
+#include "slang/ast/expressions/OperatorExpressions.h"
+#include "slang/ast/expressions/MiscExpressions.h"
+#include "slang/ast/expressions/CallExpression.h"
+
+using Yosys::GetSize;
+
+namespace slang_frontend {
+
+// Static member definition
+const int SVAConverter::sva_fsm_limit;
+
+SVAConverter::SVAConverter(NetlistContext &netlist, EvalContext &eval)
+    : netlist(netlist), eval(eval) {
+}
+
+RTLIL::IdString SVAConverter::gen_id(const std::string &prefix) {
+    std::string base = prefix.empty() ? "\\sva" : "\\" + prefix;
+    return netlist.new_id(base);
+}
+
+RTLIL::SigSpec SVAConverter::eval_expr(const ast::Expression &expr) {
+    using EK = ast::ExpressionKind;
+    
+    // Check for sequence/property method calls (.triggered, .matched, .ended)
+    if (expr.kind == EK::Call) {
+        auto &call = expr.as<ast::CallExpression>();
+        std::string_view method_name = call.getSubroutineName();
+        
+        if (method_name == "triggered" || method_name == "matched") {
+            // These methods return a boolean indicating sequence/property status
+            // For synthesis, we need to create a signal that tracks the sequence state
+            
+            if (!call.arguments().empty() && 
+                call.arguments()[0]->kind == EK::AssertionInstance) {
+                auto &aie = call.arguments()[0]->as<ast::AssertionInstanceExpression>();
+                
+                // Create a temporary FSM for this sequence to get its match signal
+                // Save current FSM state
+                auto saved_nodes = nodes;
+                auto saved_unodes = unodes;
+                auto saved_dnodes = dnodes;
+                auto saved_materialized = materialized;
+                auto saved_startNode = startNode;
+                auto saved_acceptNode = acceptNode;
+                auto saved_condNode = condNode;
+                auto saved_final_accept_sig = final_accept_sig;
+                auto saved_final_reject_sig = final_reject_sig;
+                
+                // Reset and parse the sequence
+                reset_fsm();
+                int seq_end = parse_sequence(aie.body, createStartNode());
+                createLink(seq_end, acceptNode);
+                
+                // Get the accept signal (triggered/matched both use accept signal)
+                RTLIL::SigBit match_sig = getAccept();
+                
+                // Restore FSM state
+                nodes = saved_nodes;
+                unodes = saved_unodes;
+                dnodes = saved_dnodes;
+                materialized = saved_materialized;
+                startNode = saved_startNode;
+                acceptNode = saved_acceptNode;
+                condNode = saved_condNode;
+                final_accept_sig = saved_final_accept_sig;
+                final_reject_sig = saved_final_reject_sig;
+                
+                return match_sig;
+            }
+        }
+    }
+    
+    return eval(expr);
+}
+
+RTLIL::SigBit SVAConverter::make_cond_eq(const RTLIL::SigSpec &ctrl, RTLIL::SigBit enable) {
+    if (GetSize(ctrl) == 0)
+        return enable;
+    
+    RTLIL::SigSpec sig_a = ctrl;
+    RTLIL::SigSpec sig_b = RTLIL::Const(RTLIL::State::S1, GetSize(ctrl));
+    
+    if (enable != RTLIL::S1) {
+        sig_a.append(enable);
+        sig_b.append(RTLIL::State::S1);
+    }
+    
+    auto key = std::make_pair(sig_a, sig_b);
+    
+    if (cond_eq_cache.count(key) == 0) {
+        if (GetSize(sig_a) == 1) {
+            cond_eq_cache[key] = sig_a;
+        } else {
+            // Check if all bits equal 1 (AND reduction)
+            cond_eq_cache[key] = netlist.Eq(sig_a, sig_b);
+        }
+    }
+    
+    return cond_eq_cache.at(key);
+}
+
+void SVAConverter::check_state_explosion(const RTLIL::SigSpec &ctrl, const std::string &context) {
+    if (GetSize(ctrl) > sva_fsm_limit) {
+        log_warning("SVA %s: ctrl signal has %d bits (limit is %d), possible state explosion\n",
+                   context.c_str(), GetSize(ctrl), sva_fsm_limit);
+        netlist.add_diag(diag::SVAUnsupported, slang::SourceLocation::NoLocation);
+    }
+}
+
+// ============================================================================
+// Main Entry Point
+// ============================================================================
+
+void SVAConverter::convert(const ast::ConcurrentAssertionStatement &stmt) {
+    // Generate unique name for this assertion
+    assertion_name = gen_id("assertion");
+
+    log_debug("SVA: Processing assertion in module %s, propertySpec kind=%d\n", 
+              netlist.canvas->name.c_str(), (int)stmt.propertySpec.kind);
+
+    // Extract clocking and reset information
+    extract_clocking(stmt.propertySpec);
+
+    // Initialize FSM
+    reset_fsm();
+    
+    // Parse the assertion into NFSM
+    int final_node = parse_sequence(stmt.propertySpec, createStartNode());
+    
+    // Link final node to accept node
+    createLink(final_node, acceptNode);
+    
+    // Materialize FSM to get accept/reject signals
+    RTLIL::SigBit accept_sig, reject_sig;
+    
+    if (stmt.assertionKind == ast::AssertionKind::Assert || 
+        stmt.assertionKind == ast::AssertionKind::Assume ||
+        stmt.assertionKind == ast::AssertionKind::Expect) {
+        // For assertions, we need reject signal
+        getFirstAcceptReject(&accept_sig, &reject_sig);
+    } else {
+        // For cover, we only need accept signal
+        accept_sig = getAccept();
+        reject_sig = RTLIL::S0;
+    }
+
+    // Create the final formal primitive
+    auto cell = netlist.canvas->addCell(gen_id("check"), ID($check));
+
+    std::string flavor;
+    RTLIL::SigSpec assertion_signal;
+    
+    switch (stmt.assertionKind) {
+        case ast::AssertionKind::Assert:
+            flavor = "assert";
+            assertion_signal = netlist.ReduceBool(netlist.LogicNot(reject_sig));
+            cell->setPort(ID::A, assertion_signal);
+            break;
+
+        case ast::AssertionKind::Assume:
+            flavor = "assume";
+            assertion_signal = netlist.ReduceBool(netlist.LogicNot(reject_sig));
+            cell->setPort(ID::A, assertion_signal);
+            break;
+
+        case ast::AssertionKind::CoverProperty:
+            flavor = "cover";
+            assertion_signal = netlist.ReduceBool(accept_sig);
+            cell->setPort(ID::A, assertion_signal);
+            break;
+
+        case ast::AssertionKind::Expect:
+            flavor = "assert";
+            assertion_signal = netlist.ReduceBool(netlist.LogicNot(reject_sig));
+            cell->setPort(ID::A, assertion_signal);
+            break;
+
+        default:
+            netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+            return;
+    }
+
+    cell->setParam(ID::FLAVOR, flavor);
+    cell->setParam(ID::FORMAT, std::string(""));
+    cell->setParam(ID::ARGS_WIDTH, 0);
+    cell->setParam(ID::PRIORITY, 0);
+    cell->setParam(ID::TRG_ENABLE, 0);
+    cell->setParam(ID::TRG_WIDTH, 0);
+    cell->setParam(ID::TRG_POLARITY, 0);
+    cell->setPort(ID::ARGS, {});
+    cell->setPort(ID::EN, RTLIL::S1);
+    cell->setPort(ID::TRG, {});
+}
+
+// ============================================================================
+// Clocking Extraction
+// ============================================================================
+
+void SVAConverter::extract_clocking(const ast::AssertionExpr &expr) {
+    log_debug("SVA: extract_clocking for kind %d\n", (int)expr.kind);
+    
+    // Default clock and reset
+    clk = RTLIL::SigSpec();
+    rst = RTLIL::SigSpec();
+    has_reset = false;
+
+    // Look for clocking expression
+    if (expr.kind == ast::AssertionExprKind::Clocking) {
+        auto &clocking_expr = expr.as<ast::ClockingAssertionExpr>();
+
+        // Extract clock from timing control
+        if (clocking_expr.clocking.kind == ast::TimingControlKind::SignalEvent) {
+            auto &event = clocking_expr.clocking.as<ast::SignalEventControl>();
+            log_debug("SVA: Extracting clock signal\n");
+            clk = eval_expr(event.expr);
+        }
+
+        // Recursively process the inner expression for disable iff
+        if (clocking_expr.expr.kind == ast::AssertionExprKind::DisableIff) {
+            auto &disable_expr = clocking_expr.expr.as<ast::DisableIffAssertionExpr>();
+            rst = eval_expr(disable_expr.condition);
+            has_reset = true;
+        }
+    } else if (expr.kind == ast::AssertionExprKind::DisableIff) {
+        auto &disable_expr = expr.as<ast::DisableIffAssertionExpr>();
+        rst = eval_expr(disable_expr.condition);
+        has_reset = true;
+    }
+}
+
+// ============================================================================
+// D Flip-Flop Helper
+// ============================================================================
+
+RTLIL::SigSpec SVAConverter::create_dff(RTLIL::SigSpec d, RTLIL::IdString name_hint) {
+    if (d.empty() || d.size() == 0) {
+        log_warning("Attempting to create DFF with empty signal\n");
+        return d;
+    }
+
+    // Always generate a unique wire name
+    if (name_hint == RTLIL::IdString())
+        name_hint = gen_id("dff");
+    else
+        name_hint = gen_id(name_hint.str());
+
+    RTLIL::Wire *q_wire = netlist.canvas->addWire(name_hint, d.size());
+    
+    // Choose cell type based on whether we have async reset
+    RTLIL::IdString cell_type = (has_reset && !rst.empty()) ? ID($adff) : ID($dff);
+    auto cell = netlist.canvas->addCell(gen_id("dff_cell"), cell_type);
+
+    cell->setParam(ID::WIDTH, d.size());
+    cell->setParam(ID::CLK_POLARITY, 1);
+
+    if (clk.empty()) {
+        // Create a default clock if none specified
+        clk = netlist.canvas->addWire(gen_id("clk"), 1);
+    }
+
+    cell->setPort(ID::CLK, clk);
+    cell->setPort(ID::D, d);
+    cell->setPort(ID::Q, q_wire);
+
+    // Add async reset if available
+    if (has_reset && !rst.empty()) {
+        cell->setParam(ID::ARST_POLARITY, 1);
+        cell->setPort(ID::ARST, rst);
+        cell->setParam(ID::ARST_VALUE, RTLIL::Const(0, d.size()));
+    }
+
+    return q_wire;
+}
+
+// ============================================================================
+// SVA System Functions
+// ============================================================================
+
+RTLIL::SigSpec SVAConverter::create_past_register(RTLIL::SigSpec sig, int depth) {
+    if (sig.empty() || depth <= 0) {
+        return sig;
+    }
+
+    // Check if we already have a history register for this signal
+    auto key = sig;
+    if (history_regs.count(key) && depth == 1) {
+        return history_regs.at(key);
+    }
+
+    // Create shift register chain
+    RTLIL::SigSpec current = sig;
+    for (int i = 0; i < depth; i++) {
+        current = create_dff(current, gen_id("past_" + std::to_string(i)));
+    }
+
+    if (depth == 1) {
+    history_regs[key] = current.as_wire();
+    }
+    return current;
+}
+
+RTLIL::SigBit SVAConverter::eval_past(const ast::CallExpression &call) {
+    if (call.arguments().empty()) return RTLIL::S0;
+    
+    RTLIL::SigSpec sig = eval_expr(*call.arguments()[0]);
+    if (sig.empty()) return RTLIL::S0;
+    
+    // Get depth argument (default is 1)
+    int depth = 1;
+    if (call.arguments().size() > 1) {
+        // Try to evaluate the depth as a constant
+        // For most cases, depth will be a literal constant
+        auto &depth_expr = *call.arguments()[1];
+        RTLIL::SigSpec depth_sig = eval_expr(depth_expr);
+        
+        // If it's a constant, extract the value
+        if (depth_sig.is_fully_const()) {
+            auto depth_const = depth_sig.as_const();
+            if (depth_const.is_fully_def()) {
+                int depth_val = depth_const.as_int();
+                if (depth_val > 0) {
+                    depth = depth_val;
+                }
+            }
+        }
+    }
+    
+    // Create shift register chain of specified depth
+    RTLIL::SigSpec past_sig = create_past_register(sig, depth);
+    return netlist.ReduceBool(past_sig);
+}
+
+RTLIL::SigBit SVAConverter::eval_rose(const ast::CallExpression &call) {
+    if (call.arguments().empty()) return RTLIL::S0;
+    
+    RTLIL::SigSpec sig = eval_expr(*call.arguments()[0]);
+    if (sig.empty()) return RTLIL::S0;
+    
+    // $rose(sig) = sig & !$past(sig)
+    RTLIL::SigSpec past_sig = create_past_register(sig, 1);
+    RTLIL::SigSpec not_past = netlist.Not(past_sig);
+    return netlist.LogicAnd(sig, not_past);
+}
+
+RTLIL::SigBit SVAConverter::eval_fell(const ast::CallExpression &call) {
+    if (call.arguments().empty()) return RTLIL::S0;
+    
+    RTLIL::SigSpec sig = eval_expr(*call.arguments()[0]);
+    if (sig.empty()) return RTLIL::S0;
+    
+    // $fell(sig) = !sig & $past(sig)
+    RTLIL::SigSpec past_sig = create_past_register(sig, 1);
+    RTLIL::SigSpec not_sig = netlist.Not(sig);
+    return netlist.LogicAnd(not_sig, past_sig);
+}
+
+RTLIL::SigBit SVAConverter::eval_stable(const ast::CallExpression &call) {
+    if (call.arguments().empty()) return RTLIL::S1;
+    
+    RTLIL::SigSpec sig = eval_expr(*call.arguments()[0]);
+    if (sig.empty()) return RTLIL::S1;
+    
+    // $stable(sig) = (sig == $past(sig))
+    RTLIL::SigSpec past_sig = create_past_register(sig, 1);
+    return netlist.Eq(sig, past_sig);
+}
+
+RTLIL::SigBit SVAConverter::eval_changed(const ast::CallExpression &call) {
+    if (call.arguments().empty()) return RTLIL::S0;
+    
+    RTLIL::SigSpec sig = eval_expr(*call.arguments()[0]);
+    if (sig.empty()) return RTLIL::S0;
+    
+    // $changed(sig) = (sig != $past(sig))
+    RTLIL::SigSpec past_sig = create_past_register(sig, 1);
+    RTLIL::SigSpec stable = netlist.Eq(sig, past_sig);
+    return netlist.LogicNot(stable);
+}
+
+// ============================================================================
+// Counter Helper
+// ============================================================================
+
+SVAConverter::Counter SVAConverter::create_counter(
+    int min_val, int max_val, const std::string &name_hint) {
+
+    Counter cnt;
+
+    // Determine counter width
+    int max = (max_val > 0) ? max_val : min_val + 100; // Cap unbounded at min+100
+    if (max < min_val) max = min_val;
+    int width = ceil_log2(max + 1);
+    if (width < 1) width = 1;
+
+    // Create counter wire
+    cnt.count_wire = netlist.canvas->addWire(gen_id(name_hint + "_cnt"), width);
+
+    // Counter logic: increment when enabled, reset when reset asserted
+    RTLIL::SigSpec count_val = cnt.count_wire;
+    RTLIL::SigSpec next_count = netlist.Biop(
+        ID($add),
+        count_val,
+        RTLIL::Const(1, width),
+        false, false, width
+    );
+
+    // Create increment and reset signals (to be connected by caller)
+    cnt.increment = netlist.canvas->addWire(gen_id(name_hint + "_inc"), 1);
+    cnt.reset = netlist.canvas->addWire(gen_id(name_hint + "_rst"), 1);
+
+    // Mux for increment
+    RTLIL::SigSpec count_or_hold = netlist.Mux(
+        count_val,
+        next_count,
+        cnt.increment
+    );
+
+    // Mux for reset
+    RTLIL::SigSpec final_next = netlist.Mux(
+        count_or_hold,
+        RTLIL::Const(0, width),
+        cnt.reset
+    );
+
+    // Register the counter
+    RTLIL::SigSpec count_reg = create_dff(final_next, gen_id(name_hint + "_reg"));
+    netlist.canvas->connect(cnt.count_wire, count_reg);
+
+    // Generate reached_min and reached_max signals
+    cnt.reached_min = netlist.Ge(count_val, RTLIL::Const(min_val, width), false);
+
+    if (max_val > 0) {
+        cnt.reached_max = netlist.Ge(count_val, RTLIL::Const(max_val, width), false);
+    } else {
+        // Unbounded - never reaches max
+        cnt.reached_max = RTLIL::S0;
+    }
+
+    return cnt;
+}
+
+// ============================================================================
+// Assertion/Sequence Parsing (builds NFSM)
+// ============================================================================
+
+int SVAConverter::parse_sequence(const ast::AssertionExpr &expr, int start_node)
+{
+    using EK = ast::AssertionExprKind;
+    
+    switch (expr.kind) {
+        case EK::Simple:
+            return parse_simple(expr.as<ast::SimpleAssertionExpr>(), start_node);
+        
+        case EK::SequenceConcat: {
+            // a ##N b: chain sequences with delay
+            auto &concat = expr.as<ast::SequenceConcatExpr>();
+            int node = start_node;
+            
+            for (auto &elem : concat.elements) {
+                if (!elem.sequence) continue;
+                
+                // Parse the sequence part
+                node = parse_sequence(*elem.sequence, node);
+                
+                // Handle zero delay: ##0 means no clock cycles consumed (epsilon transition)
+                if (elem.delay.min == 0) {
+                    // Zero delay: create link not edge
+                    if (elem.delay.max.has_value() && elem.delay.max.value() > 0) {
+                        // ##[0:N] case
+                        int max_delay = elem.delay.max.value();
+                        for (int i = 0; i < max_delay; i++) {
+                            int next_node = createNode();
+                            createEdge(node, next_node);
+                            createLink(node, next_node); // Can also skip (zero or more delays)
+                            node = next_node;
+                        }
+                    }
+                    // ##0 or ##[0:0] - just continue with epsilon transition (already connected)
+                    continue;
+                }
+                
+                // Add delay if specified (non-zero minimum)
+                for (int i = 0; i < elem.delay.min; i++) {
+                    int next_node = createNode();
+                    createEdge(node, next_node);
+                    node = next_node;
+                }
+                
+                // Handle ranged delay [M:N] where M > 0
+                if (elem.delay.max.has_value() && elem.delay.max.value() > elem.delay.min) {
+                    // Create branch points for each possible delay
+                    int max_delay = elem.delay.max.value();
+                    for (int i = elem.delay.min; i < max_delay; i++) {
+                        int next_node = createNode();
+                        createEdge(node, next_node);
+                        createLink(node, next_node); // Also allow skipping
+                        node = next_node;
+                    }
+                }
+            }
+            return node;
+        }
+        
+        case EK::Binary: {
+            auto &bin = expr.as<ast::BinaryAssertionExpr>();
+            using Op = ast::BinaryAssertionOperator;
+            
+            if (bin.op == Op::OverlappedImplication || bin.op == Op::NonOverlappedImplication) {
+                // Antecedent -> Consequent
+                int node = parse_sequence(bin.left, start_node);
+                if (bin.op == Op::NonOverlappedImplication) {
+                    int next_node = createNode();
+                    createEdge(node, next_node);
+                    node = next_node;
+                }
+                return parse_sequence(bin.right, node);
+            }
+            
+            if (bin.op == Op::And) {
+                // Both sequences must match
+                int left_node = parse_sequence(bin.left, start_node);
+                int right_node = parse_sequence(bin.right, start_node);
+                int merge_node = createNode();
+                createLink(left_node, merge_node);
+                createLink(right_node, merge_node);
+                return merge_node;
+            }
+            
+            if (bin.op == Op::Or) {
+                // Either sequence can match
+                int left_node = parse_sequence(bin.left, start_node);
+                int right_node = parse_sequence(bin.right, start_node);
+                int merge_node = createNode();
+                createLink(left_node, merge_node);
+                createLink(right_node, merge_node);
+                return merge_node;
+            }
+            
+            if (bin.op == Op::Throughout) {
+                // condition throughout sequence
+                RTLIL::SigSpec cond_spec = eval_expr(bin.left.as<ast::SimpleAssertionExpr>().expr);
+                RTLIL::SigBit cond = netlist.ReduceBool(cond_spec);
+                pushThroughout(cond);
+                int node = parse_sequence(bin.right, start_node);
+                popThroughout();
+                return node;
+            }
+            
+            if (bin.op == Op::Within) {
+                // s1 within s2: s1 must occur completely inside s2's window
+                // Implementation: s2 starts, s1 can start anytime, s1 must finish before/when s2 finishes
+                
+                int node = createNode();
+                createLink(start_node, node);
+                
+                // Parse inner sequence s1 (bin.left)
+                int s1_end = parse_sequence(bin.left, node);
+                
+                // Parse outer sequence s2 (bin.right) with self-loop
+                // The outer sequence creates a window
+                createEdge(node, node); // Stay in this state
+                int s2_end = parse_sequence(bin.right, node);
+                
+                // s1 must complete, then link to accept via s2_end
+                createLink(s1_end, s2_end);
+                
+                return s2_end;
+            }
+            
+            if (bin.op == Op::Intersect) {
+                // s1 intersect s2: both must match with same length
+                // Parse both sequences starting from the same node
+                int left_node = parse_sequence(bin.left, start_node);
+                int right_node = parse_sequence(bin.right, start_node);
+                
+                // Both must reach accept at the same time
+                int merge_node = createNode();
+                createLink(left_node, merge_node);
+                createLink(right_node, merge_node);
+                
+                return merge_node;
+            }
+            
+            if (bin.op == Op::Implies) {
+                // a implies b: equivalent to (!a) or b
+                // Parse the antecedent
+                int antecedent_node = parse_sequence(bin.left, start_node);
+                
+                // Parse the consequent from the antecedent's end
+                int consequent_node = parse_sequence(bin.right, antecedent_node);
+                
+                // Also allow direct skip from start (vacuous case: !a is true)
+                createLink(start_node, consequent_node);
+                
+                return consequent_node;
+            }
+            
+            if (bin.op == Op::Iff) {
+                // a iff b: a implies b and b implies a
+                // This is equivalence: both or neither
+                int left_node = parse_sequence(bin.left, start_node);
+                int right_node = parse_sequence(bin.right, start_node);
+                
+                // Both sequences lead to accept
+                int merge_node = createNode();
+                createLink(left_node, merge_node);
+                createLink(right_node, merge_node);
+                
+                // Also allow both to be false (vacuous)
+                createLink(start_node, merge_node);
+                
+                return merge_node;
+            }
+            
+            if (bin.op == Op::Until || bin.op == Op::SUntil) {
+                // p1 until p2: p1 must hold until p2 becomes true
+                // Parse p1 as a self-loop condition
+                RTLIL::SigSpec p1_spec = eval_expr(bin.left.as<ast::SimpleAssertionExpr>().expr);
+                RTLIL::SigBit p1 = netlist.ReduceBool(p1_spec);
+                
+                // Create node that stays as long as p1 is true and p2 is false
+                int until_node = createNode();
+                createLink(start_node, until_node);
+                
+                // Self-loop while p1 is true
+                createEdge(until_node, until_node, p1);
+                
+                // Parse p2 and transition when it's true
+                int p2_node = parse_sequence(bin.right, until_node);
+                
+                return p2_node;
+            }
+            
+            if (bin.op == Op::UntilWith || bin.op == Op::SUntilWith) {
+                // p1 until_with p2: p1 until p2, and p2 must hold on last cycle too
+                RTLIL::SigSpec p1_spec = eval_expr(bin.left.as<ast::SimpleAssertionExpr>().expr);
+                RTLIL::SigBit p1 = netlist.ReduceBool(p1_spec);
+                
+                RTLIL::SigSpec p2_spec = eval_expr(bin.right.as<ast::SimpleAssertionExpr>().expr);
+                RTLIL::SigBit p2 = netlist.ReduceBool(p2_spec);
+                
+                // Create node that stays as long as p1 is true or both p1 and p2 are true
+                int until_node = createNode();
+                createLink(start_node, until_node);
+                
+                // Self-loop while p1 is true (including when p2 becomes true)
+                RTLIL::SigBit p1_or_both = netlist.canvas->Or(NEW_ID, p1, 
+                    netlist.canvas->And(NEW_ID, p1, p2));
+                createEdge(until_node, until_node, p1_or_both);
+                
+                // Accept when p2 is true
+                int accept_node = createNode();
+                createLink(until_node, accept_node, p2);
+                
+                return accept_node;
+            }
+            
+            if (bin.op == Op::OverlappedFollowedBy || bin.op == Op::NonOverlappedFollowedBy) {
+                // Similar to implication, used in cover properties
+                int node = parse_sequence(bin.left, start_node);
+                if (bin.op == Op::NonOverlappedFollowedBy) {
+                    int next_node = createNode();
+                    createEdge(node, next_node);
+                    node = next_node;
+                }
+                return parse_sequence(bin.right, node);
+            }
+            
+            // Unsupported operator
+            netlist.add_diag(diag::SVAUnsupported, bin.opRange);
+            return start_node;
+        }
+        
+        case EK::FirstMatch: {
+            // first_match(sequence): take only the first successful match
+            // The DFSM generation with firstmatch=true handles this properly
+            // by preventing further state transitions after first accept
+            auto &fm = expr.as<ast::FirstMatchAssertionExpr>();
+            
+            // Parse the inner sequence normally
+            // The getDFsm method with firstmatch=true will ensure only first match is taken
+            return parse_sequence(fm.seq, start_node);
+        }
+        
+        case EK::Unary: {
+            auto &unary = expr.as<ast::UnaryAssertionExpr>();
+            using Op = ast::UnaryAssertionOperator;
+            
+            if (unary.op == Op::Not) {
+                // Not handled at sequence level, handled at property level
+                return parse_sequence(unary.expr, start_node);
+            }
+            
+            if (unary.op == Op::NextTime || unary.op == Op::SNextTime) {
+                // nexttime expr: check expr on next clock cycle
+                int next_node = createNode();
+                createEdge(start_node, next_node);
+                return parse_sequence(unary.expr, next_node);
+            }
+            
+            if (unary.op == Op::Always || unary.op == Op::SAlways) {
+                // always expr: expr must hold at every clock cycle indefinitely
+                // Create a self-loop that checks the expression forever
+                int always_node = createNode();
+                createLink(start_node, always_node);
+                
+                // Parse the expression
+                RTLIL::SigSpec expr_spec = eval_expr(unary.expr.as<ast::SimpleAssertionExpr>().expr);
+                RTLIL::SigBit expr_bit = netlist.ReduceBool(expr_spec);
+                
+                // Self-loop while expression is true
+                createEdge(always_node, always_node, expr_bit);
+                
+                // Always property never "completes" - it just keeps checking
+                // For FSM purposes, we never reach accept in normal operation
+                // Failure is detected by not satisfying the condition
+                return always_node;
+            }
+            
+            if (unary.op == Op::Eventually || unary.op == Op::SEventually) {
+                // eventually expr: expr must hold at some future clock cycle
+                // Create a self-loop that waits until the expression becomes true
+                int wait_node = createNode();
+                createLink(start_node, wait_node);
+                
+                // Parse the expression
+                RTLIL::SigSpec expr_spec = eval_expr(unary.expr.as<ast::SimpleAssertionExpr>().expr);
+                RTLIL::SigBit expr_bit = netlist.ReduceBool(expr_spec);
+                RTLIL::SigBit not_expr = netlist.canvas->Not(NEW_ID, expr_bit);
+                
+                // Self-loop while expression is false (waiting)
+                createEdge(wait_node, wait_node, not_expr);
+                
+                // Transition to accept when expression becomes true
+                int accept_node = createNode();
+                createLink(wait_node, accept_node, expr_bit);
+                
+                return accept_node;
+            }
+            
+            // Unsupported unary operator
+            netlist.add_diag(diag::SVAUnsupported, unary.syntax->sourceRange());
+            return start_node;
+        }
+        
+        case EK::Clocking:
+            // Skip clocking, already extracted
+            return parse_sequence(expr.as<ast::ClockingAssertionExpr>().expr, start_node);
+        
+        case EK::DisableIff:
+            // Skip disable iff, already extracted
+            return parse_sequence(expr.as<ast::DisableIffAssertionExpr>().expr, start_node);
+        
+        case EK::StrongWeak: {
+            // strong(property) / weak(property)
+            // Strong properties must not succeed vacuously
+            // Weak properties can succeed vacuously
+            auto &sw = expr.as<ast::StrongWeakAssertionExpr>();
+            
+            // Parse the inner property normally
+            // The difference is in DFSM generation: strong uses firstmatch=true, condaccept=false
+            // weak uses firstmatch=false, condaccept=false
+            // For now, parse normally - strength semantics are handled in materialization
+            return parse_sequence(sw.expr, start_node);
+        }
+        
+        case EK::Abort: {
+            // accept_on/reject_on/sync_accept_on/sync_reject_on
+            auto &abort = expr.as<ast::AbortAssertionExpr>();
+            
+            // Evaluate the abort condition
+            RTLIL::SigSpec abort_cond_spec = eval_expr(abort.condition);
+            RTLIL::SigBit abort_cond = netlist.ReduceBool(abort_cond_spec);
+            
+            // Parse the inner property
+            int node = parse_sequence(abort.expr, start_node);
+            
+            // For accept_on: if condition becomes true, immediately accept
+            // For reject_on: if condition becomes true, immediately reject
+            if (abort.action == ast::AbortAssertionExpr::Accept) {
+                // Create direct link to accept when abort condition is true
+                int accept_node = createNode();
+                createLink(start_node, accept_node, abort_cond);
+                createLink(node, accept_node);
+                return accept_node;
+            } else {
+                // For reject: push abort condition as a disable signal
+                // When it becomes true, the property rejects
+                pushDisable(abort_cond);
+                int result = node;
+                popDisable();
+                return result;
+            }
+        }
+        
+        case EK::Conditional: {
+            // if (condition) property else property
+            auto &cond = expr.as<ast::ConditionalAssertionExpr>();
+            
+            // Evaluate the condition
+            RTLIL::SigSpec cond_spec = eval_expr(cond.condition);
+            RTLIL::SigBit cond_bit = netlist.ReduceBool(cond_spec);
+            RTLIL::SigBit not_cond = netlist.canvas->Not(NEW_ID, cond_bit);
+            
+            // Parse the 'if' branch with condition as throughout
+            pushThroughout(cond_bit);
+            int if_node = parse_sequence(cond.ifExpr, start_node);
+            popThroughout();
+            
+            int merge_node = createNode();
+            createLink(if_node, merge_node);
+            
+            // Parse the 'else' branch if present
+            if (cond.elseExpr) {
+                pushThroughout(not_cond);
+                int else_node = parse_sequence(*cond.elseExpr, start_node);
+                popThroughout();
+                createLink(else_node, merge_node);
+            } else {
+                // No else branch: vacuously true when condition is false
+                createLink(start_node, merge_node, not_cond);
+            }
+            
+            return merge_node;
+        }
+        
+        case EK::Case: {
+            // case (expr) matches ...
+            auto &case_expr = expr.as<ast::CaseAssertionExpr>();
+            
+            // Evaluate the case expression
+            RTLIL::SigSpec case_val = eval_expr(case_expr.expr);
+            
+            int merge_node = createNode();
+            
+            // Process each case item
+            for (auto &item : case_expr.items) {
+                // Build condition for this case item (OR of all expressions)
+                RTLIL::SigBit item_matches = RTLIL::S0;
+                
+                for (auto *match_expr : item.expressions) {
+                    RTLIL::SigSpec match_val = eval_expr(*match_expr);
+                    RTLIL::SigBit this_match = netlist.Eq(case_val, match_val);
+                    
+                    if (item_matches == RTLIL::S0) {
+                        item_matches = this_match;
+                    } else {
+                        item_matches = netlist.canvas->Or(NEW_ID, item_matches, this_match);
+                    }
+                }
+                
+                // Parse this case's property with the match condition as throughout
+                if (item_matches != RTLIL::S0) {
+                    pushThroughout(item_matches);
+                    int case_node = parse_sequence(*item.body, start_node);
+                    popThroughout();
+                    createLink(case_node, merge_node);
+                }
+            }
+            
+            // Process default case if present
+            if (case_expr.defaultCase) {
+                // Build condition for default: none of the above matched
+                RTLIL::SigBit any_matched = RTLIL::S0;
+                
+                for (auto &item : case_expr.items) {
+                    for (auto *match_expr : item.expressions) {
+                        RTLIL::SigSpec match_val = eval_expr(*match_expr);
+                        RTLIL::SigBit this_match = netlist.Eq(case_val, match_val);
+                        
+                        if (any_matched == RTLIL::S0) {
+                            any_matched = this_match;
+                        } else {
+                            any_matched = netlist.canvas->Or(NEW_ID, any_matched, this_match);
+                        }
+                    }
+                }
+                
+                RTLIL::SigBit default_cond = netlist.canvas->Not(NEW_ID, any_matched);
+                pushThroughout(default_cond);
+                int default_node = parse_sequence(*case_expr.defaultCase, start_node);
+                popThroughout();
+                createLink(default_node, merge_node);
+            }
+            
+            return merge_node;
+        }
+        
+        case EK::SequenceWithMatch: {
+            // Handle sequences with match items (local variables)
+            auto &swm = expr.as<ast::SequenceWithMatchExpr>();
+            
+            // Match items represent local variable assignments that occur when the sequence matches
+            // The actual variable wires are created when we encounter AssertionInstanceExpression
+            // For synthesis, we parse the sequence and track that match items exist
+            // The assignments themselves are evaluated as part of the sequence expression
+            int node = parse_sequence(swm.expr, start_node);
+            
+            // Handle repetition if present
+            if (swm.repetition.has_value()) {
+                auto &rep = *swm.repetition;
+                int min_count = rep.range.min;
+                int max_count = rep.range.max.value_or(0);
+                
+                if (rep.kind == ast::SequenceRepetition::Consecutive) {
+                    // Apply consecutive repetition
+                    for (int i = 1; i < min_count; i++) {
+                        node = parse_sequence(swm.expr, node);
+                    }
+                    
+                    // Handle ranged repetition
+                    if (max_count > min_count) {
+                        for (int i = min_count; i < max_count; i++) {
+                            int next_node = parse_sequence(swm.expr, node);
+                            createLink(node, next_node);
+                            node = next_node;
+                        }
+                    }
+                }
+            }
+            
+            return node;
+        }
+        
+        default:
+            if (expr.syntax)
+                netlist.add_diag(diag::SVAUnsupported, expr.syntax->sourceRange());
+            return start_node;
+    }
+}
+
+// ============================================================================
+// Simple Assertion (Boolean Expression with Optional Repetition)
+// ============================================================================
+
+int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_node) {
+    using EK = ast::ExpressionKind;
+    using AK = ast::AssertionExprKind;
+    
+    log_debug("SVA: visit_simple, expr kind: %d\n", (int)expr.expr.kind);
+    
+    // Check if this is an assertion instance expression (named property/sequence reference)
+    if (expr.expr.kind == EK::AssertionInstance) {
+        auto &aie = expr.expr.as<ast::AssertionInstanceExpression>();
+        log("SVA: Expanding assertion instance: %s\n", std::string(aie.symbol.name).c_str());
+        
+        // Create wires for all local assertion variables in this property/sequence
+        for (auto *local_var : aie.localVars) {
+            RTLIL::IdString wire_id = netlist.id(*local_var);
+            if (!netlist.canvas->wire(wire_id)) {
+                // LocalAssertionVarSymbol inherits from VariableSymbol which inherits from ValueSymbol
+                auto &value_sym = local_var->as<ast::ValueSymbol>();
+                netlist.add_wire(value_sym);
+                log_debug("SVA: Created wire for local assertion variable: %s\n", 
+                         std::string(local_var->name).c_str());
+            }
+        }
+        
+        // Recursively visit the assertion body
+        return parse_sequence(aie.body, start_node);
+    }
+    
+    // Note: In slang, complex sequences with repetition like (a ##1 b)[*3] 
+    // are typically parsed differently - the sequence concat becomes the top-level
+    // assertion, not nested inside a SimpleAssertionExpr. So we don't need special
+    // handling here for that case.
+    
+    // Evaluate the boolean expression
+    RTLIL::SigSpec condition = eval_expr(expr.expr);
+    RTLIL::SigBit cond_bit = netlist.ReduceBool(condition);
+
+    // Handle repetition if present
+    if (expr.repetition.has_value()) {
+        auto &rep = *expr.repetition;
+        int min_count = rep.range.min;
+        int max_count = rep.range.max.value_or(0);
+        
+        // Build FSM for repetition
+        int node = start_node;
+        
+        if (rep.kind == ast::SequenceRepetition::Consecutive) {
+            // [*N]: consecutive repetition
+            
+            // Handle zero-length sequences: [*0] means epsilon transition
+            if (min_count == 0) {
+                // Create a node that can be skipped
+                node = createNode();
+                createLink(start_node, node); // Can skip entirely (zero repetitions)
+            } else {
+                node = createNode();
+                createLink(start_node, node);
+            }
+            
+            // Add minimum repetitions
+            for (int i = 0; i < min_count; i++) {
+                int next_node = createNode();
+                createEdge(node, next_node, cond_bit);
+                node = next_node;
+            }
+            
+            // Handle ranged repetition [*M:N]
+            if (max_count > min_count || (min_count == 0 && max_count == 0)) {
+                int range_count = (max_count > 0) ? max_count : min_count + 1;
+                for (int i = min_count; i < range_count; i++) {
+                    int next_node = createNode();
+                    createEdge(node, next_node, cond_bit);
+                    if (i == min_count && min_count == 0) {
+                        // For [*0:N], we can exit at any point
+                        createLink(node, next_node);
+                    } else {
+                        createLink(node, next_node); // Also allow skipping this cycle
+                    }
+                    node = next_node;
+                }
+            }
+            
+            return node;
+        } else if (rep.kind == ast::SequenceRepetition::Nonconsecutive || 
+                   rep.kind == ast::SequenceRepetition::GoTo) {
+            // [=N] or [->N]: non-consecutive repetition
+            
+            // Handle zero-length case
+            if (min_count == 0) {
+                node = createNode();
+                createLink(start_node, node); // Can match immediately with zero occurrences
+                return node;
+            }
+            
+            node = createNode();
+            createLink(start_node, node);
+            
+            // Create nodes with self-loops for waiting
+            for (int i = 0; i < min_count; i++) {
+                int wait_node = createNode();
+                createEdge(node, wait_node);
+                RTLIL::SigBit not_cond = netlist.canvas->Not(NEW_ID, cond_bit);
+                createEdge(wait_node, wait_node, not_cond); // Wait
+                int next_node = createNode();
+                createLink(wait_node, next_node, cond_bit); // Match
+                node = next_node;
+            }
+            return node;
+        }
+    }
+
+    // Simple boolean check: create node with condition link
+    int node = createNode();
+    createLink(start_node, node, cond_bit);
+    return node;
+}
+
+// ============================================================================
+// NFSM/UFSM/DFSM Architecture Implementation (Verific-style)
+// ============================================================================
+
+void SVAConverter::reset_fsm()
+{
+    nodes.clear();
+    unodes.clear();
+    dnodes.clear();
+    cond_eq_cache.clear();
+    
+    materialized = false;
+    in_cond_mode = false;
+    
+    trigger_sig = RTLIL::S1;
+    disable_sig = RTLIL::S0;
+    throughout_sig = RTLIL::S1;
+    
+    disable_stack.clear();
+    throughout_stack.clear();
+    
+    final_accept_sig = RTLIL::Sx;
+    final_reject_sig = RTLIL::Sx;
+    
+    // Create start, accept, and cond nodes
+    startNode = createNode();
+    acceptNode = createNode();
+    
+    in_cond_mode = true;
+    condNode = createNode();
+    in_cond_mode = false;
+}
+
+int SVAConverter::createNode(int link_node)
+{
+    log_assert(!materialized);
+    
+    int idx = GetSize(nodes);
+    nodes.push_back(SvaNFsmNode());
+    nodes.back().is_cond_node = in_cond_mode;
+    
+    if (link_node >= 0)
+        createLink(link_node, idx);
+    
+    return idx;
+}
+
+int SVAConverter::createStartNode()
+{
+    return createNode(startNode);
+}
+
+void SVAConverter::createEdge(int from_node, int to_node, RTLIL::SigBit ctrl)
+{
+    log_assert(!materialized);
+    log_assert(0 <= from_node && from_node < GetSize(nodes));
+    log_assert(0 <= to_node && to_node < GetSize(nodes));
+    log_assert(from_node != acceptNode);
+    log_assert(to_node != acceptNode);
+    log_assert(from_node != condNode);
+    log_assert(to_node != condNode);
+    log_assert(to_node != startNode);
+    
+    if (from_node != startNode)
+        log_assert(nodes.at(from_node).is_cond_node == nodes.at(to_node).is_cond_node);
+    
+    // Apply throughout condition
+    if (throughout_sig != RTLIL::S1) {
+        if (ctrl != RTLIL::S1)
+            ctrl = netlist.canvas->And(NEW_ID, throughout_sig, ctrl);
+        else
+            ctrl = throughout_sig;
+    }
+    
+    nodes[from_node].edges.push_back(std::make_pair(to_node, ctrl));
+}
+
+void SVAConverter::createLink(int from_node, int to_node, RTLIL::SigBit ctrl)
+{
+    log_assert(!materialized);
+    log_assert(0 <= from_node && from_node < GetSize(nodes));
+    log_assert(0 <= to_node && to_node < GetSize(nodes));
+    log_assert(from_node != acceptNode);
+    log_assert(from_node != condNode);
+    log_assert(to_node != startNode);
+    
+    if (from_node != startNode)
+        log_assert(nodes.at(from_node).is_cond_node == nodes.at(to_node).is_cond_node);
+    
+    // Apply throughout condition
+    if (throughout_sig != RTLIL::S1) {
+        if (ctrl != RTLIL::S1)
+            ctrl = netlist.canvas->And(NEW_ID, throughout_sig, ctrl);
+        else
+            ctrl = throughout_sig;
+    }
+    
+    nodes[from_node].links.push_back(std::make_pair(to_node, ctrl));
+}
+
+void SVAConverter::pushDisable(RTLIL::SigBit sig)
+{
+    log_assert(!materialized);
+    
+    disable_stack.push_back(disable_sig);
+    
+    if (disable_sig == RTLIL::S0)
+        disable_sig = sig;
+    else
+        disable_sig = netlist.canvas->Or(NEW_ID, disable_sig, sig);
+}
+
+void SVAConverter::popDisable()
+{
+    log_assert(!materialized);
+    log_assert(!disable_stack.empty());
+    
+    disable_sig = disable_stack.back();
+    disable_stack.pop_back();
+}
+
+void SVAConverter::pushThroughout(RTLIL::SigBit sig)
+{
+    log_assert(!materialized);
+    
+    throughout_stack.push_back(throughout_sig);
+    
+    if (throughout_sig == RTLIL::S1)
+        throughout_sig = sig;
+    else
+        throughout_sig = netlist.canvas->And(NEW_ID, throughout_sig, sig);
+}
+
+void SVAConverter::popThroughout()
+{
+    log_assert(!materialized);
+    log_assert(!throughout_stack.empty());
+    
+    throughout_sig = throughout_stack.back();
+    throughout_stack.pop_back();
+}
+
+void SVAConverter::node_to_unode(int node, int unode, RTLIL::SigSpec ctrl)
+{
+    if (node == acceptNode)
+        unodes[unode].accept.push_back(ctrl);
+    
+    if (node == condNode)
+        unodes[unode].cond.push_back(ctrl);
+    
+    for (auto &it : nodes[node].edges) {
+        if (it.second != RTLIL::S1) {
+            RTLIL::SigSpec s = {ctrl, it.second};
+            s.sort_and_unify();
+            unodes[unode].edges.push_back(std::make_pair(it.first, s));
+        } else {
+            unodes[unode].edges.push_back(std::make_pair(it.first, ctrl));
+        }
+    }
+    
+    for (auto &it : nodes[node].links) {
+        if (it.second != RTLIL::S1) {
+            RTLIL::SigSpec s = {ctrl, it.second};
+            s.sort_and_unify();
+            node_to_unode(it.first, unode, s);
+        } else {
+            node_to_unode(it.first, unode, ctrl);
+        }
+    }
+}
+
+void SVAConverter::mark_reachable_unode(int unode)
+{
+    if (unodes[unode].reachable)
+        return;
+    
+    unodes[unode].reachable = true;
+    for (auto &it : unodes[unode].edges)
+        mark_reachable_unode(it.first);
+}
+
+void SVAConverter::usortint(std::vector<int> &vec)
+{
+    std::vector<int> newvec;
+    std::sort(vec.begin(), vec.end());
+    for (int i = 0; i < GetSize(vec); i++)
+        if (i == GetSize(vec)-1 || vec[i] != vec[i+1])
+            newvec.push_back(vec[i]);
+    vec.swap(newvec);
+}
+
+bool SVAConverter::cmp_ctrl(const Yosys::pool<RTLIL::SigBit> &ctrl_bits, const RTLIL::SigSpec &ctrl)
+{
+    for (int i = 0; i < GetSize(ctrl); i++)
+        if (ctrl_bits.count(ctrl[i]) == 0)
+            return false;
+    return true;
+}
+
+void SVAConverter::create_dnode(const std::vector<int> &state, bool firstmatch, bool condaccept)
+{
+    if (dnodes.count(state) != 0)
+        return;
+    
+    SvaDFsmNode dnode;
+    dnodes[state] = SvaDFsmNode();
+    
+    for (int unode : state) {
+        log_assert(unodes[unode].reachable);
+        for (auto &it : unodes[unode].edges)
+            dnode.ctrl.append(it.second);
+        for (auto &it : unodes[unode].accept)
+            dnode.ctrl.append(it);
+        for (auto &it : unodes[unode].cond)
+            dnode.ctrl.append(it);
+    }
+    
+    dnode.ctrl.sort_and_unify();
+    
+    if (GetSize(dnode.ctrl) > sva_fsm_limit) {
+        log_error("SVA DFSM state ctrl signal has %d (>%d) bits. State explosion detected.\n",
+                 GetSize(dnode.ctrl), sva_fsm_limit);
+    }
+    
+    for (unsigned long long i = 0; i < (1ull << GetSize(dnode.ctrl)); i++)
+    {
+        RTLIL::Const ctrl_val(i, GetSize(dnode.ctrl));
+        Yosys::pool<RTLIL::SigBit> ctrl_bits;
+        
+        for (int j = 0; j < GetSize(dnode.ctrl); j++)
+            if (ctrl_val[j] == RTLIL::State::S1)
+                ctrl_bits.insert(dnode.ctrl[j]);
+        
+        std::vector<int> new_state;
+        bool accept = false, cond = false;
+        
+        for (int unode : state) {
+            for (auto &it : unodes[unode].accept)
+                if (cmp_ctrl(ctrl_bits, it))
+                    accept = true;
+            for (auto &it : unodes[unode].cond)
+                if (cmp_ctrl(ctrl_bits, it))
+                    cond = true;
+        }
+        
+        bool new_state_cond = false;
+        bool new_state_noncond = false;
+        
+        if (accept && condaccept)
+            accept = cond;
+        
+        if (!accept || !firstmatch) {
+            for (int unode : state)
+            for (auto &it : unodes[unode].edges)
+                if (cmp_ctrl(ctrl_bits, it.second)) {
+                    if (nodes.at(it.first).is_cond_node)
+                        new_state_cond = true;
+                    else
+                        new_state_noncond = true;
+                    new_state.push_back(it.first);
+                }
+        }
+        
+        if (accept)
+            dnode.accept.push_back(ctrl_val);
+        
+        if (condaccept && (!new_state_cond || !new_state_noncond))
+            new_state.clear();
+        
+        if (new_state.empty()) {
+            if (!accept)
+                dnode.reject.push_back(ctrl_val);
+        } else {
+            usortint(new_state);
+            dnode.edges.push_back(std::make_pair(new_state, ctrl_val));
+            create_dnode(new_state, firstmatch, condaccept);
+        }
+    }
+    
+    dnodes[state] = dnode;
+}
+
+void SVAConverter::optimize_cond(std::vector<RTLIL::Const> &values)
+{
+    bool did_something = true;
+    
+    while (did_something)
+    {
+        did_something = false;
+        
+        for (int i = 0; i < GetSize(values); i++)
+        for (int j = 0; j < GetSize(values); j++)
+        {
+            if (i == j)
+                continue;
+            
+            log_assert(GetSize(values[i]) == GetSize(values[j]));
+            
+            int delta_pos = -1;
+            bool i_within_j = true;
+            bool j_within_i = true;
+            
+            for (int k = 0; k < GetSize(values[i]); k++) {
+                if (values[i][k] == RTLIL::State::Sa && values[j][k] != RTLIL::State::Sa) {
+                    i_within_j = false;
+                    continue;
+                }
+                if (values[i][k] != RTLIL::State::Sa && values[j][k] == RTLIL::State::Sa) {
+                    j_within_i = false;
+                    continue;
+                }
+                if (values[i][k] == values[j][k])
+                    continue;
+                if (delta_pos >= 0)
+                    goto next_pair;
+                delta_pos = k;
+            }
+            
+            if (delta_pos >= 0 && i_within_j && j_within_i) {
+                did_something = true;
+                values[i].set(delta_pos, RTLIL::State::Sa);
+                values[j] = values.back();
+                values.pop_back();
+                goto next_pair;
+            }
+            
+            if (delta_pos < 0 && i_within_j) {
+                did_something = true;
+                values[i] = values.back();
+                values.pop_back();
+                goto next_pair;
+            }
+            
+            if (delta_pos < 0 && j_within_i) {
+                did_something = true;
+                values[j] = values.back();
+                values.pop_back();
+                goto next_pair;
+            }
+    next_pair:;
+        }
+    }
+}
+
+RTLIL::SigBit SVAConverter::make_cond_eq_dfsm(const RTLIL::SigSpec &ctrl, const RTLIL::Const &value, RTLIL::SigBit enable)
+{
+    RTLIL::SigSpec sig_a, sig_b;
+    
+    log_assert(GetSize(ctrl) == GetSize(value));
+    
+    for (int i = 0; i < GetSize(ctrl); i++)
+        if (value[i] != RTLIL::State::Sa) {
+            sig_a.append(ctrl[i]);
+            sig_b.append(value[i]);
+        }
+    
+    if (GetSize(sig_a) == 0)
+        return enable;
+    
+    if (enable != RTLIL::S1) {
+        sig_a.append(enable);
+        sig_b.append(RTLIL::State::S1);
+    }
+    
+    auto key = std::make_pair(sig_a, sig_b);
+    
+    if (cond_eq_cache.count(key) == 0)
+    {
+        if (sig_b == RTLIL::State::S1)
+            cond_eq_cache[key] = sig_a;
+        else if (sig_b == RTLIL::State::S0)
+            cond_eq_cache[key] = netlist.canvas->Not(NEW_ID, sig_a);
+        else
+            cond_eq_cache[key] = netlist.Eq(sig_a, sig_b);
+    }
+    
+    return cond_eq_cache.at(key);
+}
+
+RTLIL::SigBit SVAConverter::getAccept()
+{
+    log_assert(!materialized);
+    materialized = true;
+    
+    std::vector<RTLIL::Wire*> state_wire(GetSize(nodes));
+    std::vector<RTLIL::SigBit> state_sig(GetSize(nodes));
+    std::vector<RTLIL::SigBit> next_state_sig(GetSize(nodes));
+    
+    // Create state signals
+    {
+        RTLIL::SigBit not_disable = RTLIL::S1;
+        
+        if (disable_sig != RTLIL::S0)
+            not_disable = netlist.canvas->Not(NEW_ID, disable_sig);
+        
+        for (int i = 0; i < GetSize(nodes); i++)
+        {
+            RTLIL::Wire *w = netlist.canvas->addWire(NEW_ID);
+            state_wire[i] = w;
+            state_sig[i] = w;
+            
+            if (i == startNode)
+                state_sig[i] = netlist.canvas->Or(NEW_ID, state_sig[i], trigger_sig);
+            
+            if (disable_sig != RTLIL::S0)
+                state_sig[i] = netlist.canvas->And(NEW_ID, state_sig[i], not_disable);
+        }
+    }
+    
+    // Follow Links (resolve epsilon transitions)
+    // We need to propagate signals through link edges in the correct order
+    // to handle chains of links properly
+    {
+        // Build link order: topological sort based on link dependencies
+        std::vector<int> node_order(GetSize(nodes), 0);
+        std::vector<std::vector<int>> order_to_nodes;
+        
+        // Calculate maximum link depth for each node
+        std::function<void(int, int)> calc_link_order;
+        calc_link_order = [&](int node, int min_order) {
+            node_order[node] = std::max(node_order[node], min_order);
+            for (auto &it : nodes[node].links) {
+                calc_link_order(it.first, node_order[node] + 1);
+            }
+        };
+        
+        // Calculate orders starting from all nodes
+        for (int i = 0; i < GetSize(nodes); i++) {
+            calc_link_order(i, 0);
+        }
+        
+        // Group nodes by order
+        for (int i = 0; i < GetSize(nodes); i++) {
+            int order = node_order[i];
+            if (order >= GetSize(order_to_nodes)) {
+                order_to_nodes.resize(order + 1);
+            }
+            order_to_nodes[order].push_back(i);
+        }
+        
+        // Process nodes in order, propagating link signals
+        for (int order = 0; order < GetSize(order_to_nodes); order++) {
+            for (int node : order_to_nodes[order]) {
+                for (auto &it : nodes[node].links) {
+                    int target = it.first;
+                    RTLIL::SigBit ctrl = state_sig[node];
+                    
+                    if (it.second != RTLIL::S1)
+                        ctrl = netlist.canvas->And(NEW_ID, ctrl, it.second);
+                    
+                    state_sig[target] = netlist.canvas->Or(NEW_ID, state_sig[target], ctrl);
+                }
+            }
+        }
+    }
+    
+    // Construct activations
+    {
+        std::vector<RTLIL::SigSpec> activate_sig(GetSize(nodes));
+        
+        for (int i = 0; i < GetSize(nodes); i++) {
+            for (auto &it : nodes[i].edges)
+                activate_sig[it.first].append(netlist.canvas->And(NEW_ID, state_sig[i], it.second));
+        }
+        
+        for (int i = 0; i < GetSize(nodes); i++) {
+            if (GetSize(activate_sig[i]) == 0)
+                next_state_sig[i] = RTLIL::S0;
+            else if (GetSize(activate_sig[i]) == 1)
+                next_state_sig[i] = activate_sig[i];
+            else
+                next_state_sig[i] = netlist.ReduceBool(activate_sig[i]);
+        }
+    }
+    
+    // Create state FFs
+    for (int i = 0; i < GetSize(nodes); i++)
+    {
+        if (next_state_sig[i] != RTLIL::S0) {
+            create_dff(next_state_sig[i], state_wire[i]->name);
+            netlist.canvas->connect(state_wire[i], create_dff(next_state_sig[i], state_wire[i]->name));
+    } else {
+            netlist.canvas->connect(state_wire[i], RTLIL::S0);
+        }
+    }
+    
+    final_accept_sig = state_sig[acceptNode];
+    return final_accept_sig;
+}
+
+RTLIL::SigBit SVAConverter::getReject()
+{
+    RTLIL::SigBit reject;
+    getFirstAcceptReject(nullptr, &reject);
+    return reject;
+}
+
+void SVAConverter::getFirstAcceptReject(RTLIL::SigBit *accept_p, RTLIL::SigBit *reject_p)
+{
+    log_assert(!materialized);
+    materialized = true;
+    
+    // Create unlinked NFSM
+    unodes.resize(GetSize(nodes));
+    
+    for (int node = 0; node < GetSize(nodes); node++)
+        node_to_unode(node, node, RTLIL::SigSpec());
+    
+    mark_reachable_unode(startNode);
+    
+    // Create DFSM
+    create_dnode(std::vector<int>{startNode}, true, false);
+    dnodes.sort();
+    
+    // Create DFSM Circuit
+    RTLIL::SigSpec accept_sig, reject_sig;
+    
+    for (auto &it : dnodes)
+    {
+        SvaDFsmNode &dnode = it.second;
+        dnode.ffoutwire = netlist.canvas->addWire(NEW_ID);
+        dnode.statesig = dnode.ffoutwire;
+        
+        if (it.first == std::vector<int>{startNode})
+            dnode.statesig = netlist.canvas->Or(NEW_ID, dnode.statesig, trigger_sig);
+    }
+    
+    for (auto &it : dnodes)
+    {
+        SvaDFsmNode &dnode = it.second;
+        Yosys::dict<std::vector<int>, std::vector<RTLIL::Const>> edge_cond;
+        
+        for (auto &edge : dnode.edges)
+            edge_cond[edge.first].push_back(edge.second);
+        
+        for (auto &it2 : edge_cond) {
+            optimize_cond(it2.second);
+            for (auto &value : it2.second)
+                dnodes.at(it2.first).nextstate.append(make_cond_eq_dfsm(dnode.ctrl, value, dnode.statesig));
+        }
+        
+        if (accept_p) {
+            std::vector<RTLIL::Const> accept_cond = dnode.accept;
+            optimize_cond(accept_cond);
+            for (auto &value : accept_cond)
+                accept_sig.append(make_cond_eq_dfsm(dnode.ctrl, value, dnode.statesig));
+        }
+        
+        if (reject_p) {
+            std::vector<RTLIL::Const> reject_cond = dnode.reject;
+            optimize_cond(reject_cond);
+            for (auto &value : reject_cond)
+                reject_sig.append(make_cond_eq_dfsm(dnode.ctrl, value, dnode.statesig));
+        }
+    }
+    
+    for (auto &it : dnodes)
+    {
+        SvaDFsmNode &dnode = it.second;
+        if (GetSize(dnode.nextstate) == 0) {
+            netlist.canvas->connect(dnode.ffoutwire, RTLIL::S0);
+        } else if (GetSize(dnode.nextstate) == 1) {
+            RTLIL::SigSpec dff_out = create_dff(dnode.nextstate, dnode.ffoutwire->name);
+            netlist.canvas->connect(dnode.ffoutwire, dff_out);
+    } else {
+            RTLIL::SigSpec nextstate = netlist.ReduceBool(dnode.nextstate);
+            RTLIL::SigSpec dff_out = create_dff(nextstate, dnode.ffoutwire->name);
+            netlist.canvas->connect(dnode.ffoutwire, dff_out);
+        }
+    }
+    
+    if (accept_p)
+    {
+        if (GetSize(accept_sig) == 0)
+            final_accept_sig = RTLIL::S0;
+        else if (GetSize(accept_sig) == 1)
+            final_accept_sig = accept_sig;
+        else
+            final_accept_sig = netlist.ReduceBool(accept_sig);
+        *accept_p = final_accept_sig;
+    }
+    
+    if (reject_p)
+    {
+        if (GetSize(reject_sig) == 0)
+            final_reject_sig = RTLIL::S0;
+        else if (GetSize(reject_sig) == 1)
+            final_reject_sig = reject_sig;
+        else
+            final_reject_sig = netlist.ReduceBool(reject_sig);
+        *reject_p = final_reject_sig;
+    }
+}
+
+} // namespace slang_frontend

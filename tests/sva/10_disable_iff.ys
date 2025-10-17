@@ -1,0 +1,4 @@
+# Test disable iff clause
+# Expected to FAIL - disable iff not supported in yosys-slang
+
+read_slang 10_disable_iff.sv --top disable_iff_test

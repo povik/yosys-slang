@@ -1,0 +1,4 @@
+# Test expect statement
+# Expected to FAIL - expect statement not supported in yosys-slang
+
+read_slang 13_expect_statement.sv --top expect_statement_test

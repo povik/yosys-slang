@@ -1,0 +1,4 @@
+# Test temporal delay operators (##)
+# Expected to FAIL - temporal delays not supported in yosys-slang
+
+read_slang 01_temporal_delay.sv --top temporal_delay_test

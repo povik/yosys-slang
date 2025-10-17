@@ -32,6 +32,7 @@
 #include "diag.h"
 #include "async_pattern.h"
 #include "variables.h"
+#include "sva_converter.h"
 
 namespace slang_frontend {
 
@@ -650,6 +651,11 @@ public:
 		case ast::AssertionKind::CoverProperty:
 			flavor = "cover";
 			break;
+		case ast::AssertionKind::Expect:
+			// Expect is a blocking procedural assertion
+			// In synthesis/formal context, treat as assert
+			flavor = "assert";
+			break;
 		default:
 			netlist.add_diag(diag::AssertionUnsupported, stmt.sourceRange);
 			return;
@@ -667,9 +673,80 @@ public:
 	}
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt) {
-		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+		if (netlist.settings.ignore_assertions.value_or(false))
+			return;
+
+		// Use the new SVA converter to handle concurrent assertions
+		SVAConverter sva_converter(netlist, eval);
+		sva_converter.convert(stmt);
+	}
+
+	void handle(const ast::WaitStatement &stmt) {
+		// Synthesizes the 'wait' statement as a DFF-based state machine.
+		// This is necessary for SVA 'expect' statements in procedural blocks,
+		// which use 'wait' to gate assertion checking.
+		//
+		// Implementation:
+		// - Creates a 'waiting' flag register (initialized to 1)
+		// - The flag remains high until the condition becomes true
+		// - The subsequent statement executes only when the flag is cleared
+		//
+		// Note: This assumes the procedural block has an associated clock.
+		// If no clock is available (e.g., pure simulation initial block),
+		// this creates a placeholder clock wire that must be driven externally.
+		
+		RTLIL::SigSpec wait_cond = netlist.ReduceBool(eval(stmt.cond));
+		
+		// Create the 'waiting' state register
+		RTLIL::Wire *waiting_reg = netlist.canvas->addWire(netlist.new_id(), 1);
+		
+		// Look for the clock signal in the current module
+		// TODO: Should use the clock from the procedural context (ProceduralContext)
+		// rather than assuming a module-level 'clk' wire exists
+		RTLIL::Wire *clk_wire = netlist.canvas->wire(ID(\\clk));
+		if (!clk_wire) {
+			// No clock found - create a placeholder
+			// This will need to be driven by the user's testbench
+			clk_wire = netlist.canvas->addWire(ID(\\clk), 1);
+			log_warning("wait statement synthesized without explicit clock; created placeholder wire '\\clk'\n");
 		}
+		RTLIL::SigSpec clk = clk_wire;
+		
+		// Next state logic: waiting_next = waiting_reg && !wait_cond
+		// (stay waiting until condition becomes true)
+		RTLIL::SigSpec waiting_next = netlist.LogicAnd(
+			waiting_reg,
+			netlist.LogicNot(wait_cond)
+		);
+		
+		// Create the state DFF
+		auto dff = netlist.canvas->addCell(netlist.new_id(), ID($dff));
+		dff->setParam(ID::WIDTH, 1);
+		dff->setParam(ID::CLK_POLARITY, 1);
+		dff->setPort(ID::CLK, clk);
+		dff->setPort(ID::D, waiting_next);
+		dff->setPort(ID::Q, waiting_reg);
+		
+		// Initialize to waiting state
+		waiting_reg->attributes[ID::init] = RTLIL::Const(1, 1);
+		
+		// Execute statement only when not waiting
+		// The proceed signal gates when subsequent assertions/expects become active
+		RTLIL::SigSpec proceed = netlist.LogicNot(waiting_reg);
+		
+		// Use SwitchHelper to create conditional execution
+		SwitchHelper b(context.current_case, context.vstate, proceed);
+		b.sw->statement = &stmt;
+		
+		// Execute the statement only when proceed is true (not waiting anymore)
+		b.branch({RTLIL::S1}, [&](){
+			context.current_case->statement = &stmt.stmt;
+			stmt.stmt.visit(*this);
+		});
+		b.finish(netlist);
+		
+		// Descend into empty switch for follow-up statements
+		context.current_case = context.current_case->add_switch({})->add_case({});
 	}
 
 	RTLIL::SigSpec handle_call(const ast::CallExpression &call)
@@ -1130,6 +1207,12 @@ int EvalContext::find_nest_level(const ast::Scope *scope)
 
 Variable EvalContext::variable(const ast::ValueSymbol &symbol)
 {
+	// Local assertion variables are handled specially - they're part of the SVA checker FSM
+	// and don't have a regular nest level
+	if (symbol.kind == ast::SymbolKind::LocalAssertionVar) {
+		return Variable::from_symbol(&symbol);
+	}
+	
 	if (ast::VariableSymbol::isKind(symbol.kind) &&
 			symbol.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic) {
 		return Variable::from_symbol(&symbol, find_nest_level(symbol.getParentScope()));
@@ -1291,6 +1374,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 	case ast::SymbolKind::Net:
 	case ast::SymbolKind::Variable:
 	case ast::SymbolKind::FormalArgument:
+	case ast::SymbolKind::LocalAssertionVar:
 		{
 			log_assert(ast::ValueSymbol::isKind(symbol.kind));
 			Variable var = variable(symbol.as<ast::ValueSymbol>());
@@ -1764,10 +1848,134 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					|| call.getSubroutineName() == "$write")) {
 				require(expr, procedural != nullptr);
 				StatementVisitor(*procedural).handle_display(call);
-			} else if (call.isSystemCall()) {
-				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
+			} else if (call.isSystemCall() && (call.getSubroutineName() == "$signed" 
+					|| call.getSubroutineName() == "$unsigned")) {
 				require(expr, call.arguments().size() == 1);
 				ret = (*this)(*call.arguments()[0]);
+			} else if (call.isSystemCall()) {
+				// Handle SVA system functions and other system functions
+				auto name = call.getSubroutineName();
+				if (name == "$rose" || name == "$fell" || name == "$stable" || name == "$changed") {
+					// These are 1-cycle history functions
+					require(expr, call.arguments().size() >= 1);
+					auto sig = (*this)(*call.arguments()[0]);
+					auto past_sig = netlist.canvas->addWire(NEW_ID, sig.size());
+					// For SVA functions, clock comes from the assertion's clocking event
+					// We'll create a placeholder wire here; the actual clock is bound during SVA synthesis
+					auto clk_wire = netlist.canvas->wire(ID(\\clk));
+					if (!clk_wire)
+						clk_wire = netlist.canvas->addWire(ID(\\clk), 1);
+					netlist.canvas->addDff(NEW_ID, clk_wire, sig, past_sig);
+					
+					if (name == "$rose") {
+						ret = netlist.LogicAnd(sig, netlist.LogicNot(past_sig));
+					} else if (name == "$fell") {
+						ret = netlist.LogicAnd(netlist.LogicNot(sig), past_sig);
+					} else if (name == "$stable") {
+						ret = netlist.Eq(sig, past_sig);
+					} else if (name == "$changed") {
+						ret = netlist.LogicNot(netlist.Eq(sig, past_sig));
+					}
+				} else if (name == "$past") {
+					// $past can have 1, 2, or 3 arguments: expr, [depth], [enable]
+					require(expr, call.arguments().size() >= 1 && call.arguments().size() <= 3);
+					auto sig = (*this)(*call.arguments()[0]);
+					int depth = 1;
+					if (call.arguments().size() >= 2) {
+						// Evaluate the depth argument as a constant
+						auto cv = call.arguments()[1]->eval(const_);
+						if (cv && cv.isInteger()) {
+							depth = (int)cv.integer().as<int>().value();
+						}
+					}
+					
+					// Get or create clock wire
+					auto clk_wire = netlist.canvas->wire(ID(\\clk));
+					if (!clk_wire)
+						clk_wire = netlist.canvas->addWire(ID(\\clk), 1);
+					
+					// Create shift register for depth
+					RTLIL::SigSpec current = sig;
+					for (int i = 0; i < depth; i++) {
+						auto next = netlist.canvas->addWire(NEW_ID, sig.size());
+						netlist.canvas->addDff(NEW_ID, clk_wire, current, next);
+						current = next;
+					}
+					ret = current;
+				} else if (name == "$onehot" || name == "$onehot0") {
+					require(expr, call.arguments().size() == 1);
+					auto sig = (*this)(*call.arguments()[0]);
+					// PROPER IMPLEMENTATION: Check if exactly one (or zero/one) bit is set
+					// Method: x is onehot if (x != 0) && ((x & (x-1)) == 0)
+					// Method: x is onehot0 if ((x & (x-1)) == 0)
+					
+					// Compute x-1
+					auto one = RTLIL::Const(1, sig.size());
+					auto x_minus_1 = netlist.Biop(ID($sub), sig, one, false, false, sig.size());
+					
+					// Compute x & (x-1)
+					auto x_and_xm1 = netlist.Biop(ID($and), sig, x_minus_1, false, false, sig.size());
+					
+					// Check if result is zero
+					auto is_zero = netlist.Unop(ID($logic_not), x_and_xm1, false, 1);
+					
+					if (name == "$onehot") {
+						// $onehot: (x != 0) && ((x & (x-1)) == 0)
+						auto x_nonzero = netlist.Unop(ID($reduce_bool), sig, false, 1);
+						ret = netlist.LogicAnd(x_nonzero, is_zero);
+					} else {
+						// $onehot0: (x & (x-1)) == 0
+						ret = is_zero;
+					}
+				} else if (name == "$isunknown") {
+					require(expr, call.arguments().size() == 1);
+					auto sig = (*this)(*call.arguments()[0]);
+					// In synthesis, no X/Z values, always return 0
+					ret = RTLIL::Const(0, 1);
+				} else if (name == "$countones") {
+					require(expr, call.arguments().size() == 1);
+					auto sig = (*this)(*call.arguments()[0]);
+					// PROPER IMPLEMENTATION: Count number of 1 bits using tree of adders
+					// Build a binary tree that adds up individual bits
+					int width = sig.size();
+					int result_width = 0;
+					for (int w = width; w > 0; w >>= 1) result_width++;
+					if (result_width < 1) result_width = 1;
+					
+					if (width == 1) {
+						// Single bit - just extend to result width
+						ret = sig;
+						ret.extend_u0(result_width);
+					} else {
+						// Build tree of adders
+						std::vector<RTLIL::SigSpec> current_level;
+						for (int i = 0; i < width; i++) {
+							RTLIL::SigSpec bit = sig[i];
+							bit.extend_u0(result_width);
+							current_level.push_back(bit);
+						}
+						
+						while (current_level.size() > 1) {
+							std::vector<RTLIL::SigSpec> next_level;
+							for (size_t i = 0; i + 1 < current_level.size(); i += 2) {
+								auto sum = netlist.Biop(ID($add), current_level[i], current_level[i+1], false, false, result_width);
+								if (sum.size() < result_width)
+									sum.extend_u0(result_width);
+								next_level.push_back(sum);
+							}
+							if (current_level.size() % 2 == 1) {
+								next_level.push_back(current_level.back());
+							}
+							current_level = std::move(next_level);
+						}
+						ret = current_level[0];
+					}
+					// Extend to expected type width (usually int = 32 bits)
+					ret.extend_u0((int)expr.type->getBitstreamWidth());
+				} else {
+					// Unknown system function
+					require(expr, false);
+				}
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
 				if (procedural) {
@@ -2139,14 +2347,29 @@ public:
 		}
 	}
 
-	void handle_initial_process(const ast::ProceduralBlockSymbol &, const ast::Statement &body) {
+	void handle_initial_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body) {
 		if (settings.ignore_initial.value_or(false))
 			return;
 
-		auto result = body.visit(initial_eval);
-		if (result != ast::Statement::EvalResult::Success)
-			initial_eval.context.addDiag(diag::NoteIgnoreInitial,
-										 slang::SourceLocation::NoLocation);
+		// Extract concurrent assertions (expect statements with wait) from initial blocks
+		// These should be synthesized as concurrent assertions, not evaluated as initial code
+		bool has_concurrent_assertions = false;
+		body.visit(ast::makeVisitor([&](auto&, const ast::ConcurrentAssertionStatement& stmt) {
+			has_concurrent_assertions = true;
+		}, [&](auto&, const ast::WaitStatement& stmt) {
+			has_concurrent_assertions = true;
+		}));
+
+		if (has_concurrent_assertions) {
+			// Process as procedural block to synthesize wait/expect statements
+			handle_comb_like_process(symbol, body);
+		} else {
+			// Regular initial block - try to evaluate at compile time
+			auto result = body.visit(initial_eval);
+			if (result != ast::Statement::EvalResult::Success)
+				initial_eval.context.addDiag(diag::NoteIgnoreInitial,
+											 slang::SourceLocation::NoLocation);
+		}
 	}
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
@@ -2524,12 +2747,16 @@ public:
 
 			if (sym.kind != ast::SymbolKind::Variable
 					&& sym.kind != ast::SymbolKind::Net
-					&& sym.kind != ast::SymbolKind::FormalArgument)
+					&& sym.kind != ast::SymbolKind::FormalArgument
+					&& sym.kind != ast::SymbolKind::LocalAssertionVar)
 				return;
 
 			if (sym.kind == ast::SymbolKind::Variable
 					&& sym.as<ast::VariableSymbol>().lifetime == ast::VariableLifetime::Automatic)
 				return;
+			
+			// LocalAssertionVar should be treated as static/module-level variables
+			// They're part of the SVA checker FSM state
 
 			if (sym.kind == ast::SymbolKind::Net) {
 				auto &net = sym.as<ast::NetSymbol>();
@@ -2892,9 +3119,15 @@ public:
 	}
 
 	void handle(const ast::PropertySymbol &sym) {
-		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			netlist.add_diag(diag::SVAUnsupported, sym.location);
-		}
+		// Property declarations are templates that get instantiated by assertions
+		// Don't synthesize them directly - just skip
+		(void)sym;
+	}
+	
+	void handle(const ast::SequenceSymbol &sym) {
+		// Sequence declarations are templates that get instantiated by properties/assertions
+		// Don't synthesize them directly - just skip
+		(void)sym;
 	}
 
 	void handle(const ast::Symbol &sym)

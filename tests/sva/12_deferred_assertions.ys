@@ -1,0 +1,4 @@
+# Test deferred assertions (#0 and final)
+# Expected to FAIL - deferred assertions not supported in yosys-slang
+
+read_slang 12_deferred_assertions.sv --top deferred_assertions_test

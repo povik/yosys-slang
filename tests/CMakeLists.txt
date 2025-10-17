@@ -52,8 +52,32 @@ set(ALL_TESTS
     various/timescale.ys
     various/top_attr.ys
     various/unknown_cells.ys
+    # SVA Test Suite
+    sva/01_temporal_delay.ys
+    sva/02_implication.ys
+    sva/03_sequences.ys
+    sva/04_repetition_consecutive.ys
+    sva/05_repetition_nonconsec.ys
+    sva/06_throughout_within.ys
+    sva/07_intersect_firstmatch.ys
+    sva/08_sva_functions.ys
+    sva/09_property_declarations.ys
+    sva/10_disable_iff.ys
+    sva/11_local_variables.ys
+    sva/12_deferred_assertions.ys
+    sva/13_expect_statement.ys
+    sva/14_concurrent_assertions.ys
+    sva/15_multiclock.ys
+    sva/16_complex_scenarios.ys
+    # Advanced SVA Features
+    sva/17_strong_weak.ys
+    sva/18_abort_operators.ys
+    sva/19_conditional_property.ys
+    sva/20_case_property.ys
+    sva/21_zero_length.ys
+    sva/22_sequence_methods.ys
+    sva/23_triggered_method.ys
 )
-
 foreach(test_script ${ALL_TESTS})
     set(test_fullpath ${CMAKE_CURRENT_SOURCE_DIR}/${test_script})
     get_filename_component(test_dir ${test_fullpath} DIRECTORY)

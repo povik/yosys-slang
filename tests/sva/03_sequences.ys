@@ -1,0 +1,4 @@
+# Test sequence declarations
+# Expected to FAIL - sequence declarations not supported in yosys-slang
+
+read_slang 03_sequences.sv --top sequence_test

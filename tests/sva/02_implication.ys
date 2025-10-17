@@ -1,0 +1,4 @@
+# Test implication operators (|-> and |=>)
+# Expected to FAIL - implication operators not supported in yosys-slang
+
+read_slang 02_implication.sv --top implication_test

@@ -30,6 +30,8 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     procedural.cc
     slang_frontend.cc
     slang_frontend.h
+    sva_converter.cc
+    sva_converter.h
     variables.cc
     variables.h
     ${CMAKE_CURRENT_BINARY_DIR}/version.h

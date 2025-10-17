@@ -1,0 +1,4 @@
+# Test intersect and first_match operators
+# Expected to FAIL - intersect and first_match not supported in yosys-slang
+
+read_slang 07_intersect_firstmatch.sv --top intersect_firstmatch_test
