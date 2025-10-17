@@ -1306,7 +1306,7 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 	case ast::ExpressionKind::MemberAccess:
 		{
 			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			return extract_struct_field(lhs(acc.value()), acc);
+			ret = extract_struct_field(lhs(acc.value()), acc);
 		}
 		break;
 	case ast::ExpressionKind::Conversion:
@@ -1333,7 +1333,6 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 		ret = Variable::dummy(expr.type->getBitstreamWidth());
 	}
 
-	log_assert(expr.type->isFixedSize());
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
 }
@@ -1838,7 +1837,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::MemberAccess:
 		{
 			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			return extract_struct_field((*this)(acc.value()), acc);
+			ret = extract_struct_field((*this)(acc.value()), acc);
 		}
 		break;
 	case ast::ExpressionKind::Call:
@@ -3547,14 +3546,16 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 		});
 	}
 
-	auto &disable_inst_caching = driver.options.compilationFlags[ast::CompilationFlags::DisableInstanceCaching];
+	auto &flags = driver.options.compilationFlags;
+
+	auto &disable_inst_caching = flags[ast::CompilationFlags::DisableInstanceCaching];
 	if (!disable_inst_caching.has_value()) {
 		disable_inst_caching = true;
 	}
 	settings.disable_instance_caching = disable_inst_caching.value();
 
 	// we cannot handle references into unknown modules
-	driver.options.compilationFlags[ast::CompilationFlags::DisallowRefsToUnknownInstances] = true;
+	flags[ast::CompilationFlags::DisallowRefsToUnknownInstances] = true;
 
 	// revisit slang#1326 in case of issues with this override
 	auto &time_scale = driver.options.timeScale;
@@ -3569,7 +3570,16 @@ std::vector<slang::DiagCode> forbidden_diag_demotions = {
 	slang::diag::UnknownSystemName
 };
 
-void catch_forbidden_diag_demotions(slang::DiagnosticEngine &engine) {
+void catch_forbidden_options(slang::driver::Driver &driver) {
+	slang::DiagnosticEngine &engine = driver.diagEngine;
+
+	auto &flags = driver.options.compilationFlags;
+	if (flags[ast::CompilationFlags::AllowTopLevelIfacePorts]) {
+		slang::Diagnostic diag(diag::NoAllowTopLevelIfacePorts, slang::SourceLocation::NoLocation);
+		engine.issue(diag);
+		flags[ast::CompilationFlags::AllowTopLevelIfacePorts] = false;
+	}
+
 	// FIXME: this doesn't catch demotions which are location specific via pragmas
 	for (auto code : forbidden_diag_demotions) {
 		if (engine.getSeverity(code, slang::SourceLocation::NoLocation) !=
@@ -3697,7 +3707,7 @@ struct SlangFrontend : Frontend {
 		fixup_options(settings, driver);
 		if (!driver.processOptions())
 			log_cmd_error("Bad command\n");
-		catch_forbidden_diag_demotions(driver.diagEngine);
+		catch_forbidden_options(driver);
 
 		try {
 			if (!driver.parseAllSources())

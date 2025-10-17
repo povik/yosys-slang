@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y git build-essential pkg-config cmake ccache gperf bison flex libreadline-dev gawk tcl-dev libffi-dev graphviz xdot python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev
+          sudo apt-get install -y git build-essential pkg-config cmake ccache gperf bison flex libreadline-dev gawk tcl-dev libffi-dev graphviz xdot python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev libfl-dev
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -130,7 +130,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential libfmt-dev
-          sudo apt-get install -y gperf build-essential bison flex libreadline-dev gawk tcl-dev libffi-dev git graphviz xdot pkg-config python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev
+          sudo apt-get install -y gperf build-essential bison flex libreadline-dev gawk tcl-dev libffi-dev git graphviz xdot pkg-config python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev libfl-dev
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -188,7 +188,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential libfmt-dev
-          sudo apt-get install -y gperf build-essential bison flex libreadline-dev gawk tcl-dev libffi-dev git graphviz xdot pkg-config python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev
+          sudo apt-get install -y gperf build-essential bison flex libreadline-dev gawk tcl-dev libffi-dev git graphviz xdot pkg-config python3 libboost-system-dev libboost-python-dev libboost-filesystem-dev zlib1g-dev libfl-dev
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0

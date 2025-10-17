@@ -52,6 +52,7 @@ set(ALL_TESTS
     various/timescale.ys
     various/top_attr.ys
     various/unknown_cells.ys
+    various/toplevel_intf_unsupported.ys
     # SVA Test Suite
     sva/01_temporal_delay.ys
     sva/02_implication.ys
@@ -77,6 +78,7 @@ set(ALL_TESTS
     sva/21_zero_length.ys
     sva/22_sequence_methods.ys
     sva/23_triggered_method.ys
+
 )
 foreach(test_script ${ALL_TESTS})
     set(test_fullpath ${CMAKE_CURRENT_SOURCE_DIR}/${test_script})

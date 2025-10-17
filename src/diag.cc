@@ -107,6 +107,7 @@ namespace diag {
 	DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1054);
 	DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1055);
 	DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1056);
+	DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1057);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -222,7 +223,7 @@ namespace diag {
 		engine.setMessage(SVAUnsupported, "SVA unsupported (ignore all assertions with '--ignore-assertions')");
 		engine.setSeverity(SVAUnsupported, DiagnosticSeverity::Error);
 
-		engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported");
+		engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported with yosys-slang");
 		engine.setSeverity(ForbiddenDemotion, DiagnosticSeverity::Error);
 
 		engine.setMessage(UdpUnsupported, "user-defined primitives unsupported");
@@ -251,6 +252,9 @@ namespace diag {
 
 		engine.setMessage(NetTypeUnsupported, "net type '{}' unsupported");
 		engine.setSeverity(NetTypeUnsupported, DiagnosticSeverity::Error);
+
+		engine.setMessage(NoAllowTopLevelIfacePorts, "'--allow-toplevel-iface-ports' is unsupported with yosys-slang");
+		engine.setSeverity(NoAllowTopLevelIfacePorts, DiagnosticSeverity::Error);
 	}
 };
 };
