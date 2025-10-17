@@ -52,6 +52,7 @@ set(ALL_TESTS
     various/timescale.ys
     various/top_attr.ys
     various/unknown_cells.ys
+    various/toplevel_intf_unsupported.ys
 )
 
 foreach(test_script ${ALL_TESTS})

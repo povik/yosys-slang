@@ -63,6 +63,7 @@ extern slang::DiagCode BlockingAssignmentAfterNonblocking;
 extern slang::DiagCode NonblockingAssignmentAfterBlocking;
 extern slang::DiagCode NotePreviousAssignment;
 extern slang::DiagCode NetTypeUnsupported;
+extern slang::DiagCode NoAllowTopLevelIfacePorts;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 };
