@@ -61,6 +61,7 @@ private:
     RTLIL::SigSpec clk;
     RTLIL::SigSpec rst;
     bool has_reset = false;
+    bool uses_past = false;  // Track if assertion uses $past/$changed/$stable
 
     // Counter for generating unique names
     int counter = 0;
@@ -74,6 +75,9 @@ private:
 
     // History registers for SVA functions ($past, $rose, $fell)
     Yosys::dict<RTLIL::SigSpec, RTLIL::Wire*> history_regs;
+
+    // Init done signal for each clock (to prevent checking before $past is valid)
+    Yosys::dict<RTLIL::SigSpec, RTLIL::Wire*> init_done_regs;
     
     // Condition equality cache (like Verific's cond_eq_cache)
     Yosys::dict<std::pair<RTLIL::SigSpec, RTLIL::SigSpec>, RTLIL::SigBit> cond_eq_cache;
@@ -120,11 +124,14 @@ private:
     RTLIL::SigBit eval_fell(const ast::CallExpression &call);
     RTLIL::SigBit eval_stable(const ast::CallExpression &call);
     RTLIL::SigBit eval_changed(const ast::CallExpression &call);
-    RTLIL::SigBit eval_past(const ast::CallExpression &call);
+    RTLIL::SigSpec eval_past(const ast::CallExpression &call);  // Returns SigSpec to preserve width
     RTLIL::SigSpec create_past_register(RTLIL::SigSpec sig, int depth);
 
     // Helper: create a D flip-flop with optional reset
     RTLIL::SigSpec create_dff(RTLIL::SigSpec d, RTLIL::IdString name_hint = RTLIL::IdString());
+
+    // Helper: get or create init_done signal for a clock
+    RTLIL::SigBit get_init_done(RTLIL::SigSpec clk_sig);
 
     // Helper: create counter for ranged delays/repetitions
     struct Counter {

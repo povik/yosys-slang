@@ -157,6 +157,14 @@ struct EvalContext {
 	// for testing
 	bool ignore_ast_constants = false;
 
+	// Flag to indicate we're evaluating expressions within SVA properties
+	// When true, SVA system functions ($past, $rose, etc.) should use the
+	// sva_clock instead of creating placeholder clocks
+	bool in_sva_context = false;
+	RTLIL::SigSpec sva_clock;  // Clock signal from SVA converter's clocking extraction
+	RTLIL::SigSpec sva_reset;  // Reset signal from SVA converter
+	bool sva_has_reset = false;
+
 	friend class EnterAutomaticScopeGuard;
 };
 

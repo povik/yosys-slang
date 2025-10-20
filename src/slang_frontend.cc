@@ -1856,16 +1856,29 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				auto name = call.getSubroutineName();
 				if (name == "$rose" || name == "$fell" || name == "$stable" || name == "$changed") {
 					// These are 1-cycle history functions
+					// In SVA context, these should be handled by SVA converter
+					if (in_sva_context) {
+						log_error("SVA system function %s encountered in expression evaluation while in SVA context.\n"
+						         "This should be handled by the SVA converter, not the general expression evaluator.\n"
+						         "This is likely a bug in the SVA converter's eval_expr method.\n",
+						         std::string(name).c_str());
+					}
+
 					require(expr, call.arguments().size() >= 1);
 					auto sig = (*this)(*call.arguments()[0]);
 					auto past_sig = netlist.canvas->addWire(NEW_ID, sig.size());
-					// For SVA functions, clock comes from the assertion's clocking event
-					// We'll create a placeholder wire here; the actual clock is bound during SVA synthesis
+
+					// Get clock wire
 					auto clk_wire = netlist.canvas->wire(ID(\\clk));
-					if (!clk_wire)
-						clk_wire = netlist.canvas->addWire(ID(\\clk), 1);
+					if (!clk_wire) {
+						clk_wire = netlist.canvas->wire(ID(clock));
+					}
+					if (!clk_wire) {
+						log_error("Cannot evaluate %s without a clock signal.\n", std::string(name).c_str());
+					}
+
 					netlist.canvas->addDff(NEW_ID, clk_wire, sig, past_sig);
-					
+
 					if (name == "$rose") {
 						ret = netlist.LogicAnd(sig, netlist.LogicNot(past_sig));
 					} else if (name == "$fell") {
@@ -1877,6 +1890,13 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					}
 				} else if (name == "$past") {
 					// $past can have 1, 2, or 3 arguments: expr, [depth], [enable]
+					// In SVA context, this should be handled by SVA converter
+					if (in_sva_context) {
+						log_error("SVA system function $past encountered in expression evaluation while in SVA context.\n"
+						         "This should be handled by the SVA converter, not the general expression evaluator.\n"
+						         "This is likely a bug in the SVA converter's eval_expr method.\n");
+					}
+
 					require(expr, call.arguments().size() >= 1 && call.arguments().size() <= 3);
 					auto sig = (*this)(*call.arguments()[0]);
 					int depth = 1;
@@ -1887,12 +1907,16 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 							depth = (int)cv.integer().as<int>().value();
 						}
 					}
-					
-					// Get or create clock wire
+
+					// Get clock wire
 					auto clk_wire = netlist.canvas->wire(ID(\\clk));
-					if (!clk_wire)
-						clk_wire = netlist.canvas->addWire(ID(\\clk), 1);
-					
+					if (!clk_wire) {
+						clk_wire = netlist.canvas->wire(ID(clock));
+					}
+					if (!clk_wire) {
+						log_error("Cannot evaluate $past without a clock signal.\n");
+					}
+
 					// Create shift register for depth
 					RTLIL::SigSpec current = sig;
 					for (int i = 0; i < depth; i++) {
@@ -1971,6 +1995,46 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					}
 					// Extend to expected type width (usually int = 32 bits)
 					ret.extend_u0((int)expr.type->getBitstreamWidth());
+				} else if (name == "$anyconst" || name == "$anyseq" || name == "$allconst" || name == "$allseq") {
+					// Formal verification system functions
+					// These declare arbitrary/universal values for formal proofs
+					// Create a cell (like Verific does) not just a wire with attributes
+					int width = (int)expr.type->getBitstreamWidth();
+					auto wire = netlist.canvas->addWire(NEW_ID, width);
+					auto src = format_src(expr);
+					if (!src.empty())
+						wire->attributes[ID::src] = src;
+					
+					// Create the formal cell
+					RTLIL::IdString cell_type;
+					if (name == "$anyconst")
+						cell_type = ID($anyconst);
+					else if (name == "$anyseq")
+						cell_type = ID($anyseq);
+					else if (name == "$allconst")
+						cell_type = ID($allconst);
+					else // $allseq
+						cell_type = ID($allseq);
+					
+					auto cell = netlist.canvas->addCell(NEW_ID, cell_type);
+					cell->setPort(ID::Y, wire);
+					cell->parameters[ID::WIDTH] = width;
+					if (!src.empty())
+						cell->attributes[ID::src] = src;
+					
+					ret = wire;
+				} else if (name == "$initstate") {
+					// $initstate returns 1 in the initial state, 0 afterwards
+					// This is used for formal verification initial state handling
+					auto wire = netlist.canvas->addWire(NEW_ID, 1);
+					auto src = format_src(expr);
+					if (!src.empty())
+						wire->attributes[ID::src] = src;
+					auto initstate_cell = netlist.canvas->addCell(NEW_ID, ID($initstate));
+					initstate_cell->setPort(ID::Y, wire);
+					if (!src.empty())
+						initstate_cell->attributes[ID::src] = src;
+					ret = wire;
 				} else {
 					// Unknown system function
 					require(expr, false);
@@ -2350,17 +2414,25 @@ public:
 		if (settings.ignore_initial.value_or(false))
 			return;
 
-		// Extract concurrent assertions (expect statements with wait) from initial blocks
-		// These should be synthesized as concurrent assertions, not evaluated as initial code
-		bool has_concurrent_assertions = false;
-		body.visit(ast::makeVisitor([&](auto&, const ast::ConcurrentAssertionStatement& stmt) {
-			has_concurrent_assertions = true;
-		}, [&](auto&, const ast::WaitStatement& stmt) {
-			has_concurrent_assertions = true;
-		}));
+		// Check if this initial block contains formal verification statements
+		// These should be synthesized as formal primitives, not evaluated as initial code
+		bool has_formal_statements = false;
+		body.visit(ast::makeVisitor(
+			[&](auto&, const ast::ConcurrentAssertionStatement& stmt) {
+				has_formal_statements = true;
+			}, 
+			[&](auto&, const ast::ImmediateAssertionStatement& stmt) {
+				// For formal verification, immediate assertions in initial blocks
+				// should be synthesized as $assume/$assert primitives
+				has_formal_statements = true;
+			},
+			[&](auto&, const ast::WaitStatement& stmt) {
+				has_formal_statements = true;
+			}
+		));
 
-		if (has_concurrent_assertions) {
-			// Process as procedural block to synthesize wait/expect statements
+		if (has_formal_statements) {
+			// Process as procedural block to synthesize formal statements
 			handle_comb_like_process(symbol, body);
 		} else {
 			// Regular initial block - try to evaluate at compile time
@@ -2933,8 +3005,10 @@ public:
 	}
 
 	void handle(const ast::ClockingBlockSymbol& symbol) {
-		if (!netlist.settings.ignore_timing.value_or(false))
-			netlist.add_diag(diag::GenericTimingUnsyn, symbol.location);
+		// Clocking blocks themselves don't generate hardware - they're just
+		// declarations that define default clocking for assertions
+		// We don't need to emit any error for them
+		(void)symbol;
 	}
 
 	void handle(const ast::Type&) {}
@@ -3592,6 +3666,52 @@ void catch_forbidden_options(slang::driver::Driver &driver) {
 	}
 }
 
+class FormalVerificationFunc : public ast::SystemSubroutine {
+private:
+	int defaultWidth;
+public:
+	FormalVerificationFunc(const char* name, int width = 32) 
+		: ast::SystemSubroutine(name, ast::SubroutineKind::Function), defaultWidth(width) {}
+
+	const ast::Type& checkArguments(const ast::ASTContext& context, const Args& args,
+									slang::SourceRange range, const ast::Expression*) const final {
+		auto& comp = context.getCompilation();
+		// These functions take 0 arguments and return a value of specified or default width
+		if (!checkArgCount(context, false, args, range, 0, 0))
+			return comp.getErrorType();
+		// Return logic type of default width
+		return comp.getType(defaultWidth, ast::IntegralFlags::Unsigned);
+	}
+
+	slang::ConstantValue eval(ast::EvalContext& context, const Args&,
+							  slang::SourceRange range,
+							  const ast::CallExpression::SystemCallInfo&) const final {
+		// These are not constant - they're formal verification constructs
+		notConst(context, range);
+		return nullptr;
+	}
+};
+
+class InitStateFunc : public ast::SystemSubroutine {
+public:
+	InitStateFunc() : ast::SystemSubroutine("$initstate", ast::SubroutineKind::Function) {}
+
+	const ast::Type& checkArguments(const ast::ASTContext& context, const Args& args,
+									slang::SourceRange range, const ast::Expression*) const final {
+		auto& comp = context.getCompilation();
+		if (!checkArgCount(context, false, args, range, 0, 0))
+			return comp.getErrorType();
+		return comp.getLogicType();
+	}
+
+	slang::ConstantValue eval(ast::EvalContext& context, const Args&,
+							  slang::SourceRange range,
+							  const ast::CallExpression::SystemCallInfo&) const final {
+		notConst(context, range);
+		return nullptr;
+	}
+};
+
 struct SlangFrontend : Frontend {
 	SlangFrontend() : Frontend("slang", "read SystemVerilog (slang)") {}
 
@@ -3714,6 +3834,13 @@ struct SlangFrontend : Frontend {
 				log_error("Parsing failed\n");
 
 			auto compilation = driver.createCompilation();
+			
+			// Register formal verification system functions
+			compilation->addSystemSubroutine(std::make_shared<FormalVerificationFunc>("$anyconst"));
+			compilation->addSystemSubroutine(std::make_shared<FormalVerificationFunc>("$anyseq"));
+			compilation->addSystemSubroutine(std::make_shared<FormalVerificationFunc>("$allconst"));
+			compilation->addSystemSubroutine(std::make_shared<FormalVerificationFunc>("$allseq"));
+			compilation->addSystemSubroutine(std::make_shared<InitStateFunc>());
 
 			if (settings.extern_modules.value_or(true))
 				import_blackboxes_from_rtlil(driver.sourceManager, *compilation, design);
