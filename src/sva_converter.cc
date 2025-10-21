@@ -277,9 +277,6 @@ void SVAConverter::convert(const ast::ConcurrentAssertionStatement &stmt) {
     // Generate unique name for this assertion
     assertion_name = gen_id("assertion");
 
-    Yosys::log("SVA: ========================================\n");
-    Yosys::log("SVA: Processing assertion in module %s\n", netlist.canvas->name.c_str());
-    Yosys::log("SVA:   propertySpec kind=%d\n", (int)stmt.propertySpec.kind);
     log_debug("SVA: Processing assertion in module %s, propertySpec kind=%d\n",
               netlist.canvas->name.c_str(), (int)stmt.propertySpec.kind);
 
@@ -295,14 +292,12 @@ void SVAConverter::convert(const ast::ConcurrentAssertionStatement &stmt) {
     // Initialize FSM
     reset_fsm();
 
-    // EXACTLY COPY VERIFIC's two-FSM approach (verificsva.cc:1623-1720)
     using AK = ast::AssertionExprKind;
     if (stmt.propertySpec.kind == AK::Binary) {
         auto &bin = stmt.propertySpec.as<ast::BinaryAssertionExpr>();
         using Op = ast::BinaryAssertionOperator;
 
         if (bin.op == Op::OverlappedImplication || bin.op == Op::NonOverlappedImplication) {
-            // Two-FSM approach for implications (Verific lines 1633-1693)
             int node;
 
             // ANTECEDENT FSM
@@ -323,7 +318,7 @@ void SVAConverter::convert(const ast::ConcurrentAssertionStatement &stmt) {
 
             // Fall through to materialize consequent FSM
         } else {
-            // Not an implication, parse normally (Verific lines 1708-1713)
+            // Not an implication, parse normally 
             int node = parse_sequence(stmt.propertySpec, createStartNode());
             createLink(node, acceptNode);
         }
@@ -348,18 +343,15 @@ void SVAConverter::convert(const ast::ConcurrentAssertionStatement &stmt) {
         reject_sig = RTLIL::S0;
     }
 
-    // Enable and assertion signals (Verific lines 1824-1825)
-    // NOTE: Not adding final DFF stage - Verific only adds it conditionally based on clocking.body_net
+    // Enable and assertion signals
+    // NOTE: Not adding final DFF stage - only adds it conditionally based on clocking.body_net
     // For now, use combinational signals directly to match test behavior
     RTLIL::SigBit sig_a = netlist.canvas->Not(NEW_ID, reject_sig);
     RTLIL::SigBit sig_en = netlist.canvas->Or(NEW_ID, accept_sig, reject_sig);
 
-    log("SVA: Assertion %s: sig_a=%s (reject=%s), sig_en=%s\n",
-        log_id(assertion_name), log_signal(sig_a), log_signal(reject_sig), log_signal(sig_en));
-
     RTLIL::SigBit enable_sig = sig_en;
 
-    // Create $check cell (Verific lines 1845-1847)
+    // Create $check cell
     std::string flavor;
     RTLIL::Cell *cell = nullptr;
 
@@ -376,7 +368,6 @@ void SVAConverter::convert(const ast::ConcurrentAssertionStatement &stmt) {
             // This is critical for cutpoint abstraction where FSM-based assumes
             // might look unreachable but are needed as constraints
             cell->attributes[RTLIL::ID::keep] = RTLIL::Const(1);
-            log("SVA: Marked assume cell %s with keep attribute\n", log_id(assertion_name));
             break;
 
         case ast::AssertionKind::CoverProperty:
@@ -400,8 +391,6 @@ void SVAConverter::convert(const ast::ConcurrentAssertionStatement &stmt) {
 // ============================================================================
 
 void SVAConverter::extract_clocking(const ast::AssertionExpr &expr) {
-    log("SVA: extract_clocking for kind %d in module %s\n", (int)expr.kind, log_id(netlist.canvas->name));
-
     // Default clock and reset
     clk = RTLIL::SigSpec();
     rst = RTLIL::SigSpec();
@@ -418,7 +407,6 @@ void SVAConverter::extract_clocking(const ast::AssertionExpr &expr) {
         // Extract clock from timing control
         if (clocking_expr.clocking.kind == ast::TimingControlKind::SignalEvent) {
             auto &event = clocking_expr.clocking.as<ast::SignalEventControl>();
-            log("SVA: Extracting explicit clock signal\n");
             clk = eval_expr(event.expr);
         }
 
@@ -438,16 +426,13 @@ void SVAConverter::extract_clocking(const ast::AssertionExpr &expr) {
 
     // If no explicit clocking, check for default clocking block or use module's clock
     if (!explicit_clocking) {
-        log("SVA: No explicit clocking, checking for default clocking or module clock\n");
         if (auto defaultClocking = netlist.compilation.getDefaultClocking(static_cast<const ast::Scope&>(netlist.realm))) {
-            log("SVA: Found default clocking block in realm\n");
             auto& clockingBlock = defaultClocking->as<ast::ClockingBlockSymbol>();
             auto& event = clockingBlock.getEvent();
-            
+
             if (event.kind == ast::TimingControlKind::SignalEvent) {
                 auto& signalEvent = event.as<ast::SignalEventControl>();
                 clk = eval_expr(signalEvent.expr);
-                log("SVA: Using clock from default clocking block\n");
             }
         }
         
@@ -467,7 +452,6 @@ void SVAConverter::extract_clocking(const ast::AssertionExpr &expr) {
             // Use the found clock wire if it exists
             if (clock_wire) {
                 clk = clock_wire;
-                log("SVA: Using module's clock input '%s'\n", log_id(clock_wire->name));
             } else {
                 log_warning("SVA: No clock found - assertion will not have proper clocking!\n");
             }
@@ -477,18 +461,15 @@ void SVAConverter::extract_clocking(const ast::AssertionExpr &expr) {
     // If no explicit disable iff, check for default disable iff
     if (!explicit_disable_iff) {
         if (auto defaultDisable = netlist.compilation.getDefaultDisable(static_cast<const ast::Scope&>(netlist.realm))) {
-            log("SVA: Found default disable iff from scope\n");
             //  Try to find the reset signal in the module (similar to clock handling)
             RTLIL::Wire *reset_wire = netlist.canvas->wire(ID(reset));
             if (reset_wire) {
                 rst = reset_wire;
                 has_reset = true;
-                log("SVA: Using module's reset input '%s' for default disable iff\n", log_id(reset_wire->name));
             } else {
                 // Fallback to evaluating the expression
                 rst = eval_expr(*defaultDisable);
                 has_reset = true;
-                log("SVA: Using evaluated default disable iff expression\n");
             }
         } else {
             // If slang doesn't provide default disable iff (e.g., due to bind),
@@ -497,7 +478,6 @@ void SVAConverter::extract_clocking(const ast::AssertionExpr &expr) {
             if (reset_wire && reset_wire->port_input) {
                 rst = reset_wire;
                 has_reset = true;
-                log("SVA: Using module's reset input '%s' as default disable iff\n", log_id(reset_wire->name));
             }
         }
     }
@@ -608,7 +588,7 @@ RTLIL::SigSpec SVAConverter::create_past_register(RTLIL::SigSpec sig, int depth)
         }
 
         // Always use simple DFF for $past, no reset
-        // Verific uses clocking.addDff() which creates simple $dff with init attribute
+        // verificsva.cc uses clocking.addDff() which creates simple $dff with init attribute
         auto cell = netlist.canvas->addCell(gen_id("past_dff"), ID($dff));
         cell->setParam(ID::WIDTH, sig.size());
         cell->setParam(ID::CLK_POLARITY, 1);
@@ -631,8 +611,6 @@ RTLIL::SigSpec SVAConverter::eval_past(const ast::CallExpression &call) {
     RTLIL::SigSpec sig = eval_expr(*call.arguments()[0]);
     if (sig.empty()) return RTLIL::SigSpec();
 
-    Yosys::log("SVA: eval_past() called, input width=%d\n", sig.size());
-    
     // Get depth argument (default is 1)
     int depth = 1;
     if (call.arguments().size() > 1) {
@@ -657,7 +635,6 @@ RTLIL::SigSpec SVAConverter::eval_past(const ast::CallExpression &call) {
     // Return the full past value, NOT a reduced boolean
     // $past() preserves the full width of its argument
     RTLIL::SigSpec past_sig = create_past_register(sig, depth);
-    Yosys::log("SVA: eval_past() returning width=%d signal\n", past_sig.size());
     return past_sig;
 }
 
@@ -830,11 +807,10 @@ int SVAConverter::parse_sequence(const ast::AssertionExpr &expr, int start_node)
                             node = next_node;
                         }
                     } else if (!elem.delay.max.has_value()) {
-                        // Unbounded delay: ##[M:$] - create self-loop, exactly like Verific
+                        // Unbounded delay: ##[M:$] - self loop
                         // After minimum delay, add self-loop edge on current state
                         // The NFSM-to-DFSM determinization will handle the non-determinism
                         createEdge(node, node);
-                        // Continue with node unchanged - Verific does this too
                     }
                 }
                 
@@ -850,20 +826,13 @@ int SVAConverter::parse_sequence(const ast::AssertionExpr &expr, int start_node)
             
             if (bin.op == Op::OverlappedImplication || bin.op == Op::NonOverlappedImplication) {
                 // Antecedent -> Consequent
-                Yosys::log("SVA: Processing %s implication\n",
-                          bin.op == Op::NonOverlappedImplication ? "non-overlapped (|=>)" : "overlapped (|->)");
-                Yosys::log("SVA:   Antecedent at node %d\n", start_node);
                 int node = parse_sequence(bin.left, start_node);
-                Yosys::log("SVA:   Antecedent ends at node %d\n", node);
                 if (bin.op == Op::NonOverlappedImplication) {
                     int next_node = createNode();
                     createEdge(node, next_node);
-                    Yosys::log("SVA:   Non-overlapped: added delay edge from %d to %d\n", node, next_node);
                     node = next_node;
                 }
-                Yosys::log("SVA:   Consequent starts at node %d\n", node);
                 int result = parse_sequence(bin.right, node);
-                Yosys::log("SVA:   Consequent ends at node %d\n", result);
                 return result;
             }
             
@@ -1293,8 +1262,7 @@ int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_n
     // Check if this is an assertion instance expression (named property/sequence reference)
     if (expr.expr.kind == EK::AssertionInstance) {
         auto &aie = expr.expr.as<ast::AssertionInstanceExpression>();
-        log("SVA: Expanding assertion instance: %s\n", std::string(aie.symbol.name).c_str());
-        
+
         // Create wires for all local assertion variables in this property/sequence
         for (auto *local_var : aie.localVars) {
             RTLIL::IdString wire_id = netlist.id(*local_var);
@@ -1331,9 +1299,9 @@ int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_n
         
         if (rep.kind == ast::SequenceRepetition::Consecutive) {
             // [*N]: consecutive repetition
-            // Match Verific's parse_consecutive_repeat logic (verificsva.cc:1168-1241)
+            // Match yosys/src/frontends/verificsva.cc's parse_consecutive_repeat logic
 
-            // For [*0] or [*0:N], increment min_count to 1 (Verific line 1186-1190)
+            // For [*0] or [*0:N], increment min_count to 1 
             // The zero-length case is handled by add_pre_delay/add_post_delay in Verific,
             // but for simplicity we handle it with an epsilon link
             bool has_zero_min = (min_count == 0);
@@ -1341,7 +1309,7 @@ int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_n
                 min_count = 1;
             }
 
-            // Create initial node (Verific line 1192-1193)
+            // Create initial node
             node = createNode();
             createLink(start_node, node);
 
@@ -1350,10 +1318,10 @@ int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_n
                 // We'll create a link from start to the final node later
             }
 
-            // Track previous node for creating back edges (Verific line 1200)
+            // Track previous node for creating back edges
             int prev_node = -1;
 
-            // Create minimum required repetitions (Verific lines 1203-1210)
+            // Create minimum required repetitions
             for (int i = 0; i < min_count; i++) {
                 int next_node = createNode();
                 createEdge(node, next_node, cond_bit);
@@ -1361,14 +1329,14 @@ int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_n
                 node = next_node;
             }
 
-            // Handle unbounded [*] or [*M:$] (Verific lines 1212-1216)
+            // Handle unbounded [*] or [*M:$]
             bool is_unbounded = (max_count == 0); // In slang, 0 means unbounded
             if (is_unbounded) {
-                // Create back edge to form a loop (Verific line 1215)
+                // Create back edge to form a loop
                 log_assert(prev_node >= 0);
                 createEdge(node, prev_node, cond_bit);
             } else if (max_count > min_count) {
-                // Handle bounded ranged repetition [*M:N] (Verific lines 1219-1229)
+                // Handle bounded ranged repetition [*M:N]
                 for (int i = min_count; i < max_count; i++) {
                     int next_node = createNode();
                     createEdge(node, next_node, cond_bit);
@@ -1379,7 +1347,7 @@ int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_n
                 }
             }
 
-            // For zero-min case, allow skipping directly to the end (Verific line 1238)
+            // For zero-min case, allow skipping directly to the end
             if (has_zero_min) {
                 createLink(start_node, node);
             }
@@ -1420,7 +1388,7 @@ int SVAConverter::parse_simple(const ast::SimpleAssertionExpr &expr, int start_n
 }
 
 // ============================================================================
-// NFSM/UFSM/DFSM Architecture Implementation (Verific-style)
+// NFSM/UFSM/DFSM Architecture Implementation
 // ============================================================================
 
 void SVAConverter::reset_fsm()
