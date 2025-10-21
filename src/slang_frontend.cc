@@ -2373,11 +2373,8 @@ public:
 								}
 
 								// Set init attribute on the output wire
-								if (q_sig.is_wire()) {
+								if (q_sig.is_wire())
 									q_sig.as_wire()->attributes[ID::init] = init_const;
-									log("INIT_DEBUG: Set init attribute on DFF output %s = %s\n",
-									    log_id(q_sig.as_wire()->name), Yosys::log_const(init_const));
-								}
 							}
 						}
 					}
@@ -2436,8 +2433,6 @@ public:
 	}
 
 	void handle_initial_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body) {
-		log("INIT_BLOCK_DEBUG: Processing initial block, ignore_initial=%d\n",
-		    settings.ignore_initial.value_or(false));
 		if (settings.ignore_initial.value_or(false))
 			return;
 
@@ -2458,16 +2453,12 @@ public:
 			}
 		));
 
-		log("INIT_BLOCK_DEBUG: has_formal_statements=%d\n", has_formal_statements);
 		if (has_formal_statements) {
 			// Process as procedural block to synthesize formal statements
 			handle_comb_like_process(symbol, body);
 		} else {
 			// Regular initial block - try to evaluate at compile time
-			log("INIT_BLOCK_DEBUG: Evaluating initial block...\n");
 			auto result = body.visit(initial_eval);
-			log("INIT_BLOCK_DEBUG: Initial block evaluation result: %d (Success=%d)\n",
-			    (int)result, (int)ast::Statement::EvalResult::Success);
 			if (result != ast::Statement::EvalResult::Success)
 				initial_eval.context.addDiag(diag::NoteIgnoreInitial,
 											 slang::SourceLocation::NoLocation);
@@ -2476,8 +2467,6 @@ public:
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
 	{
-		log("PROCEDURAL_BLOCK_DEBUG: Found procedural block, kind=%d (Initial=%d)\n",
-		    (int)symbol.procedureKind, (int)ast::ProceduralBlockKind::Initial);
 		interpret(symbol);
 	}
 
@@ -2933,11 +2922,8 @@ public:
 			if (sym.internalSymbol && ast::VariableSymbol::isKind(sym.internalSymbol->kind)) {
 				const ast::VariableSymbol* var_sym = &sym.internalSymbol->as<ast::VariableSymbol>();
 				if (sym.hasInitializer() && var_sym->lifetime == ast::VariableLifetime::Static) {
-					log("INIT_PORT_DEBUG: Port %s has initializer, evaluating...\n", std::string(sym.name).c_str());
 					auto initval = sym.getInitializer()->eval(initial_eval.context);
 					if (initval && !initval.bad()) {
-						log("INIT_PORT_DEBUG: Port %s initializer value: %s\n",
-						    std::string(sym.name).c_str(), Yosys::log_const(convert_const(initval)));
 						// Create storage for the internal variable symbol
 						initial_eval.context.createLocal(var_sym, initval);
 					}
@@ -2945,22 +2931,16 @@ public:
 			}
 		}, [&](auto&, const ast::VariableSymbol &sym) {
 			// Check if storage was already created (e.g., by a port initializer)
-			if (initial_eval.context.findLocal(&sym)) {
-				log("INIT_VAR_DEBUG: Variable %s already has storage, skipping\n", std::string(sym.name).c_str());
+			if (initial_eval.context.findLocal(&sym))
 				return;
-			}
+
 			slang::ConstantValue initval = nullptr;
-			log("INIT_VAR_DEBUG: Variable %s, hasInitializer=%d, lifetime=%d\n",
-			    std::string(sym.name).c_str(), (sym.getInitializer() != nullptr), (int)sym.lifetime);
 			if (sym.getInitializer() && sym.lifetime == ast::VariableLifetime::Static)
 				initval = sym.getInitializer()->eval(initial_eval.context);
 			// Also check for type's default value for variables without explicit initializers
 			if (!initval && sym.lifetime == ast::VariableLifetime::Static)
 				initval = sym.getType().getDefaultValue();
 			initial_eval.context.createLocal(&sym, initval);
-			if (initval && !initval.bad())
-				log("INIT_VAR_DEBUG: Initialized %s with value %s\n",
-				    std::string(sym.name).c_str(), Yosys::log_const(convert_const(initval)));
 		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
 			if (netlist.should_dissolve(sym))
 				visitor.visitDefault(sym);
@@ -2974,16 +2954,11 @@ public:
 
 	void transfer_var_init(const ast::InstanceBodySymbol &body)
 	{
-		log("INIT_TRANSFER_DEBUG: Starting transfer_var_init\n");
 		body.visit(ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
-			log("INIT_TRANSFER_DEBUG: Checking variable %s, lifetime=%d, isFixedSize=%d\n",
-			    std::string(sym.name).c_str(), (int)sym.lifetime, sym.getType().isFixedSize());
 			if (sym.getType().isFixedSize() && sym.lifetime == ast::VariableLifetime::Static) {
 				auto storage = initial_eval.context.findLocal(&sym);
 				log_assert(storage);
 				auto const_ = convert_const(*storage);
-				log("INIT_TRANSFER_DEBUG: Variable %s has storage, const_=%s, is_fully_undef=%d\n",
-				    std::string(sym.name).c_str(), Yosys::log_const(const_), const_.is_fully_undef());
 				if (!const_.is_fully_undef()) {
 					if (netlist.is_inferred_memory(sym)) {
 						RTLIL::IdString id = netlist.id(sym);
@@ -3000,13 +2975,10 @@ public:
 						bool little_endian = sym.getType().getFixedRange().isLittleEndian();
 						meminit->setPort(ID::DATA, little_endian ? const_ : reverse_data(const_, m->width));
 						meminit->setPort(ID::EN, RTLIL::Const(RTLIL::S1, m->width));
-						log("INIT_TRANSFER_DEBUG: Set memory init for %s\n", std::string(sym.name).c_str());
 					} else {
 						auto wire = netlist.wire(sym);
 						log_assert(wire);
 						wire->attributes[RTLIL::ID::init] = const_;
-						log("INIT_TRANSFER_DEBUG: Set wire init attribute for %s = %s\n",
-						    log_id(wire->name), Yosys::log_const(const_));
 					}
 				}
 			}
@@ -3440,38 +3412,6 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
 	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
-
-	// Emit initial value attribute if the variable has an initializer
-	// This is critical for formal verification - without it, registers
-	// start at unknown values instead of their declared initial values
-	log("INIT_DEBUG: Checking wire %s for initializer, kind=%d VariableSymbol::isKind=%d\n",
-	    log_id(w->name), (int)symbol.kind, ast::VariableSymbol::isKind(symbol.kind));
-
-	if (auto initializer = symbol.getInitializer()) {
-		log("INIT_DEBUG: Wire %s HAS initializer, evaluating...\n", log_id(w->name));
-
-		// Evaluate the initializer in a constant evaluation context
-		slang::ConstantValue init_val = initializer->eval(eval.const_);
-
-		log("INIT_DEBUG: Evaluation result: valid=%d bad=%d\n",
-		    (bool)init_val, init_val.bad());
-
-		if (init_val && !init_val.bad()) {
-			// Convert slang ConstantValue to RTLIL::Const
-			RTLIL::Const init_const = convert_const(init_val);
-
-			// Set the \init attribute on the wire
-			w->attributes[ID::init] = init_const;
-
-			log("INIT_DEBUG: Added init attribute to wire %s: %s\n",
-			    log_id(w->name), Yosys::log_const(init_const));
-		} else {
-			log("INIT_DEBUG: Failed to evaluate initializer for wire %s\n", log_id(w->name));
-		}
-	} else {
-		log("INIT_DEBUG: Wire %s has NO initializer (symbol kind %d)\n",
-		    log_id(w->name), (int)symbol.kind);
-	}
 
 	return w;
 }
