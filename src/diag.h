@@ -15,6 +15,7 @@ extern slang::DiagCode SignalSensitivityAmbiguous;
 extern slang::DiagCode EdgeImplicitMixing;
 extern slang::DiagCode GenericTimingUnsyn;
 extern slang::DiagCode BothEdgesUnsupported;
+extern slang::DiagCode WaitStatementUnsupported;
 extern slang::DiagCode NoteSignalEvent;
 extern slang::DiagCode ExpectingIfElseAload;
 extern slang::DiagCode NoteDuplicateEdgeSense;

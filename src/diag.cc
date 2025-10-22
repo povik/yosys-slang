@@ -55,6 +55,7 @@ namespace diag {
 	DiagCode EdgeImplicitMixing(DiagSubsystem::Netlist, 1002);
 	DiagCode GenericTimingUnsyn(DiagSubsystem::Netlist, 1003);
 	DiagCode BothEdgesUnsupported(DiagSubsystem::Netlist, 1004);
+	DiagCode WaitStatementUnsupported(DiagSubsystem::Netlist, 1011);
 	DiagCode NoteSignalEvent(DiagSubsystem::Netlist, 1005);
 	DiagCode ExpectingIfElseAload(DiagSubsystem::Netlist, 1006);
 	DiagCode NoteDuplicateEdgeSense(DiagSubsystem::Netlist, 1007);
@@ -121,6 +122,8 @@ namespace diag {
 		engine.setMessage(EdgeImplicitMixing, "mixing of implicit and edge sensitivity");
 		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control (ignore with '--ignore-timing')");
 		engine.setMessage(BothEdgesUnsupported, "'edge' sensitivity will not be synthesized");
+engine.setMessage(WaitStatementUnsupported, "wait statement will not be synthesized");
+		engine.setSeverity(WaitStatementUnsupported, DiagnosticSeverity::Warning);
 		engine.setMessage(NoteSignalEvent, "signal event specified here");
 		engine.setSeverity(NoteSignalEvent, DiagnosticSeverity::Note);
 
