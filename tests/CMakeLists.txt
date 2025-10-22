@@ -54,6 +54,7 @@ set(ALL_TESTS
     various/unknown_cells.ys
     various/toplevel_intf_unsupported.ys
     various/wait_test.ys
+    various/expect_test.ys
 )
 
 foreach(test_script ${ALL_TESTS})

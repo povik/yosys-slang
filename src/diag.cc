@@ -96,19 +96,20 @@ namespace diag {
 	DiagCode PortCorrespondence(DiagSubsystem::Netlist, 1042);
 	DiagCode UnsynthesizableFeature(DiagSubsystem::Netlist, 1043);
 	DiagCode SVAUnsupported(DiagSubsystem::Netlist, 1044);
-	DiagCode ForbiddenDemotion(DiagSubsystem::Netlist, 1045);
-	DiagCode UdpUnsupported(DiagSubsystem::Netlist, 1046);
-	DiagCode PrimTypeUnsupported(DiagSubsystem::Netlist, 1047);
-	DiagCode ReferenceAcrossKeptHierBoundary(DiagSubsystem::Netlist, 1048);
-	DiagCode NoteModuleBlackboxBecauseAttribute(DiagSubsystem::Netlist, 1049);
-	DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1050);
-	DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1051);
-	DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1052);
-	DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1053);
-	DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1054);
-	DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1055);
-	DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1056);
-	DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1057);
+	DiagCode ExpectStatementUnsupported(DiagSubsystem::Netlist, 1045);
+	DiagCode ForbiddenDemotion(DiagSubsystem::Netlist, 1046);
+	DiagCode UdpUnsupported(DiagSubsystem::Netlist, 1047);
+	DiagCode PrimTypeUnsupported(DiagSubsystem::Netlist, 1048);
+	DiagCode ReferenceAcrossKeptHierBoundary(DiagSubsystem::Netlist, 1049);
+	DiagCode NoteModuleBlackboxBecauseAttribute(DiagSubsystem::Netlist, 1050);
+	DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1051);
+	DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1052);
+	DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1053);
+	DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1054);
+	DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1055);
+	DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1056);
+	DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1057);
+	DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1058);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -225,6 +226,9 @@ engine.setMessage(WaitStatementUnsupported, "wait statement will not be synthesi
 
 		engine.setMessage(SVAUnsupported, "SVA unsupported (ignore all assertions with '--ignore-assertions')");
 		engine.setSeverity(SVAUnsupported, DiagnosticSeverity::Error);
+
+		engine.setMessage(ExpectStatementUnsupported, "expect statement will not be synthesized");
+		engine.setSeverity(ExpectStatementUnsupported, DiagnosticSeverity::Warning);
 
 		engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported with yosys-slang");
 		engine.setSeverity(ForbiddenDemotion, DiagnosticSeverity::Error);

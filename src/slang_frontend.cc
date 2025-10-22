@@ -668,7 +668,11 @@ public:
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt) {
 		if (!netlist.settings.ignore_assertions.value_or(false)) {
+			if (stmt.assertionKind == ast::AssertionKind::Expect) {
+				netlist.add_diag(diag::ExpectStatementUnsupported, stmt.sourceRange);
+			} else {
 			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			}
 		}
 	}
 
