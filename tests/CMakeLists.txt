@@ -55,6 +55,7 @@ set(ALL_TESTS
     various/toplevel_intf_unsupported.ys
     various/wait_test.ys
     various/expect_test.ys
+    various/program_test.ys
 )
 
 foreach(test_script ${ALL_TESTS})

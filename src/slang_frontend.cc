@@ -51,6 +51,8 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"Ignore initial blocks for synthesis");
 	cmdLine.add("--ignore-assertions", ignore_assertions,
 				"Ignore assertions and formal statements in input");
+	cmdLine.add("--ignore-programs", ignore_programs,
+				"Ignore program blocks in input");
 	cmdLine.add("--unroll-limit", unroll_limit_,
 				"Set unrolling limit (default: 4000)", "<limit>");
 	// TODO: deprecate; now on by default
@@ -124,6 +126,10 @@ const RTLIL::IdString id(const std::string_view &view)
 
 static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
 {
+	if (sym.getDefinition().definitionKind == ast::DefinitionKind::Program) {
+		return RTLIL::escape_id(std::string(sym.name) + "$program");
+	}
+
 	ast_invariant(sym, sym.parentInstance && sym.parentInstance->isModule());
 	std::string instance = sym.getHierarchicalPath();
 	if (instance == sym.name)
@@ -671,7 +677,7 @@ public:
 			if (stmt.assertionKind == ast::AssertionKind::Expect) {
 				netlist.add_diag(diag::ExpectStatementUnsupported, stmt.sourceRange);
 			} else {
-			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+				netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
 			}
 		}
 	}
@@ -2234,6 +2240,13 @@ public:
 
 	void handle(const ast::InstanceSymbol &sym)
 	{
+		if (sym.getDefinition().definitionKind == ast::DefinitionKind::Program) {
+			if (netlist.settings.ignore_programs.value_or(true)) {
+				return;
+			}
+			netlist.add_diag(diag::ProgramUnsupported, sym.location);
+		}
+
 		// blackboxes get special handling no matter the hierarchy mode
 		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
@@ -3528,6 +3541,15 @@ struct SlangFrontend : Frontend {
 
 			HierarchyQueue hqueue;
 			for (auto instance : compilation->getRoot().topInstances) {
+				if (instance->getDefinition().definitionKind == ast::DefinitionKind::Program) {
+					if (settings.ignore_programs.value_or(true)) {
+						continue;
+					}
+					slang::Diagnostic program_diag(diag::ProgramUnsupported, instance->location);
+					driver.diagEngine.issue(program_diag);
+					continue;
+				}
+
 				auto ref_body = &get_instance_body(settings, *instance);
 				log_assert(ref_body->parentInstance);
 				auto [netlist, new_] = hqueue.get_or_emplace(ref_body, design, settings,

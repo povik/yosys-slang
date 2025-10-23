@@ -404,6 +404,7 @@ struct SynthesisSettings {
 	std::optional<bool> ignore_timing;
 	std::optional<bool> ignore_initial;
 	std::optional<bool> ignore_assertions;
+	std::optional<bool> ignore_programs;
 	std::optional<int> unroll_limit_;
 	std::optional<bool> extern_modules;
 	std::optional<bool> no_implicit_memories;
