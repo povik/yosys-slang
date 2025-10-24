@@ -381,8 +381,9 @@ bool NetlistContext::is_inferred_memory(const ast::Symbol &symbol)
 
 bool NetlistContext::is_inferred_memory(const ast::Expression &expr)
 {
-	return expr.kind == ast::ExpressionKind::NamedValue &&
-			is_inferred_memory(expr.as<ast::NamedValueExpression>().symbol);
+
+	return ast::ValueExpressionBase::isKind(expr.kind) &&
+			is_inferred_memory(expr.as<ast::ValueExpressionBase>().symbol);
 }
 
 std::string format_wchunk(RTLIL::SigChunk chunk)
@@ -1669,7 +1670,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			if (netlist.is_inferred_memory(elemsel.value())) {
 				int width = elemsel.type->getBitstreamWidth();
 				RTLIL::IdString id = netlist.id(elemsel.value()
-										.as<ast::NamedValueExpression>().symbol);
+										.as<ast::ValueExpressionBase>().symbol);
 				RTLIL::Cell *memrd = netlist.canvas->addCell(netlist.new_id(), ID($memrd_v2));
 				memrd->setParam(ID::MEMID, id.str());
 				memrd->setParam(ID::CLK_ENABLE, false);
