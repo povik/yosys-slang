@@ -429,7 +429,9 @@ RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableBits vbi
 {
 	RTLIL::SigSpec ret;
 	for (auto vbit : vbits) {
-		if (visible_assignments.count(vbit)) {
+		if (vbit.variable.kind == Variable::Dummy) {
+			ret.append(RTLIL::Sx);
+		} else if (visible_assignments.count(vbit)) {
 			ret.append(visible_assignments.at(vbit));
 		} else {
 			log_assert(vbit.variable.kind == Variable::Static);

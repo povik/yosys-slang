@@ -201,6 +201,9 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 					seen_nonblocking_assignment[chunk.variable] = loc;
 				}
 			}
+		} else if (chunk.variable.kind == Variable::Dummy) {
+			// Dummies are for graceful error handling and require
+			// no checking of blocking or nonblocking case
 		} else {
 			// This is expected to be an AST invariant -- we don't have a symbol
 			// to use here for the ast_invariant() helper, so it's a plain
