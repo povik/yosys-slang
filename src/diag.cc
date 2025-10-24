@@ -231,7 +231,7 @@ namespace diag {
 		engine.setMessage(ExpectStatementUnsupported, "expect statement will not be synthesized");
 		engine.setSeverity(ExpectStatementUnsupported, DiagnosticSeverity::Warning);
 
-		engine.setMessage(ProgramUnsupported, "program block will not be synthesized (use --ignore-programs=false to include)");
+		engine.setMessage(ProgramUnsupported, "program block will not be synthesized");
 		engine.setSeverity(ProgramUnsupported, DiagnosticSeverity::Warning);
 
 		engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported with yosys-slang");

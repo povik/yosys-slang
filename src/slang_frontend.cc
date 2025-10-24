@@ -51,8 +51,6 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"Ignore initial blocks for synthesis");
 	cmdLine.add("--ignore-assertions", ignore_assertions,
 				"Ignore assertions and formal statements in input");
-	cmdLine.add("--ignore-programs", ignore_programs,
-				"Ignore program blocks in input");
 	cmdLine.add("--unroll-limit", unroll_limit_,
 				"Set unrolling limit (default: 4000)", "<limit>");
 	// TODO: deprecate; now on by default
@@ -126,10 +124,6 @@ const RTLIL::IdString id(const std::string_view &view)
 
 static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
 {
-	if (sym.getDefinition().definitionKind == ast::DefinitionKind::Program) {
-		return RTLIL::escape_id(std::string(sym.name) + "$program");
-	}
-
 	ast_invariant(sym, sym.parentInstance && sym.parentInstance->isModule());
 	std::string instance = sym.getHierarchicalPath();
 	if (instance == sym.name)
@@ -2092,13 +2086,13 @@ public:
 
 				RTLIL::Cell *cell;
 				if (aloads.empty()) {
-					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
-						cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
-												timing.triggers[0].signal,
-												assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-												netlist.convert_static(named_chunk),
-												timing.triggers[0].edge_polarity);
-						transfer_attrs(symbol, cell);
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
+							cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
+													timing.triggers[0].signal,
+													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+													netlist.convert_static(named_chunk),
+													timing.triggers[0].edge_polarity);
+							transfer_attrs(symbol, cell);
 					}
 				} else if (aloads.size() == 1) {
 					VariableBits aldff_q;
@@ -2241,10 +2235,8 @@ public:
 	void handle(const ast::InstanceSymbol &sym)
 	{
 		if (sym.getDefinition().definitionKind == ast::DefinitionKind::Program) {
-			if (netlist.settings.ignore_programs.value_or(true)) {
-				return;
-			}
 			netlist.add_diag(diag::ProgramUnsupported, sym.location);
+			return;
 		}
 
 		// blackboxes get special handling no matter the hierarchy mode
@@ -3542,9 +3534,6 @@ struct SlangFrontend : Frontend {
 			HierarchyQueue hqueue;
 			for (auto instance : compilation->getRoot().topInstances) {
 				if (instance->getDefinition().definitionKind == ast::DefinitionKind::Program) {
-					if (settings.ignore_programs.value_or(true)) {
-						continue;
-					}
 					slang::Diagnostic program_diag(diag::ProgramUnsupported, instance->location);
 					driver.diagEngine.issue(program_diag);
 					continue;

@@ -709,8 +709,7 @@ ER EvalVisitor::visit(const TimedStatement &stmt)
 ER EvalVisitor::visit(const slang::ast::WaitStatement &stmt)
 {
 	context.addDiag(slang_frontend::diag::WaitStatementUnsupported, stmt.sourceRange);
-	ER result = stmt.stmt.visit(*this);
-	return result;
+	return ER::Success;
 }
 
 ER EvalVisitor::visit(const EmptyStatement&)
