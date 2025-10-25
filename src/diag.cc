@@ -55,6 +55,7 @@ namespace diag {
 	DiagCode EdgeImplicitMixing(DiagSubsystem::Netlist, 1002);
 	DiagCode GenericTimingUnsyn(DiagSubsystem::Netlist, 1003);
 	DiagCode BothEdgesUnsupported(DiagSubsystem::Netlist, 1004);
+	DiagCode WaitStatementUnsupported(DiagSubsystem::Netlist, 1011);
 	DiagCode NoteSignalEvent(DiagSubsystem::Netlist, 1005);
 	DiagCode ExpectingIfElseAload(DiagSubsystem::Netlist, 1006);
 	DiagCode NoteDuplicateEdgeSense(DiagSubsystem::Netlist, 1007);
@@ -95,19 +96,21 @@ namespace diag {
 	DiagCode PortCorrespondence(DiagSubsystem::Netlist, 1042);
 	DiagCode UnsynthesizableFeature(DiagSubsystem::Netlist, 1043);
 	DiagCode SVAUnsupported(DiagSubsystem::Netlist, 1044);
-	DiagCode ForbiddenDemotion(DiagSubsystem::Netlist, 1045);
-	DiagCode UdpUnsupported(DiagSubsystem::Netlist, 1046);
-	DiagCode PrimTypeUnsupported(DiagSubsystem::Netlist, 1047);
-	DiagCode ReferenceAcrossKeptHierBoundary(DiagSubsystem::Netlist, 1048);
-	DiagCode NoteModuleBlackboxBecauseAttribute(DiagSubsystem::Netlist, 1049);
-	DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1050);
-	DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1051);
-	DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1052);
-	DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1053);
-	DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1054);
-	DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1055);
-	DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1056);
-	DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1057);
+	DiagCode ExpectStatementUnsupported(DiagSubsystem::Netlist, 1045);
+	DiagCode ProgramUnsupported(DiagSubsystem::Netlist, 1046);
+	DiagCode ForbiddenDemotion(DiagSubsystem::Netlist, 1047);
+	DiagCode UdpUnsupported(DiagSubsystem::Netlist, 1048);
+	DiagCode PrimTypeUnsupported(DiagSubsystem::Netlist, 1049);
+	DiagCode ReferenceAcrossKeptHierBoundary(DiagSubsystem::Netlist, 1050);
+	DiagCode NoteModuleBlackboxBecauseAttribute(DiagSubsystem::Netlist, 1051);
+	DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1052);
+	DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1053);
+	DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1054);
+	DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1055);
+	DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1056);
+	DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1057);
+	DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1058);
+	DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1059);
 
 	DiagGroup unsynthesizable("unsynthesizable", {IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
 														 IfElseAloadPolarity, IfElseAloadMismatch, UnsynthesizableFeature});
@@ -121,6 +124,8 @@ namespace diag {
 		engine.setMessage(EdgeImplicitMixing, "mixing of implicit and edge sensitivity");
 		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control (ignore with '--ignore-timing')");
 		engine.setMessage(BothEdgesUnsupported, "'edge' sensitivity will not be synthesized");
+		engine.setMessage(WaitStatementUnsupported, "wait statement will not be synthesized");
+		engine.setSeverity(WaitStatementUnsupported, DiagnosticSeverity::Warning);
 		engine.setMessage(NoteSignalEvent, "signal event specified here");
 		engine.setSeverity(NoteSignalEvent, DiagnosticSeverity::Note);
 
@@ -222,6 +227,12 @@ namespace diag {
 
 		engine.setMessage(SVAUnsupported, "SVA unsupported (ignore all assertions with '--ignore-assertions')");
 		engine.setSeverity(SVAUnsupported, DiagnosticSeverity::Error);
+
+		engine.setMessage(ExpectStatementUnsupported, "expect statement will not be synthesized");
+		engine.setSeverity(ExpectStatementUnsupported, DiagnosticSeverity::Warning);
+
+		engine.setMessage(ProgramUnsupported, "program block will not be synthesized");
+		engine.setSeverity(ProgramUnsupported, DiagnosticSeverity::Warning);
 
 		engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported with yosys-slang");
 		engine.setSeverity(ForbiddenDemotion, DiagnosticSeverity::Error);
