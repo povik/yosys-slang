@@ -12,8 +12,8 @@
 namespace slang_frontend {
 
 // TODO: audit for overflows
-template <typename Signal>
-struct Addressing {
+template <typename Signal> struct Addressing
+{
 	const ast::Expression &expr;
 
 	EvalContext &eval;
@@ -32,7 +32,7 @@ struct Addressing {
 
 	int stride = 1;
 
-	void interpret_index(IndexSignal signal, int width_down=1, int width_up=1)
+	void interpret_index(IndexSignal signal, int width_down = 1, int width_up = 1)
 	{
 		if (range.isLittleEndian()) {
 			base_offset = -range.right - width_down + 1;
@@ -64,34 +64,28 @@ struct Addressing {
 		range = sel.value().type->getFixedRange();
 
 		switch (sel.getSelectionKind()) {
-		case ast::RangeSelectionKind::Simple:
-			{
-				auto lv = sel.left().eval(eval.const_), rv = sel.right().eval(eval.const_);
-				ast_invariant(sel, lv.isInteger() && rv.isInteger());
-				raw_signal = {S0};
+		case ast::RangeSelectionKind::Simple: {
+			auto lv = sel.left().eval(eval.const_), rv = sel.right().eval(eval.const_);
+			ast_invariant(sel, lv.isInteger() && rv.isInteger());
+			raw_signal = {S0};
 
-				if (range.isLittleEndian())
-					base_offset = rv.integer().as<int>().value() - range.right;
-				else
-					base_offset = range.right - rv.integer().as<int>().value();
-			}
-			break;
-		case ast::RangeSelectionKind::IndexedUp:
-			{
-				IndexSignal signal = eval.eval_signed(sel.left());
-				auto rv = sel.right().eval(eval.const_);
-				ast_invariant(sel, rv.isInteger());
-				interpret_index(signal, 1, rv.integer().as<int>().value());
-			}
-			break;
-		case ast::RangeSelectionKind::IndexedDown:
-			{
-				IndexSignal signal = eval.eval_signed(sel.left());
-				auto rv = sel.right().eval(eval.const_);
-				ast_invariant(sel, rv.isInteger());
-				interpret_index(signal, rv.integer().as<int>().value(), 1);
-			}
-			break;
+			if (range.isLittleEndian())
+				base_offset = rv.integer().as<int>().value() - range.right;
+			else
+				base_offset = range.right - rv.integer().as<int>().value();
+		} break;
+		case ast::RangeSelectionKind::IndexedUp: {
+			IndexSignal signal = eval.eval_signed(sel.left());
+			auto rv = sel.right().eval(eval.const_);
+			ast_invariant(sel, rv.isInteger());
+			interpret_index(signal, 1, rv.integer().as<int>().value());
+		} break;
+		case ast::RangeSelectionKind::IndexedDown: {
+			IndexSignal signal = eval.eval_signed(sel.left());
+			auto rv = sel.right().eval(eval.const_);
+			ast_invariant(sel, rv.isInteger());
+			interpret_index(signal, rv.integer().as<int>().value(), 1);
+		} break;
 		}
 
 		if (sel.value().type->isArray())
@@ -157,7 +151,7 @@ struct Addressing {
 
 		if (from < 0) {
 			// Build the negative branch
-			int demux_size = std::bit_ceil((unsigned int) -from);
+			int demux_size = std::bit_ceil((unsigned int)-from);
 			int sel_size = ceil_log2(demux_size);
 
 			Signal sel = raw_signal;
@@ -166,20 +160,19 @@ struct Addressing {
 			// check `raw_signal` is in between -2**sel_size...0
 			// which is where the demuxing is valid
 			Signal valid =
-				netlist.LogicAnd(
-					netlist.Ge(raw_signal, {S1, Signal(S0, sel_size)}, true),
-					netlist.Lt(raw_signal, {S0}, true));
+					netlist.LogicAnd(netlist.Ge(raw_signal, {S1, Signal(S0, sel_size)}, true),
+							netlist.Lt(raw_signal, {S0}, true));
 
-			Signal val_gated =
-				netlist.Mux(Signal(S0, stride), val, valid);
+			Signal val_gated = netlist.Mux(Signal(S0, stride), val, valid);
 
-			negative = netlist.Demux(val_gated, sel).extract_end((stride << sel_size) + from * stride);
+			negative =
+					netlist.Demux(val_gated, sel).extract_end((stride << sel_size) + from * stride);
 			log_assert(negative.size() == -from * stride);
 		}
 
 		if (to > 0) {
 			// Build the nonnegative branch
-			int demux_size = std::bit_ceil((unsigned int) to);
+			int demux_size = std::bit_ceil((unsigned int)to);
 			int sel_size = ceil_log2(demux_size);
 
 			Signal sel = raw_signal;
@@ -187,13 +180,10 @@ struct Addressing {
 
 			// check `raw_signal` is in between 0...2**sel_size
 			// which is where the demuxing is valid
-			Signal valid =
-				netlist.LogicAnd(
-					netlist.Ge(raw_signal, {S0}, true),
+			Signal valid = netlist.LogicAnd(netlist.Ge(raw_signal, {S0}, true),
 					netlist.Lt(raw_signal, {S0, S1, Signal(S0, sel_size)}, true));
 
-			Signal val_gated =
-				netlist.Mux(Signal(S0, stride), val, valid);
+			Signal val_gated = netlist.Mux(Signal(S0, stride), val, valid);
 
 			Signal demux_result = netlist.Demux(val_gated, sel);
 
@@ -208,9 +198,8 @@ struct Addressing {
 	{
 		log_assert(val.size() == stride);
 		log_assert(output_len % stride == 0);
-		Signal demuxed = raw_demux(val,
-										-std::max(0, base_offset),
-										std::max(0, output_len / stride - base_offset));
+		Signal demuxed = raw_demux(
+				val, -std::max(0, base_offset), std::max(0, output_len / stride - base_offset));
 
 		return demuxed.extract(std::max(0, -stride * base_offset), output_len);
 	}
@@ -222,7 +211,7 @@ struct Addressing {
 
 		if (from < 0) {
 			// Build the negative branch
-			int mux_size = std::bit_ceil((unsigned int) -from);
+			int mux_size = std::bit_ceil((unsigned int)-from);
 			int sel_size = ceil_log2(mux_size);
 
 			Signal val_cut = val.extract(0, -from * stride);
@@ -236,7 +225,7 @@ struct Addressing {
 
 		if (to > 0) {
 			// Build the positive branch
-			int mux_size = std::bit_ceil((unsigned int) to);
+			int mux_size = std::bit_ceil((unsigned int)to);
 			int sel_size = ceil_log2(mux_size);
 
 			Signal val_cut = val.extract_end(-from * stride);
@@ -256,12 +245,10 @@ struct Addressing {
 	{
 		log_assert(output_len == stride);
 		log_assert(val.size() % stride == 0);
-		return raw_mux(
-			{Signal(Sx, std::max(0, base_offset * stride - val.size())),
-			 val,
-			 Signal(Sx, std::max(0, stride * -base_offset))},
-			-std::max(0, base_offset),
-			std::max(0, -base_offset + val.size() / stride), output_len);
+		return raw_mux({Signal(Sx, std::max(0, base_offset * stride - val.size())), val,
+							   Signal(Sx, std::max(0, stride * -base_offset))},
+				-std::max(0, base_offset), std::max(0, -base_offset + val.size() / stride),
+				output_len);
 	}
 
 	Signal shift_down_bitwise(Signal val, int output_len)
@@ -275,7 +262,7 @@ struct Addressing {
 			val2 = {val, Signal(RTLIL::Sx, -base_offset)};
 
 		shifted = netlist.Shiftx(val2, raw_signal, true, shifted_len);
-		
+
 		if (base_offset > 0)
 			return shifted.extract_end(base_offset);
 		else
@@ -321,11 +308,12 @@ struct Addressing {
 		int start = std::clamp(-offset * stride, 0, val.size());
 		int end = std::clamp(-offset * stride + output_len, 0, val.size());
 		ret.append(val.extract(start, end - start));
-		ret.append(Signal(padding, std::clamp(output_len - offset * stride - val.size(), 0, output_len)));
+		ret.append(Signal(
+				padding, std::clamp(output_len - offset * stride - val.size(), 0, output_len)));
 		log_assert(ret.size() == output_len);
 
 		return ret;
 	}
 };
 
-};
+}; // namespace slang_frontend

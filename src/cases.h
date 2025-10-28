@@ -8,9 +8,9 @@
 
 #include "slang/ast/symbols/ValueSymbol.h"
 
+#include "diag.h"
 #include "slang_frontend.h"
 #include "variables.h"
-#include "diag.h"
 
 namespace slang_frontend {
 
@@ -27,7 +27,8 @@ namespace slang_frontend {
 //    because we may need to dynamically mask the individual assignments
 //
 struct Case;
-struct Switch {
+struct Switch
+{
 	int level;
 	const ast::Statement *statement = nullptr;
 
@@ -45,11 +46,13 @@ struct Switch {
 	bool trivial();
 };
 
-struct Case {
+struct Case
+{
 	int level = 0;
 	const ast::Statement *statement = nullptr;
 
-	struct Action {
+	struct Action
+	{
 		slang::SourceLocation loc;
 
 		VariableBits lvalue;
@@ -61,7 +64,8 @@ struct Case {
 	std::vector<Switch *> switches;
 	std::vector<RTLIL::SigSig> aux_actions;
 
-	~Case() {
+	~Case()
+	{
 		for (auto switch_ : switches)
 			delete switch_;
 	}
@@ -124,7 +128,7 @@ struct Case {
 			VariableBits lvalue;
 			RTLIL::SigSpec enables, lstaging, rvalue;
 
-			for (int i = 0; i < (int) action.lvalue.size(); i++) {
+			for (int i = 0; i < (int)action.lvalue.size(); i++) {
 				VariableBit lbit = action.lvalue[i];
 
 				if (map.count(lbit)) {
@@ -157,11 +161,11 @@ struct Case {
 		}
 
 		for (auto switch_ : switches)
-		for (auto case_ : switch_->cases)
-			case_->insert_latch_signaling(issuer, map);
+			for (auto case_ : switch_->cases)
+				case_->insert_latch_signaling(issuer, map);
 
 		switches.insert(switches.begin(), prepended_switches.begin(), prepended_switches.end());
 	}
 };
 
-};
+}; // namespace slang_frontend

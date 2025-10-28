@@ -1,3 +1,4 @@
+// clang-format off
 //
 // Derived from:
 //   third_party/slang/source/ast/Statements.cpp
