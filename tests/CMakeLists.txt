@@ -57,6 +57,7 @@ set(ALL_TESTS
     various/wait_test.ys
     various/expect_test.ys
     various/program_test.ys
+    various/wor_unsupp.ys
 )
 
 foreach(test_script ${ALL_TESTS})
