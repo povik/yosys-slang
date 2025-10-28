@@ -518,6 +518,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 };
 
 // slang_frontend.cc
+const RTLIL::Const convert_const(const slang::ConstantValue &constval);
+RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
 
