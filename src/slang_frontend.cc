@@ -2230,7 +2230,7 @@ public:
 		// blackboxes get special handling no matter the hierarchy mode
 		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
-			cell->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
+			cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 
 			for (auto *conn : sym.getPortConnections()) {
 				switch (conn->port.kind) {
@@ -2342,7 +2342,7 @@ public:
 			auto [submodule, inserted] = queue.get_or_emplace(ref_body, netlist, *ref_body->parentInstance);
 
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(*ref_body));
-			cell->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
+			cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 			for (auto *conn : sym.getPortConnections()) {
 				slang::SourceLocation loc;
 				if (auto expr = conn->getExpression())
@@ -2562,7 +2562,7 @@ public:
 
 			if (netlist.is_inferred_memory(sym)) {
 				RTLIL::Memory *m = new RTLIL::Memory;
-				m->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
+				m->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 				transfer_attrs(sym, m);
 				m->name = netlist.id(sym);
 				m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
@@ -2628,7 +2628,6 @@ public:
 					if (netlist.is_inferred_memory(sym)) {
 						RTLIL::IdString id = netlist.id(sym);
 						RTLIL::Memory *m = netlist.canvas->memories.at(id);
-						m->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
 						RTLIL::Cell *meminit = netlist.canvas->addCell(netlist.new_id(), ID($meminit_v2));
 						int abits = 32;
 						ast_invariant(sym, m->width * m->size == const_.size());
@@ -2644,7 +2643,7 @@ public:
 					} else {
 						auto wire = netlist.wire(sym);
 						log_assert(wire);
-						wire->attributes[RTLIL::ID::init] = const_;
+						wire->attributes[ID::init] = const_;
 					}
 				}
 			}
@@ -2696,7 +2695,7 @@ public:
 
 		RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym),
 													id(sym.definitionName));
-		cell->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
+		cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 		transfer_attrs(sym, cell);
 
 		auto port_names = sym.getPortNames();
@@ -3081,7 +3080,7 @@ std::string NetlistContext::hdlname(const ast::Symbol &symbol)
 RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
-	w->set_string_attribute(RTLIL::ID::hdlname, hdlname(symbol));
+	w->set_string_attribute(ID::hdlname, hdlname(symbol));
 	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
 	return w;
