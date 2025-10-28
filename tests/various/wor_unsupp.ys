@@ -1,0 +1,10 @@
+test_slangdiag -expect "net type 'wor' unsupported"
+
+read_slang <<EOF
+module top(input a, input b, output y);
+    wor w_or;
+    assign w_or = a;
+    assign w_or = b;
+    assign y = w_or;
+endmodule
+EOF
