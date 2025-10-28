@@ -1972,7 +1972,7 @@ public:
 			for (auto chunk : latch_driven.chunks()) {
 				RTLIL::SigSpec en = netlist.canvas->addWire(netlist.new_id(), chunk.bitwidth());
 				RTLIL::SigSpec staging = netlist.canvas->addWire(netlist.new_id(), chunk.bitwidth());
-				
+
 				for (int i = 0; i < chunk.bitwidth(); i++) {
 					RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en[i],
 											staging[i], netlist.convert_static(chunk[i]), true);
@@ -2230,6 +2230,7 @@ public:
 		// blackboxes get special handling no matter the hierarchy mode
 		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
+			cell->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
 
 			for (auto *conn : sym.getPortConnections()) {
 				switch (conn->port.kind) {
@@ -2341,6 +2342,7 @@ public:
 			auto [submodule, inserted] = queue.get_or_emplace(ref_body, netlist, *ref_body->parentInstance);
 
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(*ref_body));
+			cell->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
 			for (auto *conn : sym.getPortConnections()) {
 				slang::SourceLocation loc;
 				if (auto expr = conn->getExpression())
@@ -2560,6 +2562,7 @@ public:
 
 			if (netlist.is_inferred_memory(sym)) {
 				RTLIL::Memory *m = new RTLIL::Memory;
+				m->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
 				transfer_attrs(sym, m);
 				m->name = netlist.id(sym);
 				m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
@@ -2625,6 +2628,7 @@ public:
 					if (netlist.is_inferred_memory(sym)) {
 						RTLIL::IdString id = netlist.id(sym);
 						RTLIL::Memory *m = netlist.canvas->memories.at(id);
+						m->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
 						RTLIL::Cell *meminit = netlist.canvas->addCell(netlist.new_id(), ID($meminit_v2));
 						int abits = 32;
 						ast_invariant(sym, m->width * m->size == const_.size());
@@ -2691,7 +2695,8 @@ public:
 		}
 
 		RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym),
-												id(sym.definitionName));
+													id(sym.definitionName));
+		cell->set_string_attribute(RTLIL::ID::hdlname, netlist.hdlname(sym));
 		transfer_attrs(sym, cell);
 
 		auto port_names = sym.getPortNames();
@@ -2906,14 +2911,15 @@ public:
 };
 
 static void build_hierpath2(NetlistContext &netlist,
-							std::ostringstream &s, const ast::Scope *scope)
+							std::ostringstream &s, const ast::Scope *scope,
+							const std::string &sep = ".")
 {
 	if (!scope ||
 		static_cast<const ast::Scope *>(&netlist.realm) == scope)
 		return;
 
 	if (netlist.scopes_remap.count(scope)) {
-		s << netlist.scopes_remap.at(scope) << ".";
+		s << netlist.scopes_remap.at(scope) << sep;
 		return;
 	}
 
@@ -2925,7 +2931,7 @@ static void build_hierpath2(NetlistContext &netlist,
 		symbol = symbol->as<ast::CheckerInstanceBodySymbol>().parentInstance;
 
 	if (auto parent = symbol->getParentScope())
-		build_hierpath2(netlist, s, parent);
+		build_hierpath2(netlist, s, parent, sep);
 
 	if (symbol->kind == ast::SymbolKind::GenerateBlockArray) {
 		auto &array = symbol->as<ast::GenerateBlockArraySymbol>();
@@ -2933,9 +2939,9 @@ static void build_hierpath2(NetlistContext &netlist,
 	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
 		auto &block = symbol->as<ast::GenerateBlockSymbol>();
 		if (auto index = block.arrayIndex) {
-			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "].";
+			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]" << sep;
 		} else {
-			s << block.getExternalName() << ".";
+			s << block.getExternalName() << sep;
 		}
 	} else if (symbol->kind == ast::SymbolKind::Instance ||
 			   symbol->kind == ast::SymbolKind::CheckerInstance) {
@@ -2950,13 +2956,13 @@ static void build_hierpath2(NetlistContext &netlist,
 				s << "[" << ((int) inst.arrayPath[i]) + dimensions[i].lower() << "]";
 		}
 
-		s << ".";
+		s << sep;
 	} else if (symbol->kind == ast::SymbolKind::InstanceArray) {
 		s << symbol->name;
 	} else if (!symbol->name.empty()) {
-		s << symbol->name << ".";
+		s << symbol->name << sep;
 	} else if (symbol->kind == ast::SymbolKind::StatementBlock) {
-		s << "$" << (int) symbol->getIndex() << ".";
+		s << "$" << (int) symbol->getIndex() << sep;
 	}
 }
 
@@ -3041,10 +3047,11 @@ std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope
 	return path.str();
 }
 
-RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
+std::string build_hiername(NetlistContext &netlist, const ast::Symbol &symbol,
+						   const std::string &sep)
 {
 	std::ostringstream path;
-	build_hierpath2(*this, path, symbol.getParentScope());
+	build_hierpath2(netlist, path, symbol.getParentScope(), sep);
 	path << symbol.name;
 
 	if (symbol.kind == ast::SymbolKind::Instance ||
@@ -3058,12 +3065,23 @@ RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 		}
 	}
 
-	return RTLIL::escape_id(path.str());
+	return path.str();
+}
+
+RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
+{
+	return RTLIL::escape_id(build_hiername(*this, symbol, "."));
+}
+
+std::string NetlistContext::hdlname(const ast::Symbol &symbol)
+{
+	return build_hiername(*this, symbol, " ");
 }
 
 RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
+	w->set_string_attribute(RTLIL::ID::hdlname, hdlname(symbol));
 	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
 	return w;
