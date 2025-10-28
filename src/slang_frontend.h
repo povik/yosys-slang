@@ -4,6 +4,7 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+// clang-format off
 #pragma once
 #include "slang/ast/EvalContext.h"
 #include "kernel/rtlil.h"

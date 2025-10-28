@@ -12,23 +12,27 @@ using RTLIL::Cell;
 using RTLIL::IdString;
 using RTLIL::SigSpec;
 
-std::string RTLILBuilder::new_id(std::string base) {
+std::string RTLILBuilder::new_id(std::string base)
+{
 	if (base.empty())
 		return std::string("$") + std::to_string(next_id++);
 	else
 		return std::string("$") + base + "$" + std::to_string(next_id++);
 }
 
-std::pair<std::string, SigSpec> RTLILBuilder::add_y_wire(int width) {
+std::pair<std::string, SigSpec> RTLILBuilder::add_y_wire(int width)
+{
 	std::string id = new_id();
 	return {id, canvas->addWire(id + "y", width)};
 }
 
-void RTLILBuilder::bless_cell(RTLIL::Cell *cell) {
+void RTLILBuilder::bless_cell(RTLIL::Cell *cell)
+{
 	cell->attributes = staged_attributes;
 }
 
-SigSpec RTLILBuilder::ReduceBool(SigSpec a) {
+SigSpec RTLILBuilder::ReduceBool(SigSpec a)
+{
 	if (a.is_fully_const())
 		return RTLIL::const_reduce_bool(a.as_const(), RTLIL::Const(), false, false, 1);
 	if (a.size() == 1)
@@ -39,20 +43,21 @@ SigSpec RTLILBuilder::ReduceBool(SigSpec a) {
 	return y;
 }
 
-SigSpec RTLILBuilder::Demux(SigSpec a, SigSpec s) {
+SigSpec RTLILBuilder::Demux(SigSpec a, SigSpec s)
+{
 	log_assert(s.size() < 24);
 	SigSpec zeropad(RTLIL::S0, a.size());
 	if (s.is_fully_const()) {
 		int idx_const = s.as_const().as_int();
-		return {zeropad.repeat((1 << s.size()) - 1 - idx_const),
-					a, zeropad.repeat(idx_const)};
+		return {zeropad.repeat((1 << s.size()) - 1 - idx_const), a, zeropad.repeat(idx_const)};
 	}
 	auto [id, y] = add_y_wire(a.size() << s.size());
 	bless_cell(canvas->addDemux(id, a, s, y));
 	return y;
 }
 
-SigSpec RTLILBuilder::Le(SigSpec a, SigSpec b, bool is_signed) {
+SigSpec RTLILBuilder::Le(SigSpec a, SigSpec b, bool is_signed)
+{
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_le(a.as_const(), b.as_const(), is_signed, is_signed, 1);
 	auto [id, y] = add_y_wire(1);
@@ -60,7 +65,8 @@ SigSpec RTLILBuilder::Le(SigSpec a, SigSpec b, bool is_signed) {
 	return y;
 }
 
-SigSpec RTLILBuilder::Ge(SigSpec a, SigSpec b, bool is_signed) {
+SigSpec RTLILBuilder::Ge(SigSpec a, SigSpec b, bool is_signed)
+{
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_ge(a.as_const(), b.as_const(), is_signed, is_signed, 1);
 	auto [id, y] = add_y_wire(1);
@@ -68,7 +74,8 @@ SigSpec RTLILBuilder::Ge(SigSpec a, SigSpec b, bool is_signed) {
 	return y;
 }
 
-SigSpec RTLILBuilder::Lt(SigSpec a, SigSpec b, bool is_signed) {
+SigSpec RTLILBuilder::Lt(SigSpec a, SigSpec b, bool is_signed)
+{
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_lt(a.as_const(), b.as_const(), is_signed, is_signed, 1);
 	auto [id, y] = add_y_wire(1);
@@ -76,7 +83,8 @@ SigSpec RTLILBuilder::Lt(SigSpec a, SigSpec b, bool is_signed) {
 	return y;
 }
 
-SigSpec RTLILBuilder::Eq(SigSpec a, SigSpec b) {
+SigSpec RTLILBuilder::Eq(SigSpec a, SigSpec b)
+{
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_eq(a.as_const(), b.as_const(), false, false, 1);
 	auto [id, y] = add_y_wire(1);
@@ -84,7 +92,8 @@ SigSpec RTLILBuilder::Eq(SigSpec a, SigSpec b) {
 	return y;
 }
 
-SigSpec RTLILBuilder::EqWildcard(SigSpec a, SigSpec b) {
+SigSpec RTLILBuilder::EqWildcard(SigSpec a, SigSpec b)
+{
 	log_assert(a.size() == b.size());
 	log_assert(b.is_fully_const());
 
@@ -102,7 +111,8 @@ SigSpec RTLILBuilder::EqWildcard(SigSpec a, SigSpec b) {
 	return y;
 }
 
-SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b) {
+SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b)
+{
 	if (a.is_fully_zero() || b.is_fully_zero())
 		return RTLIL::Const(0, 1);
 	if (a.is_fully_def() && b.size() == 1)
@@ -114,7 +124,8 @@ SigSpec RTLILBuilder::LogicAnd(SigSpec a, SigSpec b) {
 	return y;
 }
 
-SigSpec RTLILBuilder::LogicOr(SigSpec a, SigSpec b) {
+SigSpec RTLILBuilder::LogicOr(SigSpec a, SigSpec b)
+{
 	if (a.is_fully_ones() || b.is_fully_ones())
 		return RTLIL::Const(1, 1);
 	if (a.is_fully_zero() && b.is_fully_zero())
@@ -124,7 +135,8 @@ SigSpec RTLILBuilder::LogicOr(SigSpec a, SigSpec b) {
 	return y;
 }
 
-SigSpec RTLILBuilder::LogicNot(SigSpec a) {
+SigSpec RTLILBuilder::LogicNot(SigSpec a)
+{
 	if (a.is_fully_const())
 		return RTLIL::const_logic_not(a.as_const(), RTLIL::Const(), false, false, -1);
 	auto [id, y] = add_y_wire(1);
@@ -132,7 +144,8 @@ SigSpec RTLILBuilder::LogicNot(SigSpec a) {
 	return y;
 }
 
-SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s) {
+SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s)
+{
 	log_assert(a.size() == b.size());
 	log_assert(s.size() == 1);
 	if (s[0] == RTLIL::S0)
@@ -144,7 +157,8 @@ SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s) {
 	return y;
 }
 
-SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s) {
+SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s)
+{
 	log_assert(a.size() == b.size());
 	log_assert(a.size() == s.size());
 	if (s.is_fully_const()) {
@@ -162,12 +176,10 @@ SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s) {
 	return y;
 }
 
-SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b,
-							bool b_signed, int result_width)
+SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b, bool b_signed, int result_width)
 {
 	if (a.is_fully_const() && b.is_fully_const())
-		return RTLIL::const_shift(a.as_const(), b.as_const(),
-								  a_signed, b_signed, result_width);
+		return RTLIL::const_shift(a.as_const(), b.as_const(), a_signed, b_signed, result_width);
 
 	if (b.is_fully_const() && b.size() < 24) {
 		log_assert(!a.empty());
@@ -199,12 +211,10 @@ SigSpec RTLILBuilder::Shift(SigSpec a, bool a_signed, SigSpec b,
 	return y;
 }
 
-SigSpec RTLILBuilder::Shiftx(SigSpec a, SigSpec s,
-							 bool s_signed, int result_width)
+SigSpec RTLILBuilder::Shiftx(SigSpec a, SigSpec s, bool s_signed, int result_width)
 {
 	if (a.is_fully_const() && s.is_fully_const())
-		return RTLIL::const_shiftx(a.as_const(), s.as_const(),
-								   false, s_signed, result_width);
+		return RTLIL::const_shiftx(a.as_const(), s.as_const(), false, s_signed, result_width);
 	auto [id, y] = add_y_wire(result_width);
 	bless_cell(canvas->addShiftx(id, a, s, y, s_signed));
 	return y;
@@ -213,14 +223,14 @@ SigSpec RTLILBuilder::Shiftx(SigSpec a, SigSpec s,
 SigSpec RTLILBuilder::Neg(SigSpec a, bool signed_)
 {
 	if (a.is_fully_const())
-		return RTLIL::const_neg(a.as_const(), RTLIL::Const(),
-								signed_, false, a.size() + 1);
+		return RTLIL::const_neg(a.as_const(), RTLIL::Const(), signed_, false, a.size() + 1);
 	auto [id, y] = add_y_wire(a.size() + 1);
 	bless_cell(canvas->addNeg(id, a, y, signed_));
 	return y;
 }
 
-SigSpec RTLILBuilder::Bmux(SigSpec a, SigSpec s) {
+SigSpec RTLILBuilder::Bmux(SigSpec a, SigSpec s)
+{
 	log_assert(a.size() % (1 << s.size()) == 0);
 	log_assert(a.size() >= 1 << s.size());
 	int stride = a.size() >> s.size();
@@ -242,61 +252,63 @@ SigSpec RTLILBuilder::Not(SigSpec a)
 }
 
 namespace ThreeValued {
-	int AND(int a, int b)
-	{
-		if (a < 0 || b < 0)
-			return -1;
-		if (a > 0 && b > 0)
-			return 1;
+int AND(int a, int b)
+{
+	if (a < 0 || b < 0)
+		return -1;
+	if (a > 0 && b > 0)
+		return 1;
+	return 0;
+}
+
+int NOT(int lit)
+{
+	return -lit;
+}
+
+int OR(int a, int b)
+{
+	return NOT(AND(NOT(a), NOT(b)));
+}
+
+int XOR(int a, int b)
+{
+	return OR(AND(a, NOT(b)), AND(NOT(a), b));
+}
+
+int XNOR(int a, int b)
+{
+	return NOT(OR(AND(a, NOT(b)), AND(NOT(a), b)));
+}
+
+int CARRY(int a, int b, int c)
+{
+	if (c > 0)
+		return OR(a, b);
+	else if (c < -1)
+		return AND(a, b);
+
+	return OR(AND(a, b), AND(c, OR(a, b)));
+}
+
+int convert(RTLIL::SigBit bit)
+{
+	if (bit == RTLIL::S1)
+		return 1;
+	else if (bit == RTLIL::S0)
+		return -1;
+	else
 		return 0;
-	}
+}
+}; // namespace ThreeValued
 
-	int NOT(int lit)
-	{
-		return -lit;
-	}
-
-	int OR(int a, int b)
-	{
-		return NOT(AND(NOT(a), NOT(b)));
-	}
-
-	int XOR(int a, int b)
-	{
-		return OR(AND(a, NOT(b)), AND(NOT(a), b));
-	}
-
-	int XNOR(int a, int b)
-	{
-		return NOT(OR(AND(a, NOT(b)), AND(NOT(a), b)));
-	}
-
-	int CARRY(int a, int b, int c)
-	{
-		if (c > 0)
-			return OR(a, b);
-		else if (c < -1)
-			return AND(a, b);
-
-		return OR(AND(a, b), AND(c, OR(a, b)));
-	}
-
-	int convert(RTLIL::SigBit bit)
-	{
-		if (bit == RTLIL::S1)
-			return 1;
-		else if (bit == RTLIL::S0)
-			return -1;
-		else
-			return 0;
-	}
-};
-
-SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
-						   bool a_signed, bool b_signed, int y_width)
+SigSpec RTLILBuilder::Biop(
+		IdString op, SigSpec a, SigSpec b, bool a_signed, bool b_signed, int y_width)
 {
 	if (a.is_fully_const() && b.is_fully_const()) {
-#define OP(type) if (op == ID($##type)) return RTLIL::const_##type(a.as_const(), b.as_const(), a_signed, b_signed, y_width);
+#define OP(type)                                                                                   \
+	if (op == ID($##type))                                                                         \
+		return RTLIL::const_##type(a.as_const(), b.as_const(), a_signed, b_signed, y_width);
 		OP(add)
 		OP(sub)
 		OP(mul)
@@ -369,8 +381,10 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 	int msb_zeroes = 0;
 	if (op == ID($mul) && !a_signed && !b_signed) {
 		int as = a.size(), bs = b.size();
-		while (as > 0 && a[as - 1] == RTLIL::S0) as--;
-		while (bs > 0 && b[bs - 1] == RTLIL::S0) bs--;
+		while (as > 0 && a[as - 1] == RTLIL::S0)
+			as--;
+		while (bs > 0 && b[bs - 1] == RTLIL::S0)
+			bs--;
 		msb_zeroes = std::max(0, y_width - (as + bs - 1));
 	}
 
@@ -391,7 +405,9 @@ SigSpec RTLILBuilder::Biop(IdString op, SigSpec a, SigSpec b,
 SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 {
 	if (a.is_fully_const()) {
-#define OP(type) if (op == ID($##type)) return RTLIL::const_##type(a.as_const(), {}, a_signed, false, y_width);
+#define OP(type)                                                                                   \
+	if (op == ID($##type))                                                                         \
+		return RTLIL::const_##type(a.as_const(), {}, a_signed, false, y_width);
 		OP(pos)
 		OP(neg)
 		OP(logic_not)
@@ -415,4 +431,4 @@ SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 	return y;
 }
 
-};
+}; // namespace slang_frontend
