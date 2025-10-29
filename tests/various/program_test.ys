@@ -21,5 +21,4 @@ program tst;
 endprogram
 EOF
 
-design -save before
-design -load before
+test_slangdiag -expect "program block will not be synthesized"

@@ -9,5 +9,4 @@ module expect_test(input logic clk, input logic a, input logic b, input logic c,
 endmodule
 EOF
 
-design -save before
-design -load before
+test_slangdiag -expect "expect statement will not be synthesized"

@@ -14,5 +14,4 @@ module wait_test(input logic clk, input logic rst, output logic q);
 endmodule
 EOF
 
-design -save before
-design -load before
+test_slangdiag -expect "wait statement will not be synthesized"
