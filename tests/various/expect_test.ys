@@ -1,0 +1,12 @@
+read_slang <<EOF
+module expect_test(input logic clk, input logic a, input logic b, input logic c, output logic q);
+    logic i;
+    always_ff @(posedge clk) begin
+        expect (@(posedge clk) a ##1 b ##1 c) else $error("expect failed");
+        expect (##[1:10] a && b) q = 1'b1;
+        q <= a & b;
+    end
+endmodule
+EOF
+
+test_slangdiag -expect "expect statement will not be synthesized"

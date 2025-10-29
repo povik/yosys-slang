@@ -1,0 +1,17 @@
+read_slang <<EOF
+module wait_test(input logic clk, input logic rst, output logic q);
+    logic condition = 1'b0;
+    initial begin
+        wait(condition);
+        q = 1'b1;
+    end
+    always_ff @(posedge clk)
+        if (rst) condition <= 1'b0;
+        else begin
+            wait(condition == 1'b1);
+            q <= 1'b1;
+        end
+endmodule
+EOF
+
+test_slangdiag -expect "wait statement will not be synthesized"

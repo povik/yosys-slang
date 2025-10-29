@@ -671,7 +671,11 @@ public:
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt) {
 		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			if (stmt.assertionKind == ast::AssertionKind::Expect) {
+				netlist.add_diag(diag::ExpectStatementUnsupported, stmt.sourceRange);
+			} else {
+				netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			}
 		}
 	}
 
@@ -1107,6 +1111,11 @@ public:
 			netlist.add_diag(diag::GenericTimingUnsyn, stmt.timing.sourceRange);
 
 		stmt.stmt.visit(*this);
+	}
+
+	void handle(const ast::WaitStatement &stmt)
+	{
+		netlist.add_diag(diag::WaitStatementUnsupported, stmt.sourceRange);
 	}
 
 	void handle(const ast::Statement &stmt)
@@ -2079,13 +2088,13 @@ public:
 
 				RTLIL::Cell *cell;
 				if (aloads.empty()) {
-					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
-						cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
-												timing.triggers[0].signal,
-												assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-												netlist.convert_static(named_chunk),
-												timing.triggers[0].edge_polarity);
-						transfer_attrs(symbol, cell);
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
+							cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
+													timing.triggers[0].signal,
+													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+													netlist.convert_static(named_chunk),
+													timing.triggers[0].edge_polarity);
+							transfer_attrs(symbol, cell);
 					}
 				} else if (aloads.size() == 1) {
 					VariableBits aldff_q;
@@ -2227,6 +2236,11 @@ public:
 
 	void handle(const ast::InstanceSymbol &sym)
 	{
+		if (sym.getDefinition().definitionKind == ast::DefinitionKind::Program) {
+			netlist.add_diag(diag::ProgramUnsupported, sym.location);
+			return;
+		}
+
 		// blackboxes get special handling no matter the hierarchy mode
 		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
@@ -3538,6 +3552,12 @@ struct SlangFrontend : Frontend {
 
 			HierarchyQueue hqueue;
 			for (auto instance : compilation->getRoot().topInstances) {
+				if (instance->getDefinition().definitionKind == ast::DefinitionKind::Program) {
+					slang::Diagnostic program_diag(diag::ProgramUnsupported, instance->location);
+					driver.diagEngine.issue(program_diag);
+					continue;
+				}
+
 				auto ref_body = &get_instance_body(settings, *instance);
 				log_assert(ref_body->parentInstance);
 				auto [netlist, new_] = hqueue.get_or_emplace(ref_body, design, settings,
