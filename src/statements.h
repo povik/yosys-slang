@@ -577,6 +577,11 @@ public:
 		stmt.stmt.visit(*this);
 	}
 
+	void handle(const ast::WaitStatement &stmt)
+	{
+		netlist.add_diag(diag::WaitStatementUnsupported, stmt.sourceRange);
+	}
+
 	void handle(const ast::Statement &stmt)
 	{
 		netlist.add_diag(diag::LangFeatureUnsupported, stmt.sourceRange.start());
