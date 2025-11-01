@@ -1353,7 +1353,7 @@ public:
 		if (symbol.procedureKind != ast::ProceduralBlockKind::AlwaysComb) {
 			Yosys::pool<VariableBit> driven_pool = {all_driven.begin(), all_driven.end()};
 			dangling =
-				detect_possibly_unassigned_subset(driven_pool, procedure.root_case);
+				detect_possibly_unassigned_subset(driven_pool, procedure.root_case.get());
 		}
 
 		// left-hand side and right-hand side of the connections to be made

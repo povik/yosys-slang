@@ -211,7 +211,7 @@ public:
 	EvalContext eval;
 	int effects_priority = 0;
 
-	Case *root_case;
+	std::unique_ptr<Case> root_case;
 	Case *current_case;
 
 private:

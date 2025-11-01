@@ -104,7 +104,7 @@ ProceduralContext::ProceduralContext(NetlistContext &netlist, ProcessTiming &tim
 	: unroll_limit(netlist, netlist.settings.unroll_limit()), netlist(netlist), timing(timing),
 	  eval(netlist, *this)
 {
-	root_case = new Case;
+	root_case = std::make_unique<Case>();
 	current_case = root_case->add_switch({})->add_case({});
 }
 
