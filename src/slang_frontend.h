@@ -123,7 +123,6 @@ struct EvalContext {
 	// Scope nest level tracking to isolate automatic variables of reentrant
 	// scopes (i.e. functions)
 	Yosys::dict<const ast::Scope *, int> scope_nest_level;
-	int current_scope_nest_level;
 
 	int find_nest_level(const ast::Scope *scope);
 	Variable variable(const ast::ValueSymbol &symbol);
@@ -169,7 +168,6 @@ public:
 private:
 	EvalContext &context;
 	const ast::Scope *scope;
-	int save_scope_nest_level;
 };
 
 class UnrollLimitTracking {

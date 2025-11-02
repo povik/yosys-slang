@@ -33,8 +33,7 @@ EnterAutomaticScopeGuard::EnterAutomaticScopeGuard(EvalContext &context, const a
 	: context(context), scope(scope)
 {
 	if (scope) {
-		save_scope_nest_level = context.current_scope_nest_level;
-		context.current_scope_nest_level = ++context.scope_nest_level[scope];
+		++context.scope_nest_level[scope];
 	}
 }
 
@@ -45,7 +44,6 @@ EnterAutomaticScopeGuard::~EnterAutomaticScopeGuard()
 		log_assert(new_nest_level >= 0);
 		if (new_nest_level == 0)
 			context.scope_nest_level.erase(scope);
-		context.current_scope_nest_level = save_scope_nest_level;
 	}
 }
 
