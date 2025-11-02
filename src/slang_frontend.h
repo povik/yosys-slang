@@ -487,21 +487,6 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	NetlistContext(const NetlistContext&) = delete;
 	NetlistContext& operator=(const NetlistContext&) = delete;
-	NetlistContext(NetlistContext&& other)
-		: settings(other.settings), compilation(other.compilation),
-		  realm(other.realm), eval(*this)
-	{
-		log_assert(other.eval.procedural == nullptr);
-		log_assert(other.eval.lvalue == nullptr);
-
-		emitted_mems.swap(other.emitted_mems);
-		scopes_remap.swap(other.scopes_remap);
-		wire_cache.swap(other.wire_cache);
-		detected_memories.swap(other.detected_memories);
-		canvas = other.canvas;
-		other.canvas = nullptr;
-		disabled = other.disabled;
-	}
 
 	Yosys::pool<const ast::Symbol *> detected_memories;
 	bool is_inferred_memory(const ast::Symbol &symbol);
