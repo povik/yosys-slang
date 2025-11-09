@@ -79,7 +79,7 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 				break;
 
 			case ast::EdgeKind::BothEdges:
-				issuer.add_diag(diag::BothEdgesUnsupported, sigev.sourceRange);
+				triggers.push_back(&sigev);
 				break;
 			}
 		}
