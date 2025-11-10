@@ -410,6 +410,7 @@ struct SynthesisSettings {
 	std::optional<bool> empty_blackboxes;
 	std::optional<bool> ast_compilation_only;
 	std::optional<bool> no_default_translate_off;
+	std::optional<bool> allow_dual_edge_ff;
 	bool disable_instance_caching = false;
 
 	enum HierMode {

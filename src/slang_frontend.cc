@@ -66,6 +66,8 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"For developers: stop after the AST is fully compiled");
 	cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
 				"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
+	cmdLine.add("--allow-dual-edge-ff", allow_dual_edge_ff,
+				"Allow synthesis of dual-edge flip-flops (@(edge))");
 }
 
 namespace ast = slang::ast;
@@ -1863,6 +1865,99 @@ struct HierarchyQueue {
 	std::vector<NetlistContext *> queue;
 };
 
+// Synthesizes two single-edge FFs (one posedge, one negedge) with the same D input,
+// then uses a mux controlled by the clock to select the appropriate FF output.
+static void add_dual_edge_dff(NetlistContext &netlist, const ast::ProceduralBlockSymbol &symbol,
+                               const NamedChunk &named,
+                               RTLIL::SigSpec clk, RTLIL::SigSpec d, RTLIL::SigSpec q)
+{
+	auto [chunk, name] = named;
+
+	log_assert(chunk.variable.get_symbol() != nullptr);
+	log_assert(netlist.canvas != nullptr);
+
+	std::string base_name = Yosys::stringf("$driver$%s%s",
+	                                        RTLIL::unescape_id(netlist.id(*chunk.variable.get_symbol())).c_str(),
+	                                        name.c_str());
+
+	RTLIL::Wire *pos_q = netlist.canvas->addWire(
+		netlist.canvas->uniquify(Yosys::stringf("%s$pos$q", base_name.c_str())),
+		chunk.bitwidth()); 	// intermediaries
+	log_assert(pos_q != nullptr);
+
+	RTLIL::Wire *neg_q = netlist.canvas->addWire(
+		netlist.canvas->uniquify(Yosys::stringf("%s$neg$q", base_name.c_str())),
+		chunk.bitwidth()); 	// intermediaries
+	log_assert(neg_q != nullptr);
+
+	RTLIL::Cell *pos_ff = netlist.canvas->addDff(
+		netlist.canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())),
+		clk, d, pos_q, /*edge_polarity=*/true);
+	log_assert(pos_ff != nullptr);
+	transfer_attrs(symbol, pos_ff);
+
+	// Create negedge FF
+	RTLIL::Cell *neg_ff = netlist.canvas->addDff(
+		netlist.canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())),
+		clk, d, neg_q, /*edge_polarity=*/false);
+	log_assert(neg_ff != nullptr);
+	transfer_attrs(symbol, neg_ff);
+
+	// behaviour: when clk=0: select neg_q (captures on negedge), when clk=1: select pos_q (captures on posedge)
+	RTLIL::Cell *mux = netlist.canvas->addMux(
+		netlist.canvas->uniquify(Yosys::stringf("%s$mux", base_name.c_str())),
+		/*A=*/neg_q, /*B=*/pos_q, /*S=*/clk, /*Y=*/q);
+	log_assert(mux != nullptr);
+	transfer_attrs(symbol, mux);
+}
+
+// async load/reset version of add_dual_edge_dff()
+static void add_dual_edge_aldff(NetlistContext &netlist, const ast::ProceduralBlockSymbol &symbol,
+                                 const NamedChunk &named,
+                                 RTLIL::SigSpec clk, RTLIL::SigSpec aload, RTLIL::SigSpec d,
+                                 RTLIL::SigSpec q, RTLIL::SigSpec ad, bool aload_polarity)
+{
+	auto [chunk, name] = named;
+
+	log_assert(chunk.variable.get_symbol() != nullptr);
+	log_assert(netlist.canvas != nullptr);
+
+	std::string base_name = Yosys::stringf("$driver$%s%s",
+	                                        RTLIL::unescape_id(netlist.id(*chunk.variable.get_symbol())).c_str(),
+	                                        name.c_str());
+
+	RTLIL::Wire *pos_q = netlist.canvas->addWire(
+		netlist.canvas->uniquify(Yosys::stringf("%s$pos$q", base_name.c_str())),
+		chunk.bitwidth()); 	// intermediaries
+	log_assert(pos_q != nullptr);
+
+	RTLIL::Wire *neg_q = netlist.canvas->addWire(
+		netlist.canvas->uniquify(Yosys::stringf("%s$neg$q", base_name.c_str())),
+		chunk.bitwidth()); 	// intermediaries
+	log_assert(neg_q != nullptr);
+
+	RTLIL::Cell *pos_ff = netlist.canvas->addAldff(
+		netlist.canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())),
+		clk, aload, d, pos_q, ad,
+		/*clk_polarity=*/true, aload_polarity);
+	log_assert(pos_ff != nullptr);
+	transfer_attrs(symbol, pos_ff);
+
+	RTLIL::Cell *neg_ff = netlist.canvas->addAldff(
+		netlist.canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())),
+		clk, aload, d, neg_q, ad,
+		/*clk_polarity=*/false, aload_polarity);
+	log_assert(neg_ff != nullptr);
+	transfer_attrs(symbol, neg_ff);
+
+	// behaviour: when clk=0: select neg_q (captures on negedge), when clk=1: select pos_q (captures on posedge)
+	RTLIL::Cell *mux = netlist.canvas->addMux(
+		netlist.canvas->uniquify(Yosys::stringf("%s$mux", base_name.c_str())),
+		/*A=*/neg_q, /*B=*/pos_q, /*S=*/clk, /*Y=*/q);
+	log_assert(mux != nullptr);
+	transfer_attrs(symbol, mux);
+}
+
 struct PopulateNetlist : public TimingPatternInterpretor, public ast::ASTVisitor<PopulateNetlist, true, false> {
 public:
 	HierarchyQueue &queue;
@@ -2090,40 +2185,12 @@ public:
 				if (aloads.empty()) {
 					if (clock.edge == ast::EdgeKind::BothEdges) {
 						// dual-edge: synthesize via posedge+negedge FFs and mux (ref: https://vlsi-soc.blogspot.com/2013/06/dual-edge-triggered-flip-flop.html)
-						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
-							std::string var_name = RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol()));
-
-							// intermediaries that dont connect directly to output
-							std::string pos_wire_name = "$driver$pos$q$" + var_name + name;
-							RTLIL::Wire *pos_q = netlist.canvas->addWire(netlist.canvas->uniquify(pos_wire_name), named_chunk.bitwidth());
-
-							std::string neg_wire_name = "$driver$neg$q$" + var_name + name;
-							RTLIL::Wire *neg_q = netlist.canvas->addWire(netlist.canvas->uniquify(neg_wire_name), named_chunk.bitwidth());
-
-							std::string pos_name = "$driver$pos$" + var_name + name;
-							RTLIL::Cell *pos_ff = netlist.canvas->addDff(netlist.canvas->uniquify(pos_name),
-																		timing.triggers[0].signal,
-																		assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-																		pos_q,
-																		/*edge_polarity=*/true);
-							transfer_attrs(symbol, pos_ff);
-
-							std::string neg_name = "$driver$neg$" + var_name + name;
-							RTLIL::Cell *neg_ff = netlist.canvas->addDff(netlist.canvas->uniquify(neg_name),
-																		timing.triggers[0].signal,
-																		assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-																		neg_q,
-																		/*edge_polarity=*/false);
-							transfer_attrs(symbol, neg_ff);
-
-							// mux behavior: A=neg_q (output when clk=0), B=pos_q (output when clk=1), S=clk
-							std::string mux_name = "$driver$mux$" + var_name + name;
-							RTLIL::Cell *mux = netlist.canvas->addMux(netlist.canvas->uniquify(mux_name),
-																		/*A=*/neg_q,
-																		/*B=*/pos_q,
-																		/*S=*/timing.triggers[0].signal,
-																		/*Y=*/netlist.convert_static(named_chunk));
-							transfer_attrs(symbol, mux);
+						for (auto named : generate_subfield_names(driven_chunk, type)) {
+							auto [named_chunk, name] = named;
+							add_dual_edge_dff(netlist, symbol, named,
+							                  timing.triggers[0].signal,
+							                  assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+							                  netlist.convert_static(named_chunk));
 						}
 					} else {
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
@@ -2151,48 +2218,15 @@ public:
 					if (!aldff_q.empty()) {
 						if (clock.edge == ast::EdgeKind::BothEdges) {
 							for (auto driven_chunk2 : aldff_q.chunks())
-							for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-								std::string var_name = RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol()));
-
-								// intermediaries
-								std::string pos_wire_name = "$driver$pos$q$" + var_name + name;
-								RTLIL::Wire *pos_q = netlist.canvas->addWire(netlist.canvas->uniquify(pos_wire_name), named_chunk.bitwidth());
-
-								std::string neg_wire_name = "$driver$neg$q$" + var_name + name;
-								RTLIL::Wire *neg_q = netlist.canvas->addWire(netlist.canvas->uniquify(neg_wire_name), named_chunk.bitwidth());
-
-								// posedge aldff
-								std::string pos_name = "$driver$pos$" + var_name + name;
-								RTLIL::Cell *pos_ff = netlist.canvas->addAldff(netlist.canvas->uniquify(pos_name),
-																			timing.triggers[0].signal,
-																			aloads[0].trigger,
-																			assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-																			pos_q,
-																			aloads[0].values.evaluate(netlist, named_chunk),
-																			/*clk_polarity=*/true,
-																			aloads[0].trigger_polarity);
-								transfer_attrs(symbol, pos_ff);
-
-								// negedge aldff
-								std::string neg_name = "$driver$neg$" + var_name + name;
-								RTLIL::Cell *neg_ff = netlist.canvas->addAldff(netlist.canvas->uniquify(neg_name),
-																			timing.triggers[0].signal,
-																			aloads[0].trigger,
-																			assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-																			neg_q,
-																			aloads[0].values.evaluate(netlist, named_chunk),
-																			/*clk_polarity=*/false,
-																			aloads[0].trigger_polarity);
-								transfer_attrs(symbol, neg_ff);
-
-								// mux behavior: A=neg_q (output when clk=0), B=pos_q (output when clk=1), S=clk
-								std::string mux_name = "$driver$mux$" + var_name + name;
-								RTLIL::Cell *mux = netlist.canvas->addMux(netlist.canvas->uniquify(mux_name),
-																			/*A=*/neg_q,
-																			/*B=*/pos_q,
-																			/*S=*/timing.triggers[0].signal,
-																			/*Y=*/netlist.convert_static(named_chunk));
-								transfer_attrs(symbol, mux);
+							for (auto named : generate_subfield_names(driven_chunk2, type)) {
+								auto [named_chunk, name] = named;
+								add_dual_edge_aldff(netlist, symbol, named,
+								                    timing.triggers[0].signal,
+								                    aloads[0].trigger,
+								                    assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+								                    netlist.convert_static(named_chunk),
+								                    aloads[0].values.evaluate(netlist, named_chunk),
+								                    aloads[0].trigger_polarity);
 							}
 						} else {
 							for (auto driven_chunk2 : aldff_q.chunks())
