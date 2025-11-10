@@ -25,6 +25,7 @@ endif()
 
 set(ALL_TESTS
     unit/async.ys
+    unit/dualedge.ys
     unit/function_call.ys
     unit/latch.ys
     unit/selftests.tcl
