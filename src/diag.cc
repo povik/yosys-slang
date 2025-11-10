@@ -123,7 +123,7 @@ namespace diag {
 		engine.setSeverity(SignalSensitivityAmbiguous, DiagnosticSeverity::Warning);
 		engine.setMessage(EdgeImplicitMixing, "mixing of implicit and edge sensitivity");
 		engine.setMessage(GenericTimingUnsyn, "unsynthesizable timing control (ignore with '--ignore-timing')");
-		engine.setMessage(BothEdgesUnsupported, "'edge' sensitivity will not be synthesized");
+		engine.setMessage(BothEdgesUnsupported, "@(edge) will not be synthesized (override with '--allow-dual-edge-ff')");
 		engine.setMessage(WaitStatementUnsupported, "wait statement will not be synthesized");
 		engine.setSeverity(WaitStatementUnsupported, DiagnosticSeverity::Warning);
 		engine.setMessage(NoteSignalEvent, "signal event specified here");

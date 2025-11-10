@@ -1,0 +1,70 @@
+
+read_slang --allow-dual-edge-ff <<EOF
+module dualedge01_gate(
+	input logic clk,
+	input logic d,
+	output logic q
+);
+	always_ff @(edge clk) begin
+		q <= d;
+	end
+endmodule
+EOF
+
+read_verilog -icells <<EOF
+module dualedge01_gold(
+	input clk,
+	input d,
+	output q
+);
+	wire clk_past, q_past, d_past;
+	\$ff #(.WIDTH(1)) f1(.D(clk), .Q(clk_past));
+	\$ff #(.WIDTH(1)) f2(.D(q), .Q(q_past));
+	\$ff #(.WIDTH(1)) f3(.D(d), .Q(d_past));
+	assign q = (clk != clk_past) ? d_past : q_past;
+endmodule
+EOF
+
+clk2fflogic
+equiv_make dualedge01_gold dualedge01_gate dualedge01_equiv
+equiv_induct dualedge01_equiv
+equiv_status -assert
+
+design -reset
+
+read_slang --allow-dual-edge-ff <<EOF
+module dualedge02_gate(
+	input logic clk,
+	input logic rst_n,
+	input logic d,
+	output logic q
+);
+	always_ff @(edge clk or negedge rst_n) begin
+		if (!rst_n)
+			q <= 1'b0;
+		else
+			q <= d;
+	end
+endmodule
+EOF
+
+read_verilog -icells <<EOF
+module dualedge02_gold(
+	input clk,
+	input rst_n,
+	input d,
+	output q
+);
+	wire clk_past, q_past, d_past, rst_n_past;
+	\$ff #(.WIDTH(1)) f1(.D(clk), .Q(clk_past));
+	\$ff #(.WIDTH(1)) f2(.D(q), .Q(q_past));
+	\$ff #(.WIDTH(1)) f3(.D(d), .Q(d_past));
+	\$ff #(.WIDTH(1)) f4(.D(rst_n), .Q(rst_n_past));
+	assign q = (!rst_n || !rst_n_past) ? 1'b0 : ((clk != clk_past) ? d_past : q_past);
+endmodule
+EOF
+
+clk2fflogic
+equiv_make dualedge02_gold dualedge02_gate dualedge02_equiv
+equiv_induct dualedge02_equiv
+equiv_status -assert
