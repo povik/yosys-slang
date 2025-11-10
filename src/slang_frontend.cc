@@ -1600,7 +1600,8 @@ public:
 			wire->port_input = true;
 			wire->port_output = true;
 			break;
-		case ast::ArgumentDirection::Ref: // TODO: look up what those are
+		case ast::ArgumentDirection::Ref:
+			netlist.add_diag(diag::RefUnsupported, sym.location);
 			break;
 		}
 	}
@@ -1613,7 +1614,7 @@ public:
 		netlist.add_diag(diag::MultiportUnsupported, sym.location);
 	}
 
-	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec signal)
+	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec signal, slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -1629,14 +1630,23 @@ public:
 
 		log_assert(internal_signal.bitwidth() == signal.size());
 
-		if (port.direction == ast::ArgumentDirection::Out) {
+		switch (port.direction) {
+		case ast::ArgumentDirection::Out:
 			netlist.canvas->connect(signal, netlist.convert_static(internal_signal));
-		} else if (port.direction == ast::ArgumentDirection::In) {
+			break;
+		case ast::ArgumentDirection::In:
 			netlist.canvas->connect(netlist.convert_static(internal_signal), signal);
-		} else {
-			// TODO: better location
-			auto &diag = netlist.add_diag(diag::BadInlinedPortConnection, port.location);
-			diag << ast::toString(port.direction);
+			break;
+		case ast::ArgumentDirection::InOut: {
+			auto &diag = netlist.add_diag(diag::InlinedInOutUnsupported, range);
+			diag << port.name;
+			break;
+		};
+		case ast::ArgumentDirection::Ref: {
+			auto &diag = netlist.add_diag(diag::RefUnsupported, range);
+			diag << port.name;
+			break;
+		};
 		}
 	}
 
@@ -1728,12 +1738,12 @@ public:
 					auto &multiport = conn->port.as<ast::MultiPortSymbol>();
 					for (auto component : multiport.ports) {
 						int width = component->getType().getBitstreamWidth();
-						inline_port_connection(*component, signal.extract(offset, width));
+						inline_port_connection(*component, signal.extract(offset, width), expr.sourceRange);
 						offset += width;
 					}
 					log_assert(offset == (int) multiport.getType().getBitstreamWidth());
 				} else if (conn->port.kind == ast::SymbolKind::Port) {
-					inline_port_connection(conn->port.as<ast::PortSymbol>(), signal);
+					inline_port_connection(conn->port.as<ast::PortSymbol>(), signal, expr.sourceRange);
 				} else {
 					ast_unreachable(conn->port);
 				}

@@ -111,6 +111,8 @@ DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1056);
 DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1057);
 DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1058);
 DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1059);
+DiagCode RefUnsupported(DiagSubsystem::Netlist, 1061);
+DiagCode InlinedInOutUnsupported(DiagSubsystem::Netlist, 1062);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -268,6 +270,12 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(NoAllowTopLevelIfacePorts, "'--allow-toplevel-iface-ports' is unsupported with yosys-slang");
 	engine.setSeverity(NoAllowTopLevelIfacePorts, DiagnosticSeverity::Error);
+
+	engine.setMessage(RefUnsupported, "direction 'ref' found on port '{}' unsupported for synthesis");
+	engine.setSeverity(RefUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(InlinedInOutUnsupported, "connection on port '{}' with direction 'inout' cannot be inlined; see yosys-slang issue #143");
+	engine.setSeverity(InlinedInOutUnsupported, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag
