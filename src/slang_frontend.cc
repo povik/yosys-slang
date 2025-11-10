@@ -1718,24 +1718,7 @@ public:
 				RTLIL::SigSpec signal;
 				if (expr.kind == ast::ExpressionKind::Assignment) {
 					auto &assign = expr.as<ast::AssignmentExpression>();
-					ast::Expression const *right = &assign.right();
-
-					signal = netlist.convert_static(netlist.eval.lhs(assign.left()));
-
-					while (right->kind == ast::ExpressionKind::Conversion) {
-						auto &conv = right->as<ast::ConversionExpression>();
-
-						// assign converted value to the target
-						RTLIL::Wire *temporary = netlist.canvas->addWire(netlist.new_id(),
-												conv.operand().type->getBitstreamWidth());
-						netlist.canvas->connect(signal, netlist.eval.apply_conversion(conv, temporary));
-
-						// set pre-converted value for new target
-						signal = temporary;
-						right = &conv.operand();
-					};
-
-					log_assert(right->kind == ast::ExpressionKind::EmptyArgument);
+					signal = netlist.eval.connection_lhs(assign);
 				} else {
 					signal = netlist.eval(expr);
 				}
