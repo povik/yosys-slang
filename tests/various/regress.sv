@@ -245,3 +245,18 @@ module r24();
 		end
 	end
 endmodule
+
+// issue 247 bug in order_symbols_within_scope
+module r25();
+    r25_if foo ();
+    r25_if bar ();
+
+    always_comb begin
+       foo.a = 0;
+       bar.a = 1;
+    end
+endmodule
+
+interface r25_if();
+   logic a;
+endinterface
