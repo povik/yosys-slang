@@ -1,0 +1,88 @@
+read_slang <<EOF
+module rs_trigger_gate(
+  output reg [7:0] Q,
+  input [7:0] D1,
+  input CLK,
+  input RST,
+  input SET
+);
+  always @(negedge CLK or negedge RST or posedge SET) begin
+    if (~RST)
+      Q <= 8'b0000_0000;
+    else if (SET)
+      Q <= 8'b1111_1111;
+    else
+      Q <= D1;
+  end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \rs_trigger_gold
+  wire width 8 output 2 \Q
+  wire width 8 input 5 \D1
+  wire input 1 \CLK
+  wire input 3 \RST
+  wire input 4 \SET
+  wire $1y
+  wire $2y
+  wire $3y
+  wire $4y
+  wire width 8 $5y
+  wire width 8 $6y
+  cell $logic_not $1
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A \RST
+    connect \Y $1y
+  end
+  cell $dffsr $driver$Q
+    parameter \CLK_POLARITY 0
+    parameter \SET_POLARITY 1
+    parameter \CLR_POLARITY 0
+    parameter \WIDTH 8
+    connect \CLK \CLK
+    connect \SET $5y
+    connect \CLR $6y
+    connect \D \D1
+    connect \Q \Q
+  end
+  cell $logic_and $3
+    parameter \A_SIGNED 0
+    parameter \B_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \B_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A $2y
+    connect \B \SET
+    connect \Y $3y
+  end
+  cell $logic_not $4
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 2
+    parameter \Y_WIDTH 1
+    connect \A { \SET $1y }
+    connect \Y $4y
+  end
+  cell $mux $5
+    parameter \WIDTH 8
+    connect \A 8'00000000
+    connect \B 8'11111111
+    connect \S \SET
+    connect \Y $5y
+  end
+  cell $mux $6
+    parameter \WIDTH 8
+    connect \A 8'00000000
+    connect \B 8'11111111
+    connect \S \RST
+    connect \Y $6y
+  end
+  connect $2y \RST
+end
+EOF
+async2sync
+equiv_make rs_trigger_gold rs_trigger_gate rs_trigger_equiv
+equiv_induct rs_trigger_equiv
+equiv_status -assert

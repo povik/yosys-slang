@@ -1470,7 +1470,7 @@ public:
 			// TODO: check for non-constant load values and warn about sim/synth mismatch
 		}
 
-		if (aloads.size() > 1) {
+		if (aloads.size() > 2) {
 			netlist.add_diag(diag::AloadOne, timed.timing.sourceRange);
 			return;
 		}
@@ -1549,7 +1549,30 @@ public:
 							transfer_attrs(symbol, cell);
 						}
 					}
-				} else {
+				} else if (aloads.size() == 2) {
+				        VariableBits dffsr_q;
+				        for (int i = 0; i < driven_chunk.bitwidth(); i++) {
+					    dffsr_q.append(driven_chunk[i]);
+					}
+					for (auto driven_chunk2 : dffsr_q.chunks()) {
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
+						        auto set = netlist.Mux(RTLIL::SigSpec(0, named_chunk.bitwidth()),
+									       RTLIL::SigSpec(-1, named_chunk.bitwidth()), aloads[1].trigger);
+						        auto clr = netlist.Mux(RTLIL::SigSpec(0, named_chunk.bitwidth()),
+									       RTLIL::SigSpec(-1, named_chunk.bitwidth()), aloads[0].trigger);
+						        cell = netlist.canvas->addDffsr(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
+													timing.triggers[0].signal,
+													set,
+									                                clr,
+													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+													netlist.convert_static(named_chunk),
+													timing.triggers[0].edge_polarity,
+									                                aloads[1].trigger_polarity,
+									                                aloads[0].trigger_polarity);
+							transfer_attrs(symbol, cell);
+						}
+				        }
+				} else  {
 					log_abort();
 				}
 			}
