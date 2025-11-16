@@ -1,0 +1,22 @@
+read_slang --top top2 <<EOF
+interface bus(input clk);
+	logic a, b;
+	modport primary(input a, output b, input clk);
+	modport secondary(input b, output a, input clk);
+endinterface
+
+module submod(bus.primary intf);
+	assign intf.b = !intf.a;
+endmodule
+
+module top(input logic w1, output logic w2,
+		   input logic clk);
+	bus intf(clk);
+	assign intf.a = w1;
+	assign w2 = intf.b;
+	submod sm(intf);
+endmodule
+
+module top2();
+endmodule
+EOF
