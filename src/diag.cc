@@ -203,7 +203,7 @@ void setup_messages(slang::DiagnosticEngine &engine)
 	engine.setMessage(FixedSizeRequired, "expression of type {} with dynamic size unsupported for synthesis");
 	engine.setSeverity(FixedSizeRequired, DiagnosticSeverity::Error);
 
-	engine.setMessage(AloadOne, "multiple asynchronous loads unsupported");
+	engine.setMessage(AloadOne, "more than two asynchronous loads unsupported");
 	engine.setSeverity(AloadOne, DiagnosticSeverity::Error);
 
 	engine.setMessage(BadInlinedPortConnection, "direction '{}' on inlined port connection unsupported");
