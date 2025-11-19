@@ -29,9 +29,11 @@ static void subfield_names(VariableChunk chunk, int type_offset, const ast::Type
 	if (type->isStruct()) {
 		const ast::Scope *scope = &type->as<ast::Scope>();
 
-		for (auto &field : scope->template membersOfType<ast::FieldSymbol>())
-			subfield_names(chunk, type_offset + field.bitOffset, &field.getType(),
+		for (auto &field : scope->template membersOfType<ast::FieldSymbol>()) {
+			int field_offset = int(bitstream_member_offset(field));
+			subfield_names(chunk, type_offset + field_offset, &field.getType(),
 					prefix + "." + std::string(field.name), ret);
+		}
 	} else if (type->isArray() && !type->isSimpleBitVector()) {
 		log_assert(type->hasFixedRange());
 		auto range = type->getFixedRange();

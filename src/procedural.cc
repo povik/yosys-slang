@@ -337,12 +337,13 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 				break;
 			}
 
-			int pad = acc.value().type->getBitstreamWidth() - acc.type->getBitstreamWidth() -
-					  member.bitOffset;
+			int bit_offset = bitstream_member_offset(member);
+			int parent_width = acc.value().type->getBitstreamWidth();
+			int pad = parent_width - acc.type->getBitstreamWidth() - bit_offset;
 			raw_mask = {RTLIL::SigSpec(RTLIL::S0, pad), raw_mask,
-					RTLIL::SigSpec(RTLIL::S0, member.bitOffset)};
+					RTLIL::SigSpec(RTLIL::S0, bit_offset)};
 			raw_rvalue = {RTLIL::SigSpec(RTLIL::Sx, pad), raw_rvalue,
-					RTLIL::SigSpec(RTLIL::Sx, member.bitOffset)};
+					RTLIL::SigSpec(RTLIL::Sx, bit_offset)};
 			raw_lexpr = &acc.value();
 		} break;
 		case ast::ExpressionKind::Concatenation: {

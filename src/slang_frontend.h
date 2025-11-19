@@ -38,6 +38,7 @@ namespace slang {
 		class StreamingConcatenationExpression;
 		class ConversionExpression;
 		class AssignmentExpression;
+		class FieldSymbol;
 	};
 };
 
@@ -67,6 +68,12 @@ class VariableBit;
 class VariableChunk;
 struct ProcessTiming;
 class Case;
+
+// Slang stores `FieldSymbol::bitOffset` MSB-first inside unpacked structs, while
+// Yosys works with bitstream-serialization order (LSB-first). This helper
+// mirrors Slang's offset so every caller sees the physical bit index actually
+// used when flattening into a bitstream.
+uint64_t bitstream_member_offset(const ast::FieldSymbol &member);
 
 class Variable {
 public:

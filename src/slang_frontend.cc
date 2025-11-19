@@ -124,6 +124,26 @@ const RTLIL::IdString id(const std::string_view &view)
 	return RTLIL::escape_id(std::string(view));
 }
 
+// Slang stores `FieldSymbol::bitOffset` in MSB-first order for unpacked structs,
+// but Yosys works with bitstream serialization in LSB-first order. Flip the
+// offset only in that case so every caller sees the physical index used in RTL.
+uint64_t bitstream_member_offset(const ast::FieldSymbol &member)
+{
+	const ast::Symbol &parent = member.getParentScope()->asSymbol();
+	ast_invariant(member, ast::Type::isKind(parent.kind));
+
+	uint64_t bit_offset = member.bitOffset;
+	
+	const ast::Type &symbol = parent.as<ast::Type>();
+	if (symbol.isUnpackedStruct()) {
+		const auto &unpacked = symbol.as<ast::UnpackedStructType>();
+		ast_invariant(member, unpacked.bitstreamWidth == unpacked.selectableWidth);
+		bit_offset = unpacked.bitstreamWidth - member.bitOffset
+				 - member.getType().getBitstreamWidth();
+	}
+	return bit_offset;
+}
+
 static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
 {
 	ast_invariant(sym, sym.parentInstance && sym.parentInstance->isModule());
@@ -515,17 +535,7 @@ Vector extract_struct_field(Vector value, const ast::MemberAccessExpression &exp
 	require(expr, expr.member.kind == ast::SymbolKind::Field);
 	const auto &member = expr.member.as<ast::FieldSymbol>();
 	require(expr, member.randMode == ast::RandMode::None);
-	const auto &struct_symbol = member.getParentScope()->asSymbol();
-	require(expr, ast::Type::isKind(struct_symbol.kind));
-	uint64_t bit_offset = member.bitOffset;
-	// In the case of unpacked structs we need to flip slang's `bitOffset`
-	// as it doesn't correspond to the bit offsets in a bitstream serialization.
-	if (struct_symbol.as<ast::Type>().isUnpackedStruct()) {
-		auto &unpacked = struct_symbol.as<ast::UnpackedStructType>();
-		require(expr, unpacked.bitstreamWidth == unpacked.selectableWidth);
-		bit_offset = unpacked.bitstreamWidth - member.bitOffset
-					 - member.getType().getBitstreamWidth();
-	}
+	uint64_t bit_offset = bitstream_member_offset(member);
 	return value.extract(bit_offset,
 		expr.type->getBitstreamWidth());
 }
