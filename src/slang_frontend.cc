@@ -1550,16 +1550,51 @@ public:
 						}
 					}
 				} else if (aloads.size() == 2) {
-				        VariableBits dffsr_q;
-				        for (int i = 0; i < driven_chunk.bitwidth(); i++) {
-					    dffsr_q.append(driven_chunk[i]);
+					RTLIL::SigSpec right_side[2];
+					for (int j = 0; j < aloads.size(); j++) {
+						auto asgn = aloads[j].values.evaluate(netlist, driven_chunk);
+						for (int i = 0; i < driven_chunk.bitwidth(); i++) {
+							right_side[j].append(asgn[i]);
+						}
+					}
+					// always @(negedge CLK or posedge A or posedge B) begin
+					//   if (A)
+					//     Q <= DA;
+					//   else if (B)
+					//     Q <= DB;
+					//   else
+					//     Q <= DC;
+					// end
+					auto& trig_a = aloads[0];
+					auto& trig_b = aloads[1];
+					auto da = right_side[0];
+					auto db = right_side[1];
+					auto not_da = netlist.Not(da); // assign _01_ = ~ DA;
+					auto not_db = netlist.Not(db); // assign _02_ = ~ DB;
+					VariableBits dffsr_q;
+					for (int i = 0; i < driven_chunk.bitwidth(); i++) {
+						dffsr_q.append(driven_chunk[i]);
 					}
 					for (auto driven_chunk2 : dffsr_q.chunks()) {
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-						        auto set = netlist.Mux(RTLIL::SigSpec(0, named_chunk.bitwidth()),
-									       RTLIL::SigSpec(-1, named_chunk.bitwidth()), aloads[1].trigger);
-						        auto clr = netlist.Mux(RTLIL::SigSpec(0, named_chunk.bitwidth()),
-									       RTLIL::SigSpec(-1, named_chunk.bitwidth()), aloads[0].trigger);
+							// assign _05_ = B ? _02_ : 8'h00;
+							auto if_b_ndb =  trig_b.trigger_polarity ? netlist.Mux(RTLIL::SigSpec(0, named_chunk.bitwidth()),
+														  not_db,
+														  trig_b.trigger) :
+							    netlist.Mux(not_db, RTLIL::SigSpec(0, named_chunk.bitwidth()),
+														  trig_b.trigger);
+							// assign _03_ = A ? _01_ : _05_;
+							auto clr =  trig_a.trigger_polarity ? netlist.Mux(if_b_ndb, not_da, trig_a.trigger) :
+							    netlist.Mux(not_da, if_b_ndb, trig_a.trigger);
+							// assign _04_ = B ? DB : 8'h00;
+							auto if_b_db =  trig_b.trigger_polarity ? netlist.Mux(RTLIL::SigSpec(0, named_chunk.bitwidth()),
+										     db,
+														 trig_b.trigger) :
+							    netlist.Mux(db, RTLIL::SigSpec(0, named_chunk.bitwidth()),
+														 trig_b.trigger);
+							// assign _06_ = A ? DA : _04_;
+							auto set = trig_a.trigger_polarity ? netlist.Mux(if_b_db, da, trig_a.trigger) :
+							    netlist.Mux(da, if_b_db, trig_a.trigger);
 						        cell = netlist.canvas->addDffsr(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
 													timing.triggers[0].signal,
 													set,
@@ -1567,11 +1602,11 @@ public:
 													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
 													netlist.convert_static(named_chunk),
 													timing.triggers[0].edge_polarity,
-									                                aloads[1].trigger_polarity,
-									                                aloads[0].trigger_polarity);
+											                true,
+											                true);
 							transfer_attrs(symbol, cell);
 						}
-				        }
+					}
 				} else  {
 					log_abort();
 				}

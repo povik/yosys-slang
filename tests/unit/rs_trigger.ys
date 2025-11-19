@@ -86,3 +86,713 @@ async2sync
 equiv_make rs_trigger_gold rs_trigger_gate rs_trigger_equiv
 equiv_induct rs_trigger_equiv
 equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module rs_trigger_gate02(
+  output reg [7:0] Q,
+  input [7:0] D1,
+  input CLK,
+  input A,
+  input B
+);
+
+  always @(negedge CLK or posedge A or posedge B) begin
+    if (A)
+      Q <= 8'b1111_0000;
+    else if (B)
+      Q <= 8'b0000_1111;
+    else
+      Q <= D1;
+  end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \rs_trigger_gold02
+  wire width 8 output 4 \Q
+  wire width 8 input 5 \D1
+  wire input 3 \CLK
+  wire input 1 \A
+  wire input 2 \B
+  wire $1y
+  wire $2y
+  wire $3y
+  wire width 8 $4y
+  wire width 8 $5y
+  wire width 8 $6y
+  wire width 8 $7y
+  cell $logic_not $1
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A \A
+    connect \Y $1y
+  end
+  cell $logic_and $2
+    parameter \A_SIGNED 0
+    parameter \B_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \B_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A $1y
+    connect \B \B
+    connect \Y $2y
+  end
+  cell $logic_not $3
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 2
+    parameter \Y_WIDTH 1
+    connect \A { \B \A }
+    connect \Y $3y
+  end
+  cell $mux $4
+    parameter \WIDTH 8
+    connect \A 8'00000000
+    connect \B 8'11110000
+    connect \S \B
+    connect \Y $4y
+  end
+  cell $mux $5
+    parameter \WIDTH 8
+    connect \A $4y
+    connect \B 8'00001111
+    connect \S \A
+    connect \Y $5y
+  end
+  cell $mux $6
+    parameter \WIDTH 8
+    connect \A 8'00000000
+    connect \B 8'00001111
+    connect \S \B
+    connect \Y $6y
+  end
+  cell $mux $7
+    parameter \WIDTH 8
+    connect \A $6y
+    connect \B 8'11110000
+    connect \S \A
+    connect \Y $7y
+  end
+  cell $dffsr $driver$Q
+    parameter \CLK_POLARITY 0
+    parameter \SET_POLARITY 1
+    parameter \CLR_POLARITY 1
+    parameter \WIDTH 8
+    connect \CLK \CLK
+    connect \SET $7y
+    connect \CLR $5y
+    connect \D \D1
+    connect \Q \Q
+  end
+end
+EOF
+
+async2sync
+equiv_make rs_trigger_gold02 rs_trigger_gate02 rs_trigger_equiv02
+equiv_induct rs_trigger_equiv02
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module rs_trigger_gate03(
+  output reg [7:0] Q,
+  input [7:0] 	   DA,
+  input [7:0] 	   DB,
+  input [7:0] 	   DC,
+  input 	   CLK,
+  input 	   A,
+  input 	   B
+);
+
+  always @(negedge CLK or negedge A or negedge B) begin
+    if (~A)
+      Q <= DA;
+    else if (~B)
+      Q <= DB;
+    else
+      Q <= DC;
+  end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \rs_trigger_gold03
+  wire width 8 output 4 \Q
+  wire width 8 input 7 \DC
+  wire width 8 input 6 \DB
+  wire width 8 input 5 \DA
+  wire input 3 \CLK
+  wire input 2 \B
+  wire input 1 \A
+  wire width 8 $9y
+  wire width 8 $8y
+  wire width 8 $7y
+  wire width 8 $6y
+  wire $5y
+  wire $4y
+  wire $3y
+  wire $2y
+  wire $1y
+  wire width 8 $11y
+  wire width 8 $10y
+  cell $dffsr $driver$Q
+    parameter \WIDTH 8
+    parameter \SET_POLARITY 1
+    parameter \CLR_POLARITY 1
+    parameter \CLK_POLARITY 0
+    connect \SET $11y
+    connect \Q \Q
+    connect \D \DC
+    connect \CLR $9y
+    connect \CLK \CLK
+  end
+  cell $mux $9
+    parameter \WIDTH 8
+    connect \Y $9y
+    connect \S \A
+    connect \B $8y
+    connect \A $6y
+  end
+  cell $mux $8
+    parameter \WIDTH 8
+    connect \Y $8y
+    connect \S \B
+    connect \B 8'00000000
+    connect \A $7y
+  end
+  cell $not $7
+    parameter \Y_WIDTH 8
+    parameter \A_WIDTH 8
+    parameter \A_SIGNED 0
+    connect \Y $7y
+    connect \A \DB
+  end
+  cell $not $6
+    parameter \Y_WIDTH 8
+    parameter \A_WIDTH 8
+    parameter \A_SIGNED 0
+    connect \Y $6y
+    connect \A \DA
+  end
+  cell $logic_not $5
+    parameter \Y_WIDTH 1
+    parameter \A_WIDTH 2
+    parameter \A_SIGNED 0
+    connect \Y $5y
+    connect \A { $2y $1y }
+  end
+  cell $logic_and $4
+    parameter \Y_WIDTH 1
+    parameter \B_WIDTH 1
+    parameter \B_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \A_SIGNED 0
+    connect \Y $4y
+    connect \B $2y
+    connect \A $3y
+  end
+  cell $logic_not $2
+    parameter \Y_WIDTH 1
+    parameter \A_WIDTH 1
+    parameter \A_SIGNED 0
+    connect \Y $2y
+    connect \A \B
+  end
+  cell $mux $11
+    parameter \WIDTH 8
+    connect \Y $11y
+    connect \S \A
+    connect \B $10y
+    connect \A \DA
+  end
+  cell $mux $10
+    parameter \WIDTH 8
+    connect \Y $10y
+    connect \S \B
+    connect \B 8'00000000
+    connect \A \DB
+  end
+  cell $logic_not $1
+    parameter \Y_WIDTH 1
+    parameter \A_WIDTH 1
+    parameter \A_SIGNED 0
+    connect \Y $1y
+    connect \A \A
+  end
+  connect $3y \A
+end
+EOF
+
+async2sync
+equiv_make rs_trigger_gold03 rs_trigger_gate03 rs_trigger_equiv03
+equiv_induct rs_trigger_equiv03
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module rs_trigger_gate04(
+output reg [7:0] Q,
+  output reg [3:0] Q1,
+  input [7:0] 	   DA,
+  input [7:0] 	   DB,
+  input [7:0] 	   DC,
+  input 	   CLK,
+  input 	   A,
+  input 	   B
+);
+  always @(negedge CLK or negedge A or negedge B) begin
+    if (~A) begin
+      Q <= DA;
+    end else if (~B) begin
+      Q <= DB;
+      Q1 <= 4'b0001;
+    end else begin
+      Q <= DC;
+      Q1 <= 4'b0010;
+    end
+  end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \rs_trigger_gold04
+  wire width 8 output 4 \Q
+  wire width 4 output 5 \Q1
+  wire width 8 input 6 \DA
+  wire width 8 input 7 \DB
+  wire width 8 input 8 \DC
+  wire input 3 \CLK
+  wire input 1 \A
+  wire input 2 \B
+  wire $1y
+  wire $2y
+  wire $3y
+  wire $4y
+  wire $5y
+  wire width 8 $6y
+  wire width 8 $7y
+  wire width 8 $8y
+  wire width 8 $9y
+  wire width 8 $10y
+  wire width 8 $11y
+  wire width 4 $12y
+  wire width 4 $13y
+  wire width 4 $14y
+  wire width 4 $15y
+  wire width 4 $16y
+  cell $logic_not $1
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A \A
+    connect \Y $1y
+  end
+  cell $logic_not $2
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A \B
+    connect \Y $2y
+  end
+  attribute \src "../../yosys-log/tba7.v:13.3"
+  cell $dffsr $driver$Q1
+    parameter \CLK_POLARITY 0
+    parameter \SET_POLARITY 1
+    parameter \CLR_POLARITY 1
+    parameter \WIDTH 4
+    connect \CLK \CLK
+    connect \SET $16y
+    connect \CLR $14y
+    connect \D 4'0010
+    connect \Q \Q1
+  end
+  cell $logic_and $4
+    parameter \A_SIGNED 0
+    parameter \B_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \B_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A $3y
+    connect \B $2y
+    connect \Y $4y
+  end
+  cell $logic_not $5
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 2
+    parameter \Y_WIDTH 1
+    connect \A { $2y $1y }
+    connect \Y $5y
+  end
+  cell $not $6
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 8
+    parameter \Y_WIDTH 8
+    connect \A \DA
+    connect \Y $6y
+  end
+  cell $not $7
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 8
+    parameter \Y_WIDTH 8
+    connect \A \DB
+    connect \Y $7y
+  end
+  cell $mux $8
+    parameter \WIDTH 8
+    connect \A $7y
+    connect \B 8'00000000
+    connect \S \B
+    connect \Y $8y
+  end
+  cell $mux $9
+    parameter \WIDTH 8
+    connect \A $6y
+    connect \B $8y
+    connect \S \A
+    connect \Y $9y
+  end
+  cell $mux $10
+    parameter \WIDTH 8
+    connect \A \DB
+    connect \B 8'00000000
+    connect \S \B
+    connect \Y $10y
+  end
+  cell $mux $11
+    parameter \WIDTH 8
+    connect \A \DA
+    connect \B $10y
+    connect \S \A
+    connect \Y $11y
+  end
+  attribute \src "../../yosys-log/tba7.v:13.3"
+  cell $dffsr $driver$Q
+    parameter \CLK_POLARITY 0
+    parameter \SET_POLARITY 1
+    parameter \CLR_POLARITY 1
+    parameter \WIDTH 8
+    connect \CLK \CLK
+    connect \SET $11y
+    connect \CLR $9y
+    connect \D \DC
+    connect \Q \Q
+  end
+  cell $not $12
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 4
+    parameter \Y_WIDTH 4
+    connect \A \Q1
+    connect \Y $12y
+  end
+  cell $mux $13
+    parameter \WIDTH 4
+    connect \A 4'1110
+    connect \B 4'0000
+    connect \S \B
+    connect \Y $13y
+  end
+  cell $mux $14
+    parameter \WIDTH 4
+    connect \A $12y
+    connect \B $13y
+    connect \S \A
+    connect \Y $14y
+  end
+  cell $mux $15
+    parameter \WIDTH 4
+    connect \A 4'0001
+    connect \B 4'0000
+    connect \S \B
+    connect \Y $15y
+  end
+  cell $mux $16
+    parameter \WIDTH 4
+    connect \A \Q1
+    connect \B $15y
+    connect \S \A
+    connect \Y $16y
+  end
+  connect $3y \A
+end
+EOF
+
+async2sync
+equiv_make rs_trigger_gold04 rs_trigger_gate04 rs_trigger_equiv04
+equiv_induct rs_trigger_equiv04
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module rs_trigger_gate05();
+ reg d;
+   reg d1;
+   reg clk;
+   reg set;
+   reg reset;
+   reg q1;
+   reg q2;
+   RSFF m1(d, clk, set, reset, q1);
+   SRFF m2(d, d1, clk, set, reset, q2);
+endmodule // top
+
+module RSFF(input d, clk, set, reset, output reg q);
+always @(posedge clk or posedge reset or posedge set)
+    if(reset)
+	    q <= 0;
+	else if(set)
+	    q <= 1;
+	else
+	    q <= d;
+endmodule
+
+module SRFF(input d, d1, clk, set, reset, output reg q);
+always @(posedge clk or posedge set or posedge reset)
+    if(set)
+	    q <= d | d1;
+	else if(reset)
+	    q <= 0;
+	else
+	    q <= d;
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \rs_trigger_gold05
+  wire \d
+  wire \d1
+  wire \clk
+  wire \set
+  wire \reset
+  wire \q1
+  wire \q2
+  wire \m1.d
+  wire \m1.clk
+  wire \m1.set
+  wire \m1.reset
+  wire \m1.q
+  wire \m2.d
+  wire \m2.d1
+  wire \m2.clk
+  wire \m2.set
+  wire \m2.reset
+  wire \m2.q
+  wire $1y
+  wire $2y
+  wire $3y
+  wire $4y
+  wire $5y
+  wire $6y
+  wire $7y
+  wire $9y
+  wire $10y
+  wire $11y
+  wire $12y
+  wire $13y
+  wire $14y
+  wire $15y
+  wire $16y
+  wire $17y
+  cell $logic_not $1
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A \m1.reset
+    connect \Y $1y
+  end
+  cell $logic_and $2
+    parameter \A_SIGNED 0
+    parameter \B_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \B_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A $1y
+    connect \B \m1.set
+    connect \Y $2y
+  end
+  cell $logic_not $3
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 2
+    parameter \Y_WIDTH 1
+    connect \A { \m1.set \m1.reset }
+    connect \Y $3y
+  end
+  cell $dffsr $driver$m2.q
+    parameter \CLK_POLARITY 1
+    parameter \SET_POLARITY 1
+    parameter \CLR_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \m2.clk
+    connect \SET $17y
+    connect \CLR $15y
+    connect \D \m2.d
+    connect \Q \m2.q
+  end
+  cell $mux $5
+    parameter \WIDTH 1
+    connect \A 1'0
+    connect \B 1'1
+    connect \S \m1.reset
+    connect \Y $5y
+  end
+  cell $mux $6
+    parameter \WIDTH 1
+    connect \A 1'0
+    connect \B 1'1
+    connect \S \m1.set
+    connect \Y $6y
+  end
+  cell $mux $7
+    parameter \WIDTH 1
+    connect \A $6y
+    connect \B 1'0
+    connect \S \m1.reset
+    connect \Y $7y
+  end
+  cell $dffsr $driver$m1.q
+    parameter \CLK_POLARITY 1
+    parameter \SET_POLARITY 1
+    parameter \CLR_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \m1.clk
+    connect \SET $7y
+    connect \CLR $5y
+    connect \D \m1.d
+    connect \Q \m1.q
+  end
+  attribute \src "../../yosys-log/tba12.v:26.11-26.17"
+  cell $or $9
+    parameter \A_WIDTH 1
+    parameter \B_WIDTH 1
+    parameter \A_SIGNED 0
+    parameter \B_SIGNED 0
+    parameter \Y_WIDTH 1
+    connect \A \m2.d
+    connect \B \m2.d1
+    connect \Y $9y
+  end
+  cell $logic_not $10
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A \m2.set
+    connect \Y $10y
+  end
+  cell $logic_and $11
+    parameter \A_SIGNED 0
+    parameter \B_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \B_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A $10y
+    connect \B \m2.reset
+    connect \Y $11y
+  end
+  cell $logic_not $12
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 2
+    parameter \Y_WIDTH 1
+    connect \A { \m2.reset \m2.set }
+    connect \Y $12y
+  end
+  cell $not $13
+    parameter \A_SIGNED 0
+    parameter \A_WIDTH 1
+    parameter \Y_WIDTH 1
+    connect \A $9y
+    connect \Y $13y
+  end
+  cell $mux $14
+    parameter \WIDTH 1
+    connect \A 1'0
+    connect \B 1'1
+    connect \S \m2.reset
+    connect \Y $14y
+  end
+  cell $mux $15
+    parameter \WIDTH 1
+    connect \A $14y
+    connect \B $13y
+    connect \S \m2.set
+    connect \Y $15y
+  end
+  cell $mux $17
+    parameter \WIDTH 1
+    connect \A 1'0
+    connect \B $9y
+    connect \S \m2.set
+    connect \Y $17y
+  end
+  connect \m1.d \d
+  connect \m1.clk \clk
+  connect \m1.set \set
+  connect \m1.reset \reset
+  connect \q1 \m1.q
+  connect \m2.d \d
+  connect \m2.d1 \d1
+  connect \m2.clk \clk
+  connect \m2.set \set
+  connect \m2.reset \reset
+  connect \q2 \m2.q
+  connect $4y 1'0
+  connect $16y 1'0
+end
+EOF
+
+async2sync
+equiv_make rs_trigger_gold05 rs_trigger_gate05 rs_trigger_equiv05
+equiv_induct rs_trigger_equiv05
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+// Tests aload combined with reset. The aload gets refactored into the set/reset
+// logic
+module top(input clk, rst, aload_n, input [1:0] l, d, output reg [1:0] q);
+
+always @(posedge clk, posedge rst, negedge aload_n) begin
+	if      (rst)      q <= '0;
+	else if (!aload_n) q <= l;
+	else               q <= d;
+end
+
+always @* begin
+	if      (rst)      assert(q == '0);
+	else if (!aload_n) assert(q == l);
+end
+
+endmodule
+EOF
+
+proc
+select -assert-count 1 t:$dffsr
+clk2fflogic
+select -assert-count 2 t:$assert
+sat -tempinduct -verify -prove-asserts
+
+design -reset
+read_slang <<EOF
+module test (
+	input clk, rst, d,
+	output reg q
+);
+wire nop = 1'h0;
+always @(posedge clk, posedge nop, posedge rst) begin
+	if (rst) q <= 1'b0;
+	else if (nop) q <= 1'b1;
+	else q <= d;
+end
+endmodule
+EOF
+prep -top test
+write_verilog const_sr.v
+design -stash gold
+read_slang const_sr.v
+prep -top test
+design -stash gate
+design -copy-from gold -as gold A:top
+design -copy-from gate -as gate A:top
+miter -equiv -flatten -make_assert gold gate miter
+prep -top miter
+clk2fflogic
+sat -set-init-zero -tempinduct -prove-asserts -verify
