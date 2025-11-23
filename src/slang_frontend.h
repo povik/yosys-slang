@@ -69,12 +69,6 @@ class VariableChunk;
 struct ProcessTiming;
 class Case;
 
-// Slang stores `FieldSymbol::bitOffset` MSB-first inside unpacked structs, while
-// Yosys works with bitstream-serialization order (LSB-first). This helper
-// mirrors Slang's offset so every caller sees the physical bit index actually
-// used when flattening into a bitstream.
-uint64_t bitstream_member_offset(const ast::FieldSymbol &member);
-
 class Variable {
 public:
 	enum Kind {
@@ -531,6 +525,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);
+template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
+uint64_t bitstream_member_offset(const ast::FieldSymbol &member);
 
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source);

@@ -138,9 +138,6 @@ const RTLIL::IdString id(const std::string_view &view)
 	return RTLIL::escape_id(std::string(view));
 }
 
-// Slang stores `FieldSymbol::bitOffset` in MSB-first order for unpacked structs,
-// but Yosys works with bitstream serialization in LSB-first order. Flip the
-// offset only in that case so every caller sees the physical index used in RTL.
 uint64_t bitstream_member_offset(const ast::FieldSymbol &member)
 {
 	const ast::Symbol &parent = member.getParentScope()->asSymbol();
@@ -148,7 +145,11 @@ uint64_t bitstream_member_offset(const ast::FieldSymbol &member)
 
 	uint64_t bit_offset = member.bitOffset;
 	
-	const ast::Type &symbol = parent.as<ast::Type>();
+	const ast::Type &symbol = parent.as<ast::Type>();	
+	// Slang stores `FieldSymbol::bitOffset` MSB-first inside unpacked structs, while
+	// Yosys works with bitstream-serialization order (LSB-first). This helper
+	// mirrors Slang's offset so every caller sees the physical bit index actually
+	// used when flattening into a bitstream.
 	if (symbol.isUnpackedStruct()) {
 		const auto &unpacked = symbol.as<ast::UnpackedStructType>();
 		ast_invariant(member, unpacked.bitstreamWidth == unpacked.selectableWidth);
