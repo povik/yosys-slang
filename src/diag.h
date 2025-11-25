@@ -5,8 +5,8 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #pragma once
-#include "slang/diagnostics/Diagnostics.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/Diagnostics.h"
 
 namespace slang_frontend {
 namespace diag {
@@ -67,7 +67,9 @@ extern slang::DiagCode NonblockingAssignmentAfterBlocking;
 extern slang::DiagCode NotePreviousAssignment;
 extern slang::DiagCode NetTypeUnsupported;
 extern slang::DiagCode NoAllowTopLevelIfacePorts;
+extern slang::DiagCode RefUnsupported;
+extern slang::DiagCode InlinedInOutUnsupported;
 
 void setup_messages(slang::DiagnosticEngine &engine);
-};
-};
+}; // namespace diag
+}; // namespace slang_frontend

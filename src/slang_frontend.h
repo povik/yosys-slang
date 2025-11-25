@@ -4,6 +4,7 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+// clang-format off
 #pragma once
 #include "slang/ast/EvalContext.h"
 #include "kernel/rtlil.h"
@@ -37,6 +38,7 @@ namespace slang {
 		class StreamingConcatenationExpression;
 		class ConversionExpression;
 		class AssignmentExpression;
+		class FieldSymbol;
 	};
 };
 
@@ -66,6 +68,12 @@ class VariableBit;
 class VariableChunk;
 struct ProcessTiming;
 class Case;
+
+// Slang stores `FieldSymbol::bitOffset` MSB-first inside unpacked structs, while
+// Yosys works with bitstream-serialization order (LSB-first). This helper
+// mirrors Slang's offset so every caller sees the physical bit index actually
+// used when flattening into a bitstream.
+uint64_t bitstream_member_offset(const ast::FieldSymbol &member);
 
 class Variable {
 public:
@@ -122,7 +130,6 @@ struct EvalContext {
 	// Scope nest level tracking to isolate automatic variables of reentrant
 	// scopes (i.e. functions)
 	Yosys::dict<const ast::Scope *, int> scope_nest_level;
-	int current_scope_nest_level;
 
 	int find_nest_level(const ast::Scope *scope);
 	Variable variable(const ast::ValueSymbol &symbol);
@@ -168,7 +175,6 @@ public:
 private:
 	EvalContext &context;
 	const ast::Scope *scope;
-	int save_scope_nest_level;
 };
 
 class UnrollLimitTracking {
@@ -210,7 +216,7 @@ public:
 	EvalContext eval;
 	int effects_priority = 0;
 
-	Case *root_case;
+	std::unique_ptr<Case> root_case;
 	Case *current_case;
 
 private:
@@ -487,21 +493,6 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	NetlistContext(const NetlistContext&) = delete;
 	NetlistContext& operator=(const NetlistContext&) = delete;
-	NetlistContext(NetlistContext&& other)
-		: settings(other.settings), compilation(other.compilation),
-		  realm(other.realm), eval(*this)
-	{
-		log_assert(other.eval.procedural == nullptr);
-		log_assert(other.eval.lvalue == nullptr);
-
-		emitted_mems.swap(other.emitted_mems);
-		scopes_remap.swap(other.scopes_remap);
-		wire_cache.swap(other.wire_cache);
-		detected_memories.swap(other.detected_memories);
-		canvas = other.canvas;
-		other.canvas = nullptr;
-		disabled = other.disabled;
-	}
 
 	Yosys::pool<const ast::Symbol *> detected_memories;
 	bool is_inferred_memory(const ast::Symbol &symbol);
@@ -519,6 +510,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 };
 
 // slang_frontend.cc
+const RTLIL::Const convert_const(const slang::ConstantValue &constval);
+RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
 

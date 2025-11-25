@@ -33,8 +33,7 @@ EnterAutomaticScopeGuard::EnterAutomaticScopeGuard(EvalContext &context, const a
 	: context(context), scope(scope)
 {
 	if (scope) {
-		save_scope_nest_level = context.current_scope_nest_level;
-		context.current_scope_nest_level = ++context.scope_nest_level[scope];
+		++context.scope_nest_level[scope];
 	}
 }
 
@@ -45,7 +44,6 @@ EnterAutomaticScopeGuard::~EnterAutomaticScopeGuard()
 		log_assert(new_nest_level >= 0);
 		if (new_nest_level == 0)
 			context.scope_nest_level.erase(scope);
-		context.current_scope_nest_level = save_scope_nest_level;
 	}
 }
 
@@ -104,7 +102,7 @@ ProceduralContext::ProceduralContext(NetlistContext &netlist, ProcessTiming &tim
 	: unroll_limit(netlist, netlist.settings.unroll_limit()), netlist(netlist), timing(timing),
 	  eval(netlist, *this)
 {
-	root_case = new Case;
+	root_case = std::make_unique<Case>();
 	current_case = root_case->add_switch({})->add_case({});
 }
 
@@ -339,12 +337,13 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 				break;
 			}
 
-			int pad = acc.value().type->getBitstreamWidth() - acc.type->getBitstreamWidth() -
-					  member.bitOffset;
+			int bit_offset = bitstream_member_offset(member);
+			int parent_width = acc.value().type->getBitstreamWidth();
+			int pad = parent_width - acc.type->getBitstreamWidth() - bit_offset;
 			raw_mask = {RTLIL::SigSpec(RTLIL::S0, pad), raw_mask,
-					RTLIL::SigSpec(RTLIL::S0, member.bitOffset)};
+					RTLIL::SigSpec(RTLIL::S0, bit_offset)};
 			raw_rvalue = {RTLIL::SigSpec(RTLIL::Sx, pad), raw_rvalue,
-					RTLIL::SigSpec(RTLIL::Sx, member.bitOffset)};
+					RTLIL::SigSpec(RTLIL::Sx, bit_offset)};
 			raw_lexpr = &acc.value();
 		} break;
 		case ast::ExpressionKind::Concatenation: {

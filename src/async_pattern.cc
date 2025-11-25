@@ -14,19 +14,19 @@
 #include "slang/ast/symbols/BlockSymbols.h"
 #include "slang/ast/types/Type.h"
 
-#include "diag.h"
 #include "async_pattern.h"
+#include "diag.h"
 
 namespace slang_frontend {
 
 void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &symbol)
 {
-	log_assert(symbol.procedureKind == ast::ProceduralBlockKind::Always
-			|| symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
+	log_assert(symbol.procedureKind == ast::ProceduralBlockKind::Always ||
+			   symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF);
 
 	if (symbol.getBody().kind == ast::StatementKind::Block ||
-		symbol.getBody().kind == ast::StatementKind::ConcurrentAssertion ||
-		symbol.getBody().kind == ast::StatementKind::ImmediateAssertion) {
+			symbol.getBody().kind == ast::StatementKind::ConcurrentAssertion ||
+			symbol.getBody().kind == ast::StatementKind::ImmediateAssertion) {
 		// short-circuit for SVA; free-standing assertion
 		handle_comb_like_process(symbol, symbol.getBody());
 		return;
@@ -39,44 +39,39 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 	const auto *top_ast_timing = &timed.timing;
 
 	using TCKind = ast::TimingControlKind;
-	std::span<const ast::TimingControl* const> events;
-	const ast::TimingControl* const top_events[1] = {top_ast_timing};
+	std::span<const ast::TimingControl *const> events;
+	const ast::TimingControl *const top_events[1] = {top_ast_timing};
 
-	events = (top_ast_timing->kind == TCKind::EventList) ?
-			top_ast_timing->as<ast::EventListControl>().events
-			: std::span<const ast::TimingControl* const>(top_events);
+	events = (top_ast_timing->kind == TCKind::EventList)
+					 ? top_ast_timing->as<ast::EventListControl>().events
+					 : std::span<const ast::TimingControl *const>(top_events);
 
 	bool implicit = false;
 	std::vector<const ast::SignalEventControl *> triggers;
 
 	for (auto ev : events)
-	switch (ev->kind) {
-	case ast::TimingControlKind::SignalEvent:
-		{
+		switch (ev->kind) {
+		case ast::TimingControlKind::SignalEvent: {
 			const auto &sigev = ev->as<ast::SignalEventControl>();
 
 			if (sigev.iffCondition)
 				issuer.add_diag(diag::IffUnsupported, sigev.iffCondition->sourceRange);
 
 			switch (sigev.edge) {
-			case ast::EdgeKind::None:
-				{
-					if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
-						issuer.add_diag(diag::AlwaysFFBadTiming, ev->sourceRange);
-						break;
-					}
-
-					// Report on the top timing node as that makes for nicer reports in case there
-					// are many signals in the sensitivity list
-					issuer.add_diag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
-					implicit = true;
+			case ast::EdgeKind::None: {
+				if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
+					issuer.add_diag(diag::AlwaysFFBadTiming, ev->sourceRange);
+					break;
 				}
-				break;
+
+				// Report on the top timing node as that makes for nicer reports in case there
+				// are many signals in the sensitivity list
+				issuer.add_diag(diag::SignalSensitivityAmbiguous, top_ast_timing->sourceRange);
+				implicit = true;
+			} break;
 
 			case ast::EdgeKind::PosEdge:
-			case ast::EdgeKind::NegEdge:
-				triggers.push_back(&sigev);
-				break;
+			case ast::EdgeKind::NegEdge: triggers.push_back(&sigev); break;
 
 			case ast::EdgeKind::BothEdges:
 				if (!settings.allow_dual_edge_ff.value_or(false)) {
@@ -86,25 +81,20 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 				triggers.push_back(&sigev);
 				break;
 			}
-		}
-		break;
+		} break;
 
-	case ast::TimingControlKind::ImplicitEvent:
-		{
+		case ast::TimingControlKind::ImplicitEvent: {
 			if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysFF) {
 				issuer.add_diag(diag::AlwaysFFBadTiming, ev->sourceRange);
 				break;
 			}
 
 			implicit = true;
-		}
-		break;
+		} break;
 
-	case ast::TimingControlKind::EventList:
-		log_abort();
+		case ast::TimingControlKind::EventList: log_abort();
 
-	case ast::TimingControlKind::Delay:
-		{
+		case ast::TimingControlKind::Delay: {
 			if (!settings.ignore_timing.value_or(false))
 				issuer.add_diag(diag::GenericTimingUnsyn, ev->sourceRange);
 			else
@@ -112,10 +102,8 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 			break;
 		}
 
-	default:
-		issuer.add_diag(diag::UnsynthesizableFeature, ev->sourceRange);
-		break;
-	}
+		default: issuer.add_diag(diag::UnsynthesizableFeature, ev->sourceRange); break;
+		}
 
 	if (implicit && !triggers.empty())
 		issuer.add_diag(diag::EdgeImplicitMixing, top_ast_timing->sourceRange);
@@ -149,7 +137,7 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 		}
 
 		if (stmt->kind == ast::StatementKind::List && triggers.size() > 1) {
-			auto& list = stmt->as<ast::StatementList>().list;
+			auto &list = stmt->as<ast::StatementList>().list;
 			std::vector<const ast::Statement *> pending_prologue;
 			for (size_t i = 0; i < list.size(); i++) {
 				auto &inner_stmt = list[i];
@@ -158,7 +146,8 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 					pending_prologue.push_back(inner_stmt);
 				} else if (i == list.size() - 1) {
 					stmt = inner_stmt;
-					prologue.insert(prologue.end(), pending_prologue.begin(), pending_prologue.end());
+					prologue.insert(
+							prologue.end(), pending_prologue.begin(), pending_prologue.end());
 					pending_prologue.clear();
 					did_something = true;
 					break;
@@ -175,11 +164,11 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 
 	// Keep inferring asynchronous loads until we get to a single remaining edge trigger
 	while (triggers.size() > 1) {
-		if (stmt->kind != ast::StatementKind::Conditional
-				|| stmt->as<ast::ConditionalStatement>().check != ast::UniquePriorityCheck::None
-				|| stmt->as<ast::ConditionalStatement>().conditions.size() != 1
-				|| stmt->as<ast::ConditionalStatement>().conditions[0].pattern
-				|| !stmt->as<ast::ConditionalStatement>().ifFalse) {
+		if (stmt->kind != ast::StatementKind::Conditional ||
+				stmt->as<ast::ConditionalStatement>().check != ast::UniquePriorityCheck::None ||
+				stmt->as<ast::ConditionalStatement>().conditions.size() != 1 ||
+				stmt->as<ast::ConditionalStatement>().conditions[0].pattern ||
+				!stmt->as<ast::ConditionalStatement>().ifFalse) {
 			auto &diag = issuer.add_diag(diag::ExpectingIfElseAload, stmt->sourceRange);
 			diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 			return;
@@ -192,67 +181,67 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 		while (did_something) {
 			did_something = false;
 
-			if (condition->kind == ast::ExpressionKind::UnaryOp
-					&& (condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::LogicalNot
-						|| condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::BitwiseNot)) {
+			if (condition->kind == ast::ExpressionKind::UnaryOp &&
+					(condition->as<ast::UnaryExpression>().op == ast::UnaryOperator::LogicalNot ||
+							condition->as<ast::UnaryExpression>().op ==
+									ast::UnaryOperator::BitwiseNot)) {
 				polarity = !polarity;
 				condition = &condition->as<ast::UnaryExpression>().operand();
 				did_something = true;
 			}
 
-			if (condition->kind == ast::ExpressionKind::BinaryOp
-					&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
-					&& condition->as<ast::BinaryExpression>().right().getConstant()
-					&& condition->as<ast::BinaryExpression>().right().type->getBitWidth() == 1
-					&& !condition->as<ast::BinaryExpression>().right().getConstant()->hasUnknown()
-					&& condition->as<ast::BinaryExpression>().right().getConstant()->isTrue()) {
-				auto& biop = condition->as<ast::BinaryExpression>();
+			if (condition->kind == ast::ExpressionKind::BinaryOp &&
+					condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality &&
+					condition->as<ast::BinaryExpression>().right().getConstant() &&
+					condition->as<ast::BinaryExpression>().right().type->getBitWidth() == 1 &&
+					!condition->as<ast::BinaryExpression>().right().getConstant()->hasUnknown() &&
+					condition->as<ast::BinaryExpression>().right().getConstant()->isTrue()) {
+				auto &biop = condition->as<ast::BinaryExpression>();
 				did_something = true;
 				condition = &biop.left();
 			}
 
-			if (condition->kind == ast::ExpressionKind::BinaryOp
-					&& condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality
-					&& condition->as<ast::BinaryExpression>().right().getConstant()
-					&& !condition->as<ast::BinaryExpression>().right().getConstant()->hasUnknown()
-					&& condition->as<ast::BinaryExpression>().right().getConstant()->isFalse()) {
-				auto& biop = condition->as<ast::BinaryExpression>();
+			if (condition->kind == ast::ExpressionKind::BinaryOp &&
+					condition->as<ast::BinaryExpression>().op == ast::BinaryOperator::Equality &&
+					condition->as<ast::BinaryExpression>().right().getConstant() &&
+					!condition->as<ast::BinaryExpression>().right().getConstant()->hasUnknown() &&
+					condition->as<ast::BinaryExpression>().right().getConstant()->isFalse()) {
+				auto &biop = condition->as<ast::BinaryExpression>();
 				polarity = !polarity;
 				did_something = true;
 				condition = &biop.left();
 			}
 
-			if (condition->kind == ast::ExpressionKind::Conversion
-					&& condition->as<ast::ConversionExpression>().operand().type->isIntegral()
-					&& condition->as<ast::ConversionExpression>().operand().type->getBitWidth() < condition->type->getBitWidth()) {
+			if (condition->kind == ast::ExpressionKind::Conversion &&
+					condition->as<ast::ConversionExpression>().operand().type->isIntegral() &&
+					condition->as<ast::ConversionExpression>().operand().type->getBitWidth() <
+							condition->type->getBitWidth()) {
 				did_something = true;
 				condition = &condition->as<ast::ConversionExpression>().operand();
 			}
 		}
 
-		auto found = std::find_if(triggers.begin(), triggers.end(),
-							   [=](const ast::SignalEventControl *trigger) {
-			return ast::ValueExpressionBase::isKind(trigger->expr.kind) &&
-					ast::ValueExpressionBase::isKind(condition->kind) &&
-					&trigger->expr.as<ast::ValueExpressionBase>().symbol ==
-						&condition->as<ast::ValueExpressionBase>().symbol &&
-					trigger->expr.as<ast::ValueExpressionBase>().symbol \
-						.getType().getBitstreamWidth() == 1;
-		});
+		auto found = std::find_if(
+				triggers.begin(), triggers.end(), [=](const ast::SignalEventControl *trigger) {
+					return ast::ValueExpressionBase::isKind(trigger->expr.kind) &&
+						   ast::ValueExpressionBase::isKind(condition->kind) &&
+						   &trigger->expr.as<ast::ValueExpressionBase>().symbol ==
+								   &condition->as<ast::ValueExpressionBase>().symbol &&
+						   trigger->expr.as<ast::ValueExpressionBase>()
+										   .symbol.getType()
+										   .getBitstreamWidth() == 1;
+				});
 
 		if (found != triggers.end()) {
 			if ((*found)->edge != (polarity ? ast::EdgeKind::PosEdge : ast::EdgeKind::NegEdge)) {
-				auto &diag = issuer.add_diag(diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
+				auto &diag = issuer.add_diag(
+						diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
 				diag.addNote(diag::NoteSignalEvent, (*found)->sourceRange);
 				diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 				// We raised an error. Do infer the async load anyway
 			}
 
-			found_async.push_back({
-				(*found)->expr,
-				polarity,
-				cond_stmt.ifTrue
-			});
+			found_async.push_back({(*found)->expr, polarity, cond_stmt.ifTrue});
 
 			triggers.erase(found);
 			stmt = cond_stmt.ifFalse;
@@ -272,26 +261,21 @@ void TimingPatternInterpretor::interpret(const ast::ProceduralBlockSymbol &symbo
 	auto kind = symbol.procedureKind;
 	switch (kind) {
 	case ast::ProceduralBlockKind::Always:
-	case ast::ProceduralBlockKind::AlwaysFF:
-		handle_always(symbol);
-		break;
+	case ast::ProceduralBlockKind::AlwaysFF: handle_always(symbol); break;
 
 	case ast::ProceduralBlockKind::AlwaysComb:
 	case ast::ProceduralBlockKind::AlwaysLatch:
 		handle_comb_like_process(symbol, symbol.getBody());
 		break;
 
-	case ast::ProceduralBlockKind::Initial:
-		handle_initial_process(symbol, symbol.getBody());
-		break;
+	case ast::ProceduralBlockKind::Initial: handle_initial_process(symbol, symbol.getBody()); break;
 
 	case ast::ProceduralBlockKind::Final:
 		// Final blocks are ignored by synthesis
 		break;
 
-	default:
-		log_abort();
-	}	
+	default: log_abort();
+	}
 }
 
-};
+}; // namespace slang_frontend

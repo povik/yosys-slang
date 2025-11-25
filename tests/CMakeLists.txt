@@ -34,6 +34,7 @@ set(ALL_TESTS
     various/blackbox_scenarios.ys
     various/defaults.ys
     various/delays.ys
+    various/dualedge.ys
     various/expr.ys
     various/flop_naming.ys
     various/formal_stmts.ys
@@ -43,6 +44,7 @@ set(ALL_TESTS
     various/intf_w_hierarchy.ys
     various/issue142.ys
     various/issue208.ys
+    various/issue227.ys
     various/issue240.ys
     various/issue50.ys
     various/mem_inference.ys
@@ -58,7 +60,7 @@ set(ALL_TESTS
     various/wait_test.ys
     various/expect_test.ys
     various/program_test.ys
-    various/dualedge.ys
+    various/wor_unsupp.ys
 )
 
 foreach(test_script ${ALL_TESTS})

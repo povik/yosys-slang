@@ -69,6 +69,12 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 	if (lhs->getIndex() != rhs->getIndex())
 		return lhs->getIndex() < rhs->getIndex();
 
+	// Mirror getHierarchicalPath logic and look at instance not the body
+	if (lhs->kind == ast::SymbolKind::InstanceBody)
+		lhs = lhs->as<ast::InstanceBodySymbol>().parentInstance;
+	if (rhs->kind == ast::SymbolKind::InstanceBody)
+		rhs = rhs->as<ast::InstanceBodySymbol>().parentInstance;
+
 	if (lhs->name != rhs->name)
 		return lhs->name < rhs->name;
 

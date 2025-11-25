@@ -1,3 +1,4 @@
+// clang-format off
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/EvalContext.h"
 #include "slang/ast/Expression.h"
