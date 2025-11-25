@@ -416,6 +416,7 @@ struct SynthesisSettings {
 	std::optional<bool> empty_blackboxes;
 	std::optional<bool> ast_compilation_only;
 	std::optional<bool> no_default_translate_off;
+	std::optional<bool> allow_dual_edge_ff;
 	bool disable_instance_caching = false;
 
 	enum HierMode {
@@ -458,6 +459,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	// Returns an ID string to use in the netlist to represent the given symbol.
 	RTLIL::IdString id(const ast::Symbol &sym);
+	RTLIL::IdString id(const ast::ValueSymbol &sym);
 	std::string hdlname(const ast::Symbol &sym);
 
 	RTLIL::Wire *add_wire(const ast::ValueSymbol &sym);
@@ -535,5 +537,10 @@ extern void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::Instance
 // naming.cc
 typedef std::pair<VariableChunk, std::string> NamedChunk;
 std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type);
+
+// builder.cc
+void add_dual_edge_aldff(NetlistContext &netlist, const ast::ProceduralBlockSymbol &symbol,
+                         const NamedChunk &named, RTLIL::SigSpec clk, RTLIL::SigSpec aload,
+                         RTLIL::SigSpec d, RTLIL::SigSpec q, RTLIL::SigSpec ad, bool aload_polarity);
 
 };

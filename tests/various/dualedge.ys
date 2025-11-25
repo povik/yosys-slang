@@ -1,0 +1,132 @@
+test_slangdiag -expect "@(edge) will not be synthesized (override with '--allow-dual-edge-ff')"
+read_slang <<EOF
+module test_error(input logic clk, input logic d, output logic q);
+    always_ff @(edge clk)
+        q <= d;
+endmodule
+EOF
+
+design -reset
+
+test_slangdiag -expect "@(edge) will not be synthesized (override with '--allow-dual-edge-ff')"
+read_slang <<EOF
+module multi_edge(
+    input logic clk1, clk2,
+    input logic d1, d2,
+    output logic q1, q2
+);
+    always_ff @(edge clk1)
+        q1 <= d1;
+
+    always_ff @(edge clk2)
+        q2 <= d2;
+endmodule
+EOF
+
+design -reset
+
+test_slangdiag -expect "@(edge) will not be synthesized (override with '--allow-dual-edge-ff')"
+read_slang <<EOF
+module edge_with_reset(
+    input logic clk, rst_n,
+    input logic d,
+    output logic q
+);
+    always_ff @(edge clk or negedge rst_n) begin
+        if (!rst_n)
+            q <= 1'b0;
+        else
+            q <= d;
+    end
+endmodule
+EOF
+
+design -reset
+
+read_slang --allow-dual-edge-ff <<EOF
+module dualedge(input logic clk, input logic d, output logic q);
+    always_ff @(edge clk)
+        q <= d;
+endmodule
+EOF
+
+select -assert-count 2 t:$dff # one for negedge, one for posedge
+select -assert-count 1 t:$mux # should have 1 mux to combine outputs
+
+select -assert-count 1 t:$dff r:CLK_POLARITY=1 %i
+select -assert-count 1 t:$dff r:CLK_POLARITY=0 %i
+
+select -assert-count 2 t:$dff %ci:+[CLK] w:clk %d # redundancy but nice to check
+select -assert-count 2 t:$dff %ci:+[D] w:d %d
+select -assert-count 1 t:$mux %ci:+[S] w:clk %d
+select -assert-count 1 t:$mux %co:+[Y] w:q %d
+
+design -reset
+read_slang --allow-dual-edge-ff <<EOF
+module mixed_edges(input logic clk, input logic d, output logic q_pos, output logic q_neg, output logic q_dual);
+    always_ff @(posedge clk)
+        q_pos <= d;
+
+    always_ff @(negedge clk)
+        q_neg <= d;
+
+    always_ff @(edge clk)
+        q_dual <= d;
+endmodule
+EOF
+
+select -assert-count 4 t:$dff
+select -assert-count 1 t:$mux
+select -assert-count 2 t:$dff r:CLK_POLARITY=1 %i
+select -assert-count 2 t:$dff r:CLK_POLARITY=0 %i
+
+
+design -reset
+read_slang --allow-dual-edge-ff <<EOF
+module dualedge_async_reset(
+    input logic clk,
+    input logic rst_n,
+    input logic d,
+    output logic q
+);
+    always_ff @(edge clk or negedge rst_n) begin
+        if (!rst_n)
+            q <= 1'b0;
+        else
+            q <= d;
+    end
+endmodule
+EOF
+
+select -assert-count 2 t:$aldff
+select -assert-count 1 t:$mux
+select -assert-count 1 t:$aldff r:CLK_POLARITY=1 %i
+select -assert-count 1 t:$aldff r:CLK_POLARITY=0 %i
+select -assert-count 2 t:$aldff r:ALOAD_POLARITY=0 %i
+select -assert-count 2 t:$aldff %ci:+[CLK] w:clk %d
+select -assert-count 2 t:$aldff %ci:+[D] w:d %d
+select -assert-count 2 t:$aldff %ci:+[ALOAD] w:rst_n %d # asyc load signal as rst_n
+select -assert-count 1 t:$mux %ci:+[S] w:clk %d
+select -assert-count 1 t:$mux %co:+[Y] w:q %d
+
+design -reset
+read_slang --allow-dual-edge-ff <<EOF
+module dualedge_multibit(
+    input logic clk,
+    input logic [7:0] d,
+    output logic [7:0] q
+);
+    always_ff @(edge clk)
+        q <= d;
+endmodule
+EOF
+
+select -assert-count 2 t:$dff
+select -assert-count 1 t:$mux
+
+select -assert-count 2 t:$dff r:WIDTH=8 %i
+
+select -assert-count 1 t:$dff r:CLK_POLARITY=1 %i
+select -assert-count 1 t:$dff r:CLK_POLARITY=0 %i
+
+select -assert-count 1 t:$mux r:WIDTH=8 %i

@@ -5,6 +5,7 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #include "slang_frontend.h"
+#include "variables.h"
 
 namespace slang_frontend {
 
@@ -429,6 +430,68 @@ SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 	cell->setPort(RTLIL::ID::Y, y);
 	bless_cell(cell);
 	return y;
+}
+
+// Synthesizes two single-edge FFs (one posedge, one negedge) with the same D input,
+// then uses a mux controlled by the clock to select the appropriate FF output.
+void add_dual_edge_aldff(NetlistContext &netlist, const ast::ProceduralBlockSymbol &symbol,
+		const NamedChunk &named, RTLIL::SigSpec clk, RTLIL::SigSpec aload, RTLIL::SigSpec d,
+		RTLIL::SigSpec q, RTLIL::SigSpec ad, bool aload_polarity)
+{
+	auto [chunk, name] = named;
+
+	log_assert(chunk.variable.get_symbol() != nullptr);
+	log_assert(netlist.canvas != nullptr);
+
+	std::string base_name = Yosys::stringf("$driver$%s%s",
+			RTLIL::unescape_id(netlist.id(*chunk.variable.get_symbol())).c_str(), name.c_str());
+
+	RTLIL::Wire *pos_q = netlist.canvas->addWire(
+			netlist.canvas->uniquify(Yosys::stringf("%s$pos$q", base_name.c_str())),
+			chunk.bitwidth()); // intermediaries
+	log_assert(pos_q != nullptr);
+
+	RTLIL::Wire *neg_q = netlist.canvas->addWire(
+			netlist.canvas->uniquify(Yosys::stringf("%s$neg$q", base_name.c_str())),
+			chunk.bitwidth()); // intermediaries
+	log_assert(neg_q != nullptr);
+
+	if (aload.is_fully_def() && aload.size() == 1 && aload.as_bool() != aload_polarity) {
+		RTLIL::Cell *pos_ff = netlist.canvas->addDff(
+				netlist.canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())), clk, d,
+				pos_q, /*edge_polarity=*/true);
+		log_assert(pos_ff != nullptr);
+		transfer_attrs(symbol, pos_ff);
+
+		// Create negedge FF
+		RTLIL::Cell *neg_ff = netlist.canvas->addDff(
+				netlist.canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())), clk, d,
+				neg_q, /*edge_polarity=*/false);
+		log_assert(neg_ff != nullptr);
+		transfer_attrs(symbol, neg_ff);
+	} else {
+		RTLIL::Cell *pos_ff = netlist.canvas->addAldff(
+				netlist.canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())), clk, aload,
+				d, pos_q, ad,
+				/*clk_polarity=*/true, aload_polarity);
+		log_assert(pos_ff != nullptr);
+		transfer_attrs(symbol, pos_ff);
+
+		RTLIL::Cell *neg_ff = netlist.canvas->addAldff(
+				netlist.canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())), clk, aload,
+				d, neg_q, ad,
+				/*clk_polarity=*/false, aload_polarity);
+		log_assert(neg_ff != nullptr);
+		transfer_attrs(symbol, neg_ff);
+	}
+
+	// behaviour: when clk=0: select neg_q (captures on negedge), when clk=1: select pos_q (captures
+	// on posedge)
+	RTLIL::Cell *mux = netlist.canvas->addMux(
+			netlist.canvas->uniquify(Yosys::stringf("%s$mux", base_name.c_str())),
+			/*A=*/neg_q, /*B=*/pos_q, /*S=*/clk, /*Y=*/q);
+	log_assert(mux != nullptr);
+	transfer_attrs(symbol, mux);
 }
 
 }; // namespace slang_frontend

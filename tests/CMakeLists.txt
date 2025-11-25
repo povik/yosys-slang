@@ -25,6 +25,7 @@ endif()
 
 set(ALL_TESTS
     unit/async.ys
+    unit/dualedge.ys
     unit/function_call.ys
     unit/latch.ys
     unit/selftests.tcl
@@ -33,6 +34,7 @@ set(ALL_TESTS
     various/blackbox_scenarios.ys
     various/defaults.ys
     various/delays.ys
+    various/dualedge.ys
     various/expr.ys
     various/flop_naming.ys
     various/formal_stmts.ys

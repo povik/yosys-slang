@@ -68,6 +68,8 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"For developers: stop after the AST is fully compiled");
 	cmdLine.add("--no-default-translate-off-format", no_default_translate_off,
 				"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
+	cmdLine.add("--allow-dual-edge-ff", allow_dual_edge_ff,
+				"Allow synthesis of dual-edge flip-flops (@(edge))");
 }
 
 namespace ast = slang::ast;
@@ -1504,6 +1506,18 @@ public:
 
 				RTLIL::Cell *cell;
 				if (aloads.empty()) {
+					if (clock.edge == ast::EdgeKind::BothEdges) {
+						for (auto named : generate_subfield_names(driven_chunk, type)) {
+							auto [named_chunk, name] = named;
+							add_dual_edge_aldff(netlist, symbol, named,
+													timing.triggers[0].signal,
+													RTLIL::S0,
+													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+													netlist.convert_static(named_chunk),
+													RTLIL::SigSpec(RTLIL::Sx, named_chunk.bitwidth()),
+													true);
+						}
+					} else {
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
 							cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
 													timing.triggers[0].signal,
@@ -1511,6 +1525,7 @@ public:
 													netlist.convert_static(named_chunk),
 													timing.triggers[0].edge_polarity);
 							transfer_attrs(symbol, cell);
+						}
 					}
 				} else if (aloads.size() == 1) {
 					VariableBits aldff_q;
@@ -1526,17 +1541,31 @@ public:
 					}
 
 					if (!aldff_q.empty()) {
-						for (auto driven_chunk2 : aldff_q.chunks())
-						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							cell = netlist.canvas->addAldff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
+						if (clock.edge == ast::EdgeKind::BothEdges) {
+							for (auto driven_chunk2 : aldff_q.chunks())
+							for (auto named : generate_subfield_names(driven_chunk2, type)) {
+								auto [named_chunk, name] = named;
+								add_dual_edge_aldff(netlist, symbol, named,
 													timing.triggers[0].signal,
 													aloads[0].trigger,
 													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
 													netlist.convert_static(named_chunk),
 													aloads[0].values.evaluate(netlist, named_chunk),
-													timing.triggers[0].edge_polarity,
 													aloads[0].trigger_polarity);
-							transfer_attrs(symbol, cell);
+							}
+						} else {
+							for (auto driven_chunk2 : aldff_q.chunks())
+							for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
+								cell = netlist.canvas->addAldff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
+														timing.triggers[0].signal,
+														aloads[0].trigger,
+														assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+														netlist.convert_static(named_chunk),
+														aloads[0].values.evaluate(netlist, named_chunk),
+														timing.triggers[0].edge_polarity,
+														aloads[0].trigger_polarity);
+								transfer_attrs(symbol, cell);
+							}
 						}
 					}
 
@@ -2493,6 +2522,11 @@ std::string build_hiername(NetlistContext &netlist, const ast::Symbol &symbol,
 RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
 {
 	return RTLIL::escape_id(build_hiername(*this, symbol, "."));
+}
+
+RTLIL::IdString NetlistContext::id(const ast::ValueSymbol &symbol)
+{
+	return id(static_cast<const ast::Symbol &>(symbol));
 }
 
 std::string NetlistContext::hdlname(const ast::Symbol &symbol)
