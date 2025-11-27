@@ -61,6 +61,7 @@ set(ALL_TESTS
     various/expect_test.ys
     various/program_test.ys
     various/wor_unsupp.ys
+    various/synthesis_define.ys
 )
 
 foreach(test_script ${ALL_TESTS})
