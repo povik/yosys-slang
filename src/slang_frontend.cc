@@ -70,6 +70,8 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"Do not interpret any comment directives marking disabled input unless specified with '--translate-off-format'");
 	cmdLine.add("--allow-dual-edge-ff", allow_dual_edge_ff,
 				"Allow synthesis of dual-edge flip-flops (@(edge))");
+	cmdLine.add("--no-synthesis", no_synthesis_define,
+				"Don't add implicit -D SYNTHESIS");
 }
 
 namespace ast = slang::ast;
@@ -2778,6 +2780,10 @@ static std::vector<std::vector<std::string>> defaults_stack;
 
 void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 {
+	if (!settings.no_synthesis_define.value_or(false)) {
+		driver.options.defines.push_back("SYNTHESIS=1");
+	}
+
 	if (!settings.no_default_translate_off.value_or(false)) {
 		auto &format_list = driver.options.translateOffOptions;
 		format_list.insert(format_list.end(), {
