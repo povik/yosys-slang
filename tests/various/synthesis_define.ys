@@ -1,0 +1,30 @@
+# By default, SYNTHESIS should be defined
+read_slang <<EOF
+module top();
+`ifndef SYNTHESIS
+	initial $error("SYNTHESIS should be defined by default!");
+`endif
+endmodule
+EOF
+
+design -reset
+
+# With --no-synthesis-define, SYNTHESIS should not be defined
+read_slang --no-synthesis-define <<EOF
+module top();
+`ifdef SYNTHESIS
+	initial $error("SYNTHESIS should NOT be defined with --no-synthesis-define!");
+`endif
+endmodule
+EOF
+
+design -reset
+
+# User can still override with explicit -D SYNTHESIS even with --no-synthesis-define
+read_slang --no-synthesis-define -D SYNTHESIS <<EOF
+module top();
+`ifndef SYNTHESIS
+	initial $error("SYNTHESIS should be defined when explicitly passed!");
+`endif
+endmodule
+EOF
