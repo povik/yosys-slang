@@ -9,19 +9,19 @@ EOF
 
 design -reset
 
-# With --no-synthesis, SYNTHESIS should not be defined
-read_slang --no-synthesis <<EOF
+# With --no-synthesis-define, SYNTHESIS should not be defined
+read_slang --no-synthesis-define <<EOF
 module top();
 `ifdef SYNTHESIS
-	initial $error("SYNTHESIS should NOT be defined with --no-synthesis!");
+	initial $error("SYNTHESIS should NOT be defined with --no-synthesis-define!");
 `endif
 endmodule
 EOF
 
 design -reset
 
-# User can still override with explicit -D SYNTHESIS even with --no-synthesis
-read_slang --no-synthesis -D SYNTHESIS <<EOF
+# User can still override with explicit -D SYNTHESIS even with --no-synthesis-define
+read_slang --no-synthesis-define -D SYNTHESIS <<EOF
 module top();
 `ifndef SYNTHESIS
 	initial $error("SYNTHESIS should be defined when explicitly passed!");
