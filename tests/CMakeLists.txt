@@ -28,6 +28,7 @@ set(ALL_TESTS
     unit/dualedge.ys
     unit/function_call.ys
     unit/latch.ys
+    unit/rs_trigger.ys
     unit/selftests.tcl
     various/assign_mixing.ys
     various/bb_detect.ys
