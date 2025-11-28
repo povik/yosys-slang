@@ -705,8 +705,12 @@ RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 	switch (symbol.kind) {
 	case ast::SymbolKind::ModportPort:
 		{
-			if (!netlist.scopes_remap.count(symbol.getParentScope()))
-				return (*this)(*symbol.as<ast::ModportPortSymbol>().getConnectionExpr());
+			if (!netlist.scopes_remap.count(symbol.getParentScope())) {
+				ast_invariant(symbol, ast::ModportPortSymbol::isKind(symbol.kind));
+				auto &modport_port = symbol.as<ast::ModportPortSymbol>();
+				ast_invariant(symbol, modport_port.getConnectionExpr() != nullptr);
+				return (*this)(*modport_port.getConnectionExpr());
+			}
 		}
 		[[fallthrough]];
 	case ast::SymbolKind::Net:
