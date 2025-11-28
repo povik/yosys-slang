@@ -114,6 +114,7 @@ DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1059);
 DiagCode RefUnsupported(DiagSubsystem::Netlist, 1061);
 DiagCode InlinedInOutUnsupported(DiagSubsystem::Netlist, 1062);
 DiagCode MultiPortConversion(DiagSubsystem::Netlist, 1063);
+DiagCode InputPortCannotBeSpecialNet(DiagSubsystem::Netlist, 1064);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -280,6 +281,9 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(MultiPortConversion, "implicit conversion in multiport connection unsupported");
 	engine.setSeverity(MultiPortConversion, DiagnosticSeverity::Error);
+
+	engine.setMessage(InputPortCannotBeSpecialNet, "'input' or 'inout' port of special type '{}' is not supported on preserved module boundary");
+	engine.setSeverity(InputPortCannotBeSpecialNet, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag
