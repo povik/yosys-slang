@@ -73,6 +73,7 @@ extern slang::DiagCode PastGatingClockingUnsupported;
 extern slang::DiagCode SystemFunctionRequireClockedBlock;
 extern slang::DiagCode UnsupportedBitConversion;
 extern slang::DiagCode MultiPortConversion;
+extern slang::DiagCode InputPortCannotBeSpecialNet;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag

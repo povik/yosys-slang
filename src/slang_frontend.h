@@ -39,6 +39,7 @@ namespace slang {
 		class ConversionExpression;
 		class AssignmentExpression;
 		class FieldSymbol;
+		class NetSymbol;
 	};
 };
 
@@ -112,6 +113,9 @@ private:
 
 	typedef std::tuple<int, void *, int> HashLabel;
 	HashLabel hash_label() const;
+
+public:
+	bool is_special_net();
 };
 
 struct EvalContext {
@@ -486,6 +490,10 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// Driven by a register, including a latch
 	Yosys::pool<VariableBit> register_driven_variables;
 
+	// wor/wand support
+	Yosys::dict<VariableBit, RTLIL::SigSpec> special_net_drivers;
+	std::vector<const ast::NetSymbol *> special_net_symbols;
+
 	// Flag to disable elaboration; we set this when `scopes_remap` is
 	// incomplete due to prior errors
 	bool disabled = false;
@@ -530,6 +538,9 @@ extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);
 template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
 uint64_t bitstream_member_offset(const ast::FieldSymbol &member);
+bool is_special_net_type(const ast::NetType &type);
+bool is_special_net(const ast::Symbol &symbol);
+void finalize_special_nets(NetlistContext &netlist);
 
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source);

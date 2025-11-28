@@ -671,16 +671,32 @@ void NetlistContext::register_driven(const ast::Symbol &symbol)
 
 void NetlistContext::add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs)
 {
-	register_driven(lhs);
-	connect(convert_static(lhs), rhs);
+	VariableBits cl;
+	RTLIL::SigSpec cr;
+
+	for (auto [base, size, chunk] : lhs.chunk_spans()) {
+		if (chunk.variable.is_special_net()) {
+			for (int i = 0; i < size; i++) {
+				special_net_drivers[chunk[i]].append(rhs[base + i]);
+			}
+		} else {
+			cl.append(chunk);
+			cr.append(rhs.extract(base, size));
+		}
+	}
+
+	register_driven(cl);
+	connect(convert_static(cl), cr);
 }
 
 RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assign)
 {
 	ast_invariant(assign, !assign.timingControl);
 	const ast::Expression *rsymbol = &assign.right();
+	VariableBits vbits = lhs(assign.left());
 
-	if (rsymbol->kind == ast::ExpressionKind::EmptyArgument) {
+	if (rsymbol->kind == ast::ExpressionKind::EmptyArgument &&
+			!vbits.has_special_nets()) {
 		// early path
 		VariableBits vbits = lhs(assign.left());
 		netlist.register_driven(vbits);
@@ -692,7 +708,6 @@ RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assi
 	ast_invariant(assign, rsymbol->kind == ast::ExpressionKind::EmptyArgument);
 	ast_invariant(assign, rsymbol->type->isBitstreamType());
 
-	VariableBits vbits = lhs(assign.left());
 	RTLIL::SigSpec link = netlist.canvas->addWire(netlist.new_id(),
 								rsymbol->type->getBitstreamWidth());
 	netlist.add_continuous_driver(vbits,
@@ -1750,15 +1765,27 @@ public:
 		log_assert(wire);
 		switch (symbol.direction) {
 		case ast::ArgumentDirection::In:
+			if (is_special_net(*symbol.internalSymbol)) {
+				auto &diag = netlist.add_diag(diag::InputPortCannotBeSpecialNet, symbol.location);
+				auto &net = symbol.internalSymbol->as<ast::NetSymbol>();
+				diag << net.netType.name;
+				return;
+			}
 			netlist.register_driven(*symbol.internalSymbol);
 			wire->port_input = true;
-			break;
-		case ast::ArgumentDirection::Out:
-			wire->port_output = true;
 			break;
 		case ast::ArgumentDirection::InOut:
+			if (is_special_net(*symbol.internalSymbol)) {
+				auto &diag = netlist.add_diag(diag::InputPortCannotBeSpecialNet, symbol.location);
+				auto &net = symbol.internalSymbol->as<ast::NetSymbol>();
+				diag << net.netType.name;
+				return;
+			}
 			netlist.register_driven(*symbol.internalSymbol);
 			wire->port_input = true;
+			wire->port_output = true;
+			break;
+		case ast::ArgumentDirection::Out:
 			wire->port_output = true;
 			break;
 		case ast::ArgumentDirection::Ref:
@@ -2214,8 +2241,6 @@ public:
 			if (sym.kind == ast::SymbolKind::Net) {
 				auto &net = sym.as<ast::NetSymbol>();
 				switch (net.netType.netKind) {
-				case ast::NetType::WAnd:
-				case ast::NetType::WOr:
 				case ast::NetType::TriAnd:
 				case ast::NetType::TriOr:
 				case ast::NetType::Tri0:
@@ -2290,7 +2315,7 @@ public:
 			// Now transfer initializers (possibly updated from initial statements)
 			// onto RTLIL wires
 			finalize_variable_initialization(netlist, initial_eval.context);
-
+			finalize_special_nets(netlist);
 			netlist.add_diagnostics(initial_eval.context.getAllDiagnostics());
 		} else {
 			visitDefault(body);
@@ -2696,6 +2721,29 @@ std::string NetlistContext::hdlname(const ast::Symbol &symbol)
 	return build_hiername(*this, symbol, " ");
 }
 
+bool is_special_net_type(const ast::NetType &type)
+{
+	switch (type.netKind) {
+		case ast::NetType::WAnd:
+		case ast::NetType::WOr:
+		case ast::NetType::TriAnd:
+		case ast::NetType::TriOr:
+			return true;
+		case ast::NetType::Wire:
+		case ast::NetType::Tri:
+		case ast::NetType::UWire:
+			return false;
+		default:
+			log_abort();
+	}
+}
+
+bool is_special_net(const ast::Symbol &symbol)
+{
+	return ast::NetSymbol::isKind(symbol.kind)
+		&& is_special_net_type(symbol.as<ast::NetSymbol>().netType);
+}
+
 RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto &type = symbol.getType();
@@ -2712,7 +2760,39 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 
 	wire_cache[&symbol] = w;
 	transfer_attrs(*this, symbol, w);
+	if (ast::NetSymbol::isKind(symbol.kind)) {
+		auto &net = symbol.as<ast::NetSymbol>();
+		if (is_special_net_type(net.netType)) {
+			special_net_symbols.push_back(&net);
+		}
+	}
 	return w;
+}
+
+void finalize_special_nets(NetlistContext &netlist)
+{
+	for (auto symbol : netlist.special_net_symbols) {
+		for (auto bit : VariableBits(Variable::from_symbol(symbol))) {
+			switch (symbol->netType.netKind) {
+			case ast::NetType::WAnd:
+			case ast::NetType::TriAnd: {
+				netlist.canvas->addReduceAnd(netlist.new_id("wand"),
+					netlist.special_net_drivers[bit],
+					netlist.convert_static(bit));
+				break;
+			}
+			case ast::NetType::WOr:
+			case ast::NetType::TriOr: {
+				netlist.canvas->addReduceOr(netlist.new_id("wor"),
+					netlist.special_net_drivers[bit],
+					netlist.convert_static(bit));
+				break;
+			}
+			default:
+				ast_unreachable(*symbol);
+			}
+		}
+	}
 }
 
 bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)

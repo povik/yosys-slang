@@ -218,6 +218,8 @@ public:
 	chunk_span_list chunk_spans() const { return chunk_span_list(*this); }
 
 	int bitwidth() { return (int)size(); }
+
+	bool has_special_nets();
 };
 
 }; // namespace slang_frontend
