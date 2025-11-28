@@ -8,9 +8,11 @@
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/ValueSymbol.h"
 #include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/ast/types/NetType.h"
 #include "slang/ast/types/Type.h"
 
 #include "slang_frontend.h"
+#include "variables.h"
 
 namespace slang_frontend {
 
@@ -220,6 +222,25 @@ std::string Variable::text() const
 	case Dummy:      return "dummy(" + std::to_string(width) + ")";
 	default:         log_abort();
 	}
+}
+
+bool Variable::is_special_net()
+{
+	auto symbol = get_symbol();
+	if (symbol != nullptr && ast::NetSymbol::isKind(symbol->kind)) {
+		if (is_special_net_type(symbol->as<ast::NetSymbol>().netType))
+			return true;
+	}
+	return false;
+}
+
+bool VariableBits::has_special_nets()
+{
+	for (auto &bit : *this) {
+		if (bit.variable.is_special_net())
+			return true;
+	}
+	return false;
 }
 
 } // namespace slang_frontend
