@@ -17,7 +17,7 @@ module priority_encoder #(
 	always_comb begin
 		if (bits == 'd0 || ^bits === 1'bx) begin
 		end else begin
-			logic [INPUT_WIDTH-1:0] masked;
+			automatic logic [INPUT_WIDTH-1:0] masked;
 
 			assert(bits[encoded]);
 			masked = bits & ~(-1 << encoded);
@@ -70,7 +70,7 @@ module priority_encoder2 #(
 	always_comb begin
 		if (bits == 'd0 || ^bits === 1'bx) begin
 		end else begin
-			logic [INPUT_WIDTH-1:0] masked;
+			automatic logic [INPUT_WIDTH-1:0] masked;
 
 			assert(bits[encoded]);
 			masked = bits & ~(-1 << encoded);

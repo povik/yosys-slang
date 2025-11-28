@@ -11,6 +11,7 @@ foreach fn [glob *.sv] {
 	design -reset
 
 	read_slang $fn
+	check -assert
 
 	chformal -lower
 
@@ -30,6 +31,7 @@ foreach fn [glob *.sv] {
 	design -reset
 
 	read_slang --keep-hierarchy $fn
+	check -assert
 
 	chformal -lower
 

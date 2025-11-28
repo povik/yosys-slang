@@ -46,8 +46,8 @@ module test_void_return(input [1:0] a);
 endmodule
 
 module test_nested_loop_break(input [1:0] a);
-	function [3:0] f([3:0] a);
-		logic [2:0] x, y;
+	function automatic [3:0] f([3:0] a);
+		automatic logic [2:0] x, y;
 		for (x = 0; x < 4; x++) begin
 			for (y = 0; y < 4; y++) begin
 				if (~y[1:0] == a[1:0])
