@@ -115,36 +115,31 @@ public:
 		return ret;
 	}
 
-	class iterator
+	class iterator_base
 	{
-	private:
+	protected:
 		const VariableBits &bits;
 		int offset;
 		VariableChunk chunk;
 
-	public:
-		using iterator_category = std::input_iterator_tag;
-		using value_type = Variable;
-		using difference_type = ptrdiff_t;
-		using pointer = const Variable *;
-		using reference = const Variable &;
-
-		iterator(const VariableBits &bits, int offset) : bits(bits), offset(offset)
-		{
-			if (offset < bits.size()) {
-				chunk = {bits[offset].variable, bits[offset].offset, 1};
-				fixup_chunk();
-			}
-		}
-
-		iterator &operator++()
+		void incr()
 		{
 			offset += chunk.length;
 			if (offset < bits.size()) {
 				chunk = {bits[offset].variable, bits[offset].offset, 1};
 				fixup_chunk();
 			}
-			return *this;
+		}
+
+	public:
+		using iterator_category = std::input_iterator_tag;
+
+		iterator_base(const VariableBits &bits, int offset) : bits(bits), offset(offset)
+		{
+			if (offset < bits.size()) {
+				chunk = {bits[offset].variable, bits[offset].offset, 1};
+				fixup_chunk();
+			}
 		}
 
 		void fixup_chunk()
@@ -156,16 +151,29 @@ public:
 			}
 		}
 
-		bool operator==(const iterator &other) const { return offset == other.offset; }
-		bool operator!=(const iterator &other) const { return !(*this == other); }
+		bool operator==(const iterator_base &other) const { return offset == other.offset; }
+		bool operator!=(const iterator_base &other) const { return !(*this == other); }
 		VariableChunk operator*() const { return chunk; }
+	};
+
+	class chunk_iterator : public iterator_base
+	{
+	public:
+		using value_type = VariableChunk;
+		chunk_iterator(const VariableBits &bits, int offset) : iterator_base(bits, offset) {}
+		VariableChunk operator*() const { return chunk; }
+		chunk_iterator &operator++()
+		{
+			incr();
+			return *this;
+		}
 	};
 
 	class chunk_list
 	{
 	public:
-		iterator begin() const { return iterator(bits, 0); };
-		iterator end() const { return iterator(bits, bits.size()); };
+		chunk_iterator begin() const { return chunk_iterator(bits, 0); };
+		chunk_iterator end() const { return chunk_iterator(bits, bits.size()); };
 
 	protected:
 		chunk_list(const VariableBits &bits) : bits(bits) {};
@@ -176,6 +184,38 @@ public:
 	};
 
 	chunk_list chunks() const { return chunk_list(*this); }
+
+	class chunk_span_iterator : public iterator_base
+	{
+	public:
+		using value_type = std::tuple<size_t, size_t, VariableChunk>;
+		chunk_span_iterator(const VariableBits &bits, int offset) : iterator_base(bits, offset) {}
+		std::tuple<size_t, size_t, VariableChunk> operator*() const
+		{
+			return std::make_tuple(offset, chunk.length, chunk);
+		}
+		chunk_span_iterator &operator++()
+		{
+			incr();
+			return *this;
+		}
+	};
+
+	class chunk_span_list
+	{
+	public:
+		chunk_span_iterator begin() const { return chunk_span_iterator(bits, 0); };
+		chunk_span_iterator end() const { return chunk_span_iterator(bits, bits.size()); };
+
+	protected:
+		chunk_span_list(const VariableBits &bits) : bits(bits) {};
+		friend class VariableBits;
+
+	private:
+		const VariableBits &bits;
+	};
+
+	chunk_span_list chunk_spans() const { return chunk_span_list(*this); }
 
 	int bitwidth() { return (int)size(); }
 };
