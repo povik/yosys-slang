@@ -11,6 +11,8 @@ foreach fn [glob *.sv] {
 	design -reset
 
 	read_slang $fn
+	check -assert
+
 	chformal -lower
 
 	foreach m [module_list] {
@@ -30,6 +32,7 @@ foreach fn [glob *.sv] {
 	design -reset
 
 	read_slang --keep-hierarchy $fn
+	check -assert
 
 	chformal -lower
 
