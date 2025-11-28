@@ -69,6 +69,7 @@ extern slang::DiagCode NetTypeUnsupported;
 extern slang::DiagCode NoAllowTopLevelIfacePorts;
 extern slang::DiagCode RefUnsupported;
 extern slang::DiagCode InlinedInOutUnsupported;
+extern slang::DiagCode MultiPortConversion;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag

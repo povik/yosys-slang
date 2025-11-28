@@ -113,6 +113,7 @@ DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1058);
 DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1059);
 DiagCode RefUnsupported(DiagSubsystem::Netlist, 1061);
 DiagCode InlinedInOutUnsupported(DiagSubsystem::Netlist, 1062);
+DiagCode MultiPortConversion(DiagSubsystem::Netlist, 1063);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -276,6 +277,9 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(InlinedInOutUnsupported, "connection on port '{}' with direction 'inout' cannot be inlined; see yosys-slang issue #143");
 	engine.setSeverity(InlinedInOutUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(MultiPortConversion, "implicit conversion in multiport connection unsupported");
+	engine.setSeverity(MultiPortConversion, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag

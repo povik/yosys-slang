@@ -342,14 +342,7 @@ struct RTLILBuilder {
 	SigSpec Biop(RTLIL::IdString op, SigSpec a, SigSpec b,
 				 bool a_signed, bool b_signed, int y_width);
 
-	void GroupConnect(SigSpec lhs, SigSpec rhs)
-	{
-		int done = 0;
-		for (auto chunk : lhs.chunks()) {
-			canvas->connect(chunk, rhs.extract(done, chunk.size()));
-			done += chunk.size();
-		}
-	}
+	void connect(SigSpec target, SigSpec source);
 
 private:
 	std::pair<std::string, SigSpec> add_y_wire(int width);
@@ -472,6 +465,11 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// Cache per-symbol Wire* pointers
 	Yosys::dict<const ast::Symbol*, RTLIL::Wire *> wire_cache;
 
+	Yosys::pool<VariableBit> driven_variables;
+
+	// Driven by a register, including a latch
+	Yosys::pool<VariableBit> register_driven_variables;
+
 	// With this flag set we will not elaborate this netlist; we set this when
 	// `scopes_remap` is incomplete due to errors in processing an instantiation
 	// of `realm`.
@@ -503,6 +501,9 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	const ast::InstanceBodySymbol &find_common_ancestor(const ast::InstanceBodySymbol &a, const ast::InstanceBodySymbol &b);
 	bool check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range);
 
+	void register_driven(const VariableBits &vbits);
+	void register_driven(const ast::Symbol &symbol);
+	void add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs);
 };
 
 // slang_frontend.cc
@@ -538,5 +539,9 @@ std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::
 void add_dual_edge_aldff(NetlistContext &netlist, const ast::ProceduralBlockSymbol &symbol,
                          const NamedChunk &named, RTLIL::SigSpec clk, RTLIL::SigSpec aload,
                          RTLIL::SigSpec d, RTLIL::SigSpec q, RTLIL::SigSpec ad, bool aload_polarity);
+
+// initialization.cc
+void evaluate_decl_initializers(NetlistContext &netlist, ast::EvalContext &eval_context);
+void finalize_variable_initialization(NetlistContext &netlist, ast::EvalContext &eval_context);
 
 };
