@@ -1196,9 +1196,17 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				require(expr, procedural != nullptr);
 				handle_display(*procedural, call);
 			} else if (call.isSystemCall()) {
-				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
-				require(expr, call.arguments().size() == 1);
-				ret = (*this)(*call.arguments()[0]);
+				auto name = call.getSubroutineName();
+				if (name == "$countones") {
+					require(expr, call.arguments().size() == 1);
+					auto arg = call.arguments()[0];
+					auto sig = (*this)(*arg);
+					ret = netlist.CountOnes(sig, (int)call.type->getBitstreamWidth());
+				} else {
+					require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
+					require(expr, call.arguments().size() == 1);
+					ret = (*this)(*call.arguments()[0]);
+				}
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
 				if (procedural) {

@@ -494,4 +494,43 @@ void add_dual_edge_aldff(NetlistContext &netlist, const ast::ProceduralBlockSymb
 	transfer_attrs(symbol, mux);
 }
 
+SigSpec  RTLILBuilder::CountOnes(SigSpec sig, int result_width)
+{
+	SigSpec ret;
+	int x= 1, y = 0;
+	auto width = sig.size();
+	if (width == 0) {
+		ret = RTLIL::Const(0, 1);
+	} else if (width == 1) {
+		// Single bit
+		ret = sig;
+	} else {
+		// Build tree of adders
+		std::vector<RTLIL::SigSpec> curr_level;
+		for (int i = 0; i < width; i++) {
+			RTLIL::SigSpec bit = sig[i];
+			bit.extend_u0(result_width);
+			curr_level.push_back(bit);
+		}
+
+		while (curr_level.size() > 1) {
+			std::vector<RTLIL::SigSpec> nxt_level;
+			for (size_t i = 0; i + 1 < curr_level.size(); i += 2) {
+				auto sum = Biop(ID($add), curr_level[i], curr_level[i+1], false, false, result_width);
+				if (sum.size() < result_width)
+					sum.extend_u0(result_width);
+				nxt_level.push_back(sum);
+			}
+			if (curr_level.size() % 2 == 1) {
+				nxt_level.push_back(curr_level.back());
+			}
+			curr_level = std::move(nxt_level);
+		}
+		ret = curr_level[0];
+	}
+	// Extend to expected type width
+	ret.extend_u0(result_width);
+	return ret;
+}
+
 }; // namespace slang_frontend

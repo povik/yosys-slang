@@ -356,6 +356,7 @@ struct RTLILBuilder {
 			done += chunk.size();
 		}
 	}
+	SigSpec CountOnes(SigSpec sig, int result_width);
 
 private:
 	std::pair<std::string, SigSpec> add_y_wire(int width);
