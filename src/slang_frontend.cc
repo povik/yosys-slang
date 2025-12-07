@@ -2538,8 +2538,18 @@ std::string NetlistContext::hdlname(const ast::Symbol &symbol)
 
 RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
-	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
+	auto &type = symbol.getType();
+	auto w = canvas->addWire(id(symbol), type.getBitstreamWidth());
 	w->set_string_attribute(ID::hdlname, hdlname(symbol));
+
+	if (type.kind == ast::SymbolKind::PackedArrayType &&
+			type.as<ast::PackedArrayType>().elementType.isScalar()) {
+		auto range = type.getFixedRange();
+		if (!range.isLittleEndian())
+			w->upto = true;
+		w->start_offset = range.lower();
+	}
+
 	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
 	return w;
