@@ -34,6 +34,8 @@
 #include "diag.h"
 #include "async_pattern.h"
 #include "variables.h"
+#include "slang_sva.h"
+#include <cstdlib>
 
 namespace slang_frontend {
 
@@ -2352,9 +2354,10 @@ public:
 	}
 
 	void handle(const ast::PropertySymbol &sym) {
-		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			netlist.add_diag(diag::SVAUnsupported, sym.location);
-		}
+		if (netlist.settings.ignore_assertions.value_or(false)) return;
+//			netlist.add_diag(diag::SVAUnsupported, sym.location);
+
+		handle_sva(sym);
 	}
 
 	void handle(const ast::Symbol &sym)
