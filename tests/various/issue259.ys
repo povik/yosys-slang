@@ -1,0 +1,49 @@
+read_slang --top top <<EOF
+typedef struct packed {
+    logic                       valid;
+  } s_flit_req_t;
+
+typedef struct packed {
+    logic                       ready;
+  } s_flit_resp_t;
+
+interface router_if;
+   s_flit_req_t  req;
+   s_flit_resp_t resp;
+
+  modport send_flit (
+    output  req,
+    input   resp
+  );
+
+  modport recv_flit (
+    input   req,
+    output  resp
+  );
+
+endinterface // router_if
+module top();
+   router_if ns_con [2] ();
+   router_if sn_con [2] ();
+   localparam int NorthIdx = 0;
+   router u_router (
+        .north_send     (ns_con[NorthIdx]),
+        .north_recv     (sn_con[NorthIdx])
+      );
+endmodule // raven
+
+module router
+  (
+  router_if.send_flit   north_send,
+  router_if.recv_flit   north_recv
+);
+  s_flit_resp_t       [4:0] ext_resp_v_o;
+  s_flit_req_t        [4:0] ext_req_v_o;
+  always_comb begin : mapping_input_ports
+    north_recv.resp = ext_resp_v_o[0];
+    north_send.req = ext_req_v_o[0];
+  end
+endmodule
+EOF
+sat -verify
+

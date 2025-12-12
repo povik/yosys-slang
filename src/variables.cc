@@ -114,6 +114,10 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 			if (linst.arrayPath[i] != rinst.arrayPath[i])
 				return linst.arrayPath[i] < rinst.arrayPath[i];
 		}
+		auto lpath = lhs->getHierarchicalPath();
+		auto rpath = rhs->getHierarchicalPath();
+		if (lpath != rpath)
+			return lpath < rpath;
 		break;
 	}
 	default: break;
