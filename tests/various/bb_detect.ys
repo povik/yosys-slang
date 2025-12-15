@@ -31,3 +31,38 @@ module top(output m);
 endmodule
 EOF
 select -assert-mod-count 0 =ff =A:blackbox %i
+
+design -reset
+read_slang \
+	--blackboxed-module foo \
+	--blackboxed-module bar \
+	--blackboxed-module yy \
+	--top top \
+<<EOF
+module foo(input i, output y);
+	assign y = i;
+endmodule
+
+module bar(input i, output y);
+	assign y = i;
+endmodule
+
+module xx(input i, output y);
+endmodule
+
+module yy(input i, output y);
+	assign y = i;
+endmodule
+
+module top(output m);
+	wire i1, i2, i3, i4, y1, y2, y3, y4;
+	foo inst1(.i(i1), .y(y1));
+	bar inst2(.i(i2), .y(y2));
+	xx inst3(.i(i3), .y(y3));
+	yy inst4(.i(i4), .y(y4));
+endmodule
+EOF
+select -assert-mod-count 1 =foo =A:blackbox %i
+select -assert-mod-count 1 =bar =A:blackbox %i
+select -assert-mod-count 0 =xx =A:blackbox %i
+select -assert-mod-count 1 =yy =A:blackbox %i

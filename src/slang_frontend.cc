@@ -61,7 +61,10 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"loaded into the current design with a Yosys command; this allows composing "
 				"hierarchy of SystemVerilog and non-SystemVerilog modules");
 	cmdLine.add("--no-implicit-memories", no_implicit_memories,
-				"Require a memory style attribute to consider a variable for memory inference");
+				"Disable implicit memory inference. Without this option used, all variables with at least one unpacked dimension "
+				"are candidates for memory inference. With this option used, inference will be restricted to those variables annotated "
+				"with one of the following memory style attributes: "
+				"ram_block, rom_block, ram_style, rom_style, ramstyle, romstyle, syn_ramstyle, syn_romstyle");
 	cmdLine.add("--empty-blackboxes", empty_blackboxes,
 				"Assume empty modules are blackboxes");
 	cmdLine.add("--ast-compilation-only", ast_compilation_only,
@@ -72,6 +75,13 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"Allow synthesis of dual-edge flip-flops (@(edge))");
 	cmdLine.add("--no-synthesis-define", no_synthesis_define,
 				"Don't add implicit -D SYNTHESIS");
+	cmdLine.add("--blackboxed-module",
+				[this](std::string_view value) {
+					blackboxed_modules.insert(std::string(value));
+					return "";
+				},
+				"Mark the named module for blackboxing. Whenever an instance of the given module is found in the design"
+				"hierarchy, its content will not be elaborated and instead the instance will be imported as a black box.");
 }
 
 namespace ast = slang::ast;
@@ -2566,6 +2576,9 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)
 {
 	if (sym.cellDefine)
+		return true;
+
+	if (settings.blackboxed_modules.contains(sym.name))
 		return true;
 
 	for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
