@@ -56,7 +56,7 @@ std::vector<const ast::Scope *> scope_path(const ast::Scope *scope, bool stop_at
 	while (scope &&
 			!(stop_at_instance && scope->asSymbol().kind == ast::SymbolKind::InstanceBody)) {
 		ret.push_back(scope);
-		scope = scope->asSymbol().getParentScope();
+		scope = scope->asSymbol().getHierarchicalParent();
 	}
 	std::reverse(ret.begin(), ret.end());
 	return ret;
@@ -69,6 +69,9 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 	if (lhs->getIndex() != rhs->getIndex())
 		return lhs->getIndex() < rhs->getIndex();
 
+	ast::SymbolKind lkind = lhs->kind;
+	ast::SymbolKind rkind = rhs->kind;
+
 	// Mirror getHierarchicalPath logic and look at instance not the body
 	if (lhs->kind == ast::SymbolKind::InstanceBody)
 		lhs = lhs->as<ast::InstanceBodySymbol>().parentInstance;
@@ -78,8 +81,8 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 	if (lhs->name != rhs->name)
 		return lhs->name < rhs->name;
 
-	if (lhs->kind != rhs->kind)
-		return lhs->kind < rhs->kind;
+	if (lkind != rkind)
+		return lkind < rkind;
 
 	switch (lhs->kind) {
 	case ast::SymbolKind::GenerateBlockArray: {
@@ -110,7 +113,7 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 	case ast::SymbolKind::CheckerInstance: {
 		auto &linst = lhs->as<ast::InstanceSymbolBase>();
 		auto &rinst = rhs->as<ast::InstanceSymbolBase>();
-		for (int i = 0; i < linst.arrayPath.size() && rinst.arrayPath.size(); i++) {
+		for (int i = 0; i < linst.arrayPath.size() && i < rinst.arrayPath.size(); i++) {
 			if (linst.arrayPath[i] != rinst.arrayPath[i])
 				return linst.arrayPath[i] < rinst.arrayPath[i];
 		}

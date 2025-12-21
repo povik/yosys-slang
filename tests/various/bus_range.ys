@@ -1,0 +1,20 @@
+read_slang <<EOF
+module top(foo);
+output wire [15:1] foo;
+endmodule
+EOF
+
+#FIXME: disabled since on some platforms the regex fails parsing
+#logger -expect log "output \[15:1\] foo" 1
+portlist
+
+design -reset
+read_slang <<EOF
+module top(bar);
+output wire [4:10] bar;
+endmodule
+EOF
+
+#logger -expect log "output \[4:10\] bar" 1
+portlist
+

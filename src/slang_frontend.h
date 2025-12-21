@@ -374,6 +374,7 @@ struct RTLILBuilder {
 			done += chunk.size();
 		}
 	}
+	SigSpec CountOnes(SigSpec sig, int result_width);
 
 private:
 	std::pair<std::string, SigSpec> add_y_wire(int width);
@@ -436,6 +437,8 @@ struct SynthesisSettings {
 	std::optional<bool> no_default_translate_off;
 	std::optional<bool> allow_dual_edge_ff;
 	std::optional<bool> no_synthesis_define;
+	// pass std::less<> to enable transparent lookup
+	std::set<std::string, std::less<>> blackboxed_modules;
 	bool disable_instance_caching = false;
 
 	enum HierMode {

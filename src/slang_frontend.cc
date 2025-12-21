@@ -63,7 +63,10 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"loaded into the current design with a Yosys command; this allows composing "
 				"hierarchy of SystemVerilog and non-SystemVerilog modules");
 	cmdLine.add("--no-implicit-memories", no_implicit_memories,
-				"Require a memory style attribute to consider a variable for memory inference");
+				"Disable implicit memory inference. Without this option used, all variables with at least one unpacked dimension "
+				"are candidates for memory inference. With this option used, inference will be restricted to those variables annotated "
+				"with one of the following memory style attributes: "
+				"ram_block, rom_block, ram_style, rom_style, ramstyle, romstyle, syn_ramstyle, syn_romstyle");
 	cmdLine.add("--empty-blackboxes", empty_blackboxes,
 				"Assume empty modules are blackboxes");
 	cmdLine.add("--ast-compilation-only", ast_compilation_only,
@@ -74,6 +77,13 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"Allow synthesis of dual-edge flip-flops (@(edge))");
 	cmdLine.add("--no-synthesis-define", no_synthesis_define,
 				"Don't add implicit -D SYNTHESIS");
+	cmdLine.add("--blackboxed-module",
+				[this](std::string_view value) {
+					blackboxed_modules.insert(std::string(value));
+					return "";
+				},
+				"Mark the named module for blackboxing. Whenever an instance of the given module is found in the design"
+				"hierarchy, its content will not be elaborated and instead the instance will be imported as a black box.");
 }
 
 namespace ast = slang::ast;
@@ -1203,9 +1213,17 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				require(expr, procedural != nullptr);
 				handle_display(*procedural, call);
 			} else if (call.isSystemCall()) {
-				require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
-				require(expr, call.arguments().size() == 1);
-				ret = (*this)(*call.arguments()[0]);
+				auto name = call.getSubroutineName();
+				if (name == "$countones") {
+					require(expr, call.arguments().size() == 1);
+					auto arg = call.arguments()[0];
+					auto sig = (*this)(*arg);
+					ret = netlist.CountOnes(sig, (int)call.type->getBitstreamWidth());
+				} else {
+					require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
+					require(expr, call.arguments().size() == 1);
+					ret = (*this)(*call.arguments()[0]);
+				}
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);
 				if (procedural) {
@@ -1613,16 +1631,11 @@ public:
 			initial_eval.context.addDiag(diag::NoteIgnoreInitial,
 										 slang::SourceLocation::NoLocation);
 
-
-
 		ProcessTiming initial_timing;
 		initial_timing.mode = ProcessTimingMode::Initial;
 
 		ProceduralContext initial_procedure(netlist, initial_timing);
-
-
-		body.visit(StatementExecutor(initial_procedure));
-
+		body.visit(InitialAssertionVisitor(initial_procedure));
 	}
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
@@ -2371,9 +2384,7 @@ public:
 
 	void handle(const ast::PropertySymbol &sym) {
 		if (netlist.settings.ignore_assertions.value_or(false)) return;
-//			netlist.add_diag(diag::SVAUnsupported, sym.location);
-
-		handle_sva(sym);
+			netlist.add_diag(diag::SVAUnsupported, sym.location);
 	}
 
 	void handle(const ast::Symbol &sym)
@@ -2557,8 +2568,18 @@ std::string NetlistContext::hdlname(const ast::Symbol &symbol)
 
 RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
-	auto w = canvas->addWire(id(symbol), symbol.getType().getBitstreamWidth());
+	auto &type = symbol.getType();
+	auto w = canvas->addWire(id(symbol), type.getBitstreamWidth());
 	w->set_string_attribute(ID::hdlname, hdlname(symbol));
+
+	if (type.kind == ast::SymbolKind::PackedArrayType &&
+			type.as<ast::PackedArrayType>().elementType.isScalar()) {
+		auto range = type.getFixedRange();
+		if (!range.isLittleEndian())
+			w->upto = true;
+		w->start_offset = range.lower();
+	}
+
 	wire_cache[&symbol] = w;
 	transfer_attrs(symbol, w);
 	return w;
@@ -2567,6 +2588,9 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)
 {
 	if (sym.cellDefine)
+		return true;
+
+	if (settings.blackboxed_modules.contains(sym.name))
 		return true;
 
 	for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
