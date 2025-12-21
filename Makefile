@@ -1,7 +1,7 @@
 # for out-of-tree build support
 SOURCE_DIR := $(dir $(firstword $(MAKEFILE_LIST)))
 
-CMAKE_FLAGS = -DCMAKE_BUILD_TYPE=Debug
+CMAKE_FLAGS = -DCMAKE_BUILD_TYPE=Release
 
 build: configure
 	+cmake --build build

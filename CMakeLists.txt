@@ -2,15 +2,6 @@ if (CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
     message(FATAL_ERROR "In-tree builds are not supported. Instead, run:\ncmake . -B build <options> && cmake --build build")
 endif()
 
-# Force debug symbols
-set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
-add_compile_options(-g3 -ggdb -O0)
-add_link_options(-g)
-
-# Or if you have a specific target:
-# target_compile_options(slang PRIVATE -g3 -ggdb -O0)
-
-
 # as in slang
 cmake_minimum_required(VERSION 3.20...3.29)
 
