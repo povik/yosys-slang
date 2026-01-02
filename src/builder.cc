@@ -386,7 +386,7 @@ SigSpec RTLILBuilder::Biop(
 			as--;
 		while (bs > 0 && b[bs - 1] == RTLIL::S0)
 			bs--;
-		msb_zeroes = std::max(0, y_width - (as + bs - 1));
+		msb_zeroes = std::max(0, y_width - (as + bs));
 	}
 
 	auto [id, y] = add_y_wire(y_width - msb_zeroes);

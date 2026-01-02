@@ -1,0 +1,13 @@
+read_slang --top top <<EOF
+`default_nettype none
+module top(
+    input  [7:0] a,
+    input  [7:0] b,
+    output [7:0] y
+);
+    wire [15:0] m = a * b;
+    assign y = m[15:8];
+endmodule
+EOF
+
+sat -falsify -prove y[7] 0
