@@ -182,7 +182,14 @@ public:
 		default:                                netlist.add_diag(diag::AssertionUnsupported, stmt.sourceRange); return;
 		}
 
-		auto cell = netlist.canvas->addCell(netlist.new_id(), ID($check));
+		std::string cell_name;
+		if (stmt.syntax && stmt.syntax->label) {
+			cell_name = RTLIL::escape_id(std::string(stmt.syntax->label->name.valueText()));
+		} else {
+			cell_name = netlist.new_id();
+		}
+		auto cell = netlist.canvas->addCell(cell_name, ID($check));
+
 		context.set_effects_trigger(cell);
 		cell->setParam(ID::FLAVOR, flavor);
 		cell->setParam(ID::FORMAT, std::string(""));
