@@ -804,6 +804,54 @@ RTLIL::SigSpec EvalContext::apply_nested_conversion(const ast::Expression &expr,
 	}
 }
 
+RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
+{
+	NetlistContext &netlist = eval.netlist;
+	ProceduralContext *procedural = eval.procedural;
+
+	// $past(expr) - returns the value of expr from the previous clock cycle
+	// $past(expr, num_cycles) - returns the value from num_cycles ago
+	// Note: Full signature is $past(expr, num_ticks, gating_expr, clocking_event) but we only support first 2 args
+	require(call, call.arguments().size() >= 1 && call.arguments().size() <= 2);
+	require(call, procedural != nullptr);
+	require(call, !procedural->timing.implicit());
+	require(call, procedural->timing.triggers.size() >= 1);
+
+	// Check num_cycles if specified (2nd argument)
+	int num_cycles = 1;
+	if (call.arguments().size() >= 2) {
+		auto cycles_result = call.arguments()[1]->eval(eval.const_);
+		require(call, cycles_result);
+		auto cycles_int = cycles_result.integer().as<int>();
+		require(call, cycles_int.has_value());
+		num_cycles = cycles_int.value();
+		require(call, num_cycles >= 1);
+	}
+
+	auto arg = call.arguments()[0];
+	RTLIL::SigSpec current_val = eval(*arg);
+	int width = current_val.size();
+
+	// Use the first trigger (clock) from the procedural timing
+	auto &trigger = procedural->timing.triggers[0];
+
+	// Create a chain of DFFs for num_cycles delay
+	RTLIL::SigSpec prev_val = current_val;
+	RTLIL::Wire *past_wire = nullptr;
+
+	for (int i = 0; i < num_cycles; i++) {
+		past_wire = netlist.canvas->addWire(netlist.new_id("$past"), width);
+		netlist.canvas->addDff(netlist.new_id("$past"),
+			trigger.signal,
+			prev_val,
+			past_wire,
+			trigger.edge_polarity);
+		prev_val = past_wire;
+	}
+
+	return past_wire;
+}
+
 void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 {
 	NetlistContext &netlist = context.netlist;
@@ -1212,6 +1260,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					auto arg = call.arguments()[0];
 					auto sig = (*this)(*arg);
 					ret = netlist.CountOnes(sig, (int)call.type->getBitstreamWidth());
+				} else if (name == "$past") {
+					ret = handle_past(*this, call);
 				} else {
 					require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
 					require(expr, call.arguments().size() == 1);
