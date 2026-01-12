@@ -22,6 +22,7 @@ public:
 	ProceduralContext &context;
 	EvalContext &eval;
 	UnrollLimitTracking &unroll_limit;
+	const ast::StatementBlockSymbol *containing_block = nullptr;
 
 	StatementExecutor(ProceduralContext &context)
 		: netlist(context.netlist), context(context), eval(context.eval),
@@ -169,25 +170,47 @@ public:
 		}
 	};
 
-	void handle(const ast::ImmediateAssertionStatement &stmt)
+	static const ast::Statement *unwrap_statement(const ast::Statement *statement)
+	{
+		switch (statement->kind) {
+		case ast::StatementKind::Block:
+			return unwrap_statement(&statement->as<ast::BlockStatement>().body);
+		case ast::StatementKind::List: {
+			auto &list = statement->as<ast::StatementList>();
+			if (list.list.size() == 1) {
+				return unwrap_statement(list.list[0]);
+			}
+			break;
+		}
+		default: break;
+		}
+		return statement;
+	}
+
+	void handle(const ast::ImmediateAssertionStatement &statement)
 	{
 		if (netlist.settings.ignore_assertions.value_or(false))
 			return;
 
 		std::string flavor;
-		switch (stmt.assertionKind) {
+		switch (statement.assertionKind) {
 		case ast::AssertionKind::Assert:        flavor = "assert"; break;
 		case ast::AssertionKind::Assume:        flavor = "assume"; break;
 		case ast::AssertionKind::CoverProperty: flavor = "cover"; break;
-		default:                                netlist.add_diag(diag::AssertionUnsupported, stmt.sourceRange); return;
+		default:                                netlist.add_diag(diag::AssertionUnsupported, statement.sourceRange); return;
 		}
 
-		std::string cell_name;
-		if (stmt.syntax && stmt.syntax->label) {
-			cell_name = RTLIL::escape_id(std::string(stmt.syntax->label->name.valueText()));
+		RTLIL::IdString cell_name;
+
+		if (containing_block &&
+				unwrap_statement(containing_block->tryGetStatement()) == &statement &&
+				!containing_block->name.empty()) {
+			// If we are the sole statement in a block, use the block's label
+			cell_name = netlist.id(*containing_block);
 		} else {
 			cell_name = netlist.new_id();
 		}
+
 		auto cell = netlist.canvas->addCell(cell_name, ID($check));
 
 		context.set_effects_trigger(cell);
@@ -196,8 +219,8 @@ public:
 		cell->setParam(ID::ARGS_WIDTH, 0);
 		cell->setParam(ID::PRIORITY, --context.effects_priority);
 		cell->setPort(ID::ARGS, {});
-		cell->setPort(ID::A, netlist.ReduceBool(eval(stmt.cond)));
-		transfer_attrs(stmt, cell);
+		cell->setPort(ID::A, netlist.ReduceBool(eval(statement.cond)));
+		transfer_attrs(statement, cell);
 	}
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt)
@@ -286,7 +309,16 @@ public:
 	{
 		require(blk, blk.blockKind == ast::StatementBlockKind::Sequential)
 				EnterAutomaticScopeGuard guard(context.eval, blk.blockSymbol);
-		blk.body.visit(*this);
+
+		if (blk.blockSymbol) {
+			ast_invariant(*blk.blockSymbol, blk.blockSymbol->tryGetStatement() == &blk);
+			const ast::StatementBlockSymbol *symbol_save = containing_block;
+			containing_block = blk.blockSymbol;
+			blk.body.visit(*this);
+			containing_block = symbol_save;
+		} else {
+			blk.body.visit(*this);
+		}
 	}
 
 	void handle(const ast::StatementList &list)

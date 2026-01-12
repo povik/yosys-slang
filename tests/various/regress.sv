@@ -307,3 +307,15 @@ module r26_router
     north_send.req = ext_req_v_o[0];
   end
 endmodule
+
+// pr 268 try cause name conflict
+module r27_submodule();
+    always_comb begin
+        foo: assert(1);
+    end
+endmodule
+
+module r27();
+    wire foo;
+    r27_submodule bar();
+endmodule
