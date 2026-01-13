@@ -827,7 +827,6 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 		auto cycles_result = call.arguments()[1]->eval(eval.const_);
 		auto cycles_int = cycles_result.integer().as<int>();
 		num_cycles = cycles_int.value();
-		require(call, num_cycles >= 1);
 	}
 
 	auto arg = call.arguments()[0];
