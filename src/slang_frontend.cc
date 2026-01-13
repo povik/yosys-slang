@@ -812,18 +812,20 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 	// $past(expr) - returns the value of expr from the previous clock cycle
 	// $past(expr, num_cycles) - returns the value from num_cycles ago
 	// Note: Full signature is $past(expr, num_ticks, gating_expr, clocking_event) but we only support first 2 args
-	require(call, call.arguments().size() >= 1 && call.arguments().size() <= 2);
-	require(call, procedural != nullptr);
-	require(call, !procedural->timing.implicit());
-	require(call, procedural->timing.triggers.size() >= 1);
+	if (call.arguments().size() > 2) {
+		netlist.add_diag(diag::PastGatingClockingUnsupported, call.sourceRange);
+		return RTLIL::SigSpec(RTLIL::Sx, (int) call.type->getBitstreamWidth());
+	}
+	if (procedural == nullptr || procedural->timing.implicit() || procedural->timing.triggers.size() < 1) {
+		netlist.add_diag(diag::SystemFunctionRequireClockedBlock, call.sourceRange) << call.getSubroutineName();
+		return RTLIL::SigSpec(RTLIL::Sx, (int) call.type->getBitstreamWidth());
+	}
 
 	// Check num_cycles if specified (2nd argument)
 	int num_cycles = 1;
 	if (call.arguments().size() >= 2) {
 		auto cycles_result = call.arguments()[1]->eval(eval.const_);
-		require(call, cycles_result);
 		auto cycles_int = cycles_result.integer().as<int>();
-		require(call, cycles_int.has_value());
 		num_cycles = cycles_int.value();
 		require(call, num_cycles >= 1);
 	}

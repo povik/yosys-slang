@@ -69,6 +69,8 @@ extern slang::DiagCode NetTypeUnsupported;
 extern slang::DiagCode NoAllowTopLevelIfacePorts;
 extern slang::DiagCode RefUnsupported;
 extern slang::DiagCode InlinedInOutUnsupported;
+extern slang::DiagCode PastGatingClockingUnsupported;
+extern slang::DiagCode SystemFunctionRequireClockedBlock;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag
