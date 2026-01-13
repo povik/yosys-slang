@@ -2124,11 +2124,21 @@ public:
 
 	void initialize_var_init(const ast::InstanceBodySymbol &body)
 	{
-		body.visit(ast::makeVisitor([&](auto&, const ast::VariableSymbol &sym) {
+		body.visit(ast::makeVisitor([&](auto&, const ast::VariableSymbol &symbol) {
 			slang::ConstantValue initval = nullptr;
-			if (sym.getInitializer() && sym.lifetime == ast::VariableLifetime::Static)
-				initval = sym.getInitializer()->eval(initial_eval.context);
-			initial_eval.context.createLocal(&sym, initval);
+			if (symbol.getInitializer() && symbol.lifetime == ast::VariableLifetime::Static) {
+				initval = symbol.getInitializer()->eval(initial_eval.context);
+			} else {
+				for (const ast::ValueSymbol::PortBackref *backref = symbol.getFirstPortBackref();
+						backref; backref = backref->getNextBackreference()) {
+					if (backref->port->internalSymbol == &symbol &&
+							backref->port->direction == ast::ArgumentDirection::Out &&
+							backref->port->getInitializer()) {
+						initval = backref->port->getInitializer()->eval(initial_eval.context);
+					}
+				}
+			}
+			initial_eval.context.createLocal(&symbol, initval);
 		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
 			if (netlist.should_dissolve(sym))
 				visitor.visitDefault(sym);

@@ -11,12 +11,12 @@ foreach fn [glob *.sv] {
 	design -reset
 
 	read_slang $fn
-
 	chformal -lower
 
 	foreach m [module_list] {
 		log -header "Testcase $m"
 		log -push
+		setundef -undriven -undef $m
 		sat -verify -enable_undef -prove-asserts -show-public $m
 		log -pop
 	}
@@ -37,6 +37,7 @@ foreach fn [glob *.sv] {
 		log -header "Testcase $m (hierarchical)"
 		log -push
 		flatten $m
+		setundef -undriven -undef $m
 		sat -verify -enable_undef -prove-asserts -show-public $m
 		log -pop
 	}
