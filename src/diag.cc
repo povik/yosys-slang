@@ -113,6 +113,8 @@ DiagCode NetTypeUnsupported(DiagSubsystem::Netlist, 1058);
 DiagCode NoAllowTopLevelIfacePorts(DiagSubsystem::Netlist, 1059);
 DiagCode RefUnsupported(DiagSubsystem::Netlist, 1061);
 DiagCode InlinedInOutUnsupported(DiagSubsystem::Netlist, 1062);
+DiagCode PastGatingClockingUnsupported(DiagSubsystem::Netlist, 1063);
+DiagCode SystemFunctionRequireClockedBlock(DiagSubsystem::Netlist, 1064);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -276,6 +278,13 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(InlinedInOutUnsupported, "connection on port '{}' with direction 'inout' cannot be inlined; see yosys-slang issue #143");
 	engine.setSeverity(InlinedInOutUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(PastGatingClockingUnsupported, "$past gating_expr (3rd argument) and clocking_event (4th argument) are not supported");
+	engine.setSeverity(PastGatingClockingUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(SystemFunctionRequireClockedBlock, "system function '{}' can only be called within a clocked procedural block with explicit timing");
+	engine.setSeverity(SystemFunctionRequireClockedBlock, DiagnosticSeverity::Error);
+
 	// clang-format on
 }
 }; // namespace diag

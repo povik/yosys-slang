@@ -1,6 +1,6 @@
 read_slang formal_stmts.sv
 
-select -assert-count 6 t:$check
+select -assert-count 9 t:$check
 select -assert-count 1 m_assert/t:$check r:FLAVOR=assert %i
 select -assert-count 1 m_assume/t:$check r:FLAVOR=assume %i
 select -assert-count 1 m_cover/t:$check r:FLAVOR=cover %i
@@ -13,3 +13,7 @@ select -assert-count 1 m_labeled_assertions/t:$check n:*my_cover %i
 select -assert-count 1 m_labeled_assertions/t:$check n:*my_assert %i r:FLAVOR=assert %i
 select -assert-count 1 m_labeled_assertions/t:$check n:*my_assume %i r:FLAVOR=assume %i
 select -assert-count 1 m_labeled_assertions/t:$check n:*my_cover %i r:FLAVOR=cover %i
+
+# Test $past
+select -assert-count 3 m_past/t:$check r:FLAVOR=assert %i
+select -assert-count 7 m_past/t:$dff
