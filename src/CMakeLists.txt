@@ -30,6 +30,8 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     procedural.cc
     slang_frontend.cc
     slang_frontend.h
+	slang_sva.cc
+	slang_sva.h
     statements.h
     variables.cc
     variables.h
