@@ -816,7 +816,7 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 		netlist.add_diag(diag::PastGatingClockingUnsupported, call.sourceRange);
 		return RTLIL::SigSpec(RTLIL::Sx, (int) call.type->getBitstreamWidth());
 	}
-	if (procedural == nullptr || procedural->timing.implicit() || procedural->timing.triggers.size() < 1) {
+	if (procedural == nullptr || procedural->timing.implicit() || procedural->timing.triggers.size() != 1) {
 		netlist.add_diag(diag::SystemFunctionRequireClockedBlock, call.sourceRange) << call.getSubroutineName();
 		return RTLIL::SigSpec(RTLIL::Sx, (int) call.type->getBitstreamWidth());
 	}
@@ -825,6 +825,7 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 	int num_cycles = 1;
 	if (call.arguments().size() >= 2) {
 		auto cycles_result = call.arguments()[1]->eval(eval.const_);
+		ast_invariant(call, cycles_result.isInteger());
 		auto cycles_int = cycles_result.integer().as<int>();
 		num_cycles = cycles_int.value();
 	}
