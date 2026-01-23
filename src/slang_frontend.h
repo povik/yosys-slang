@@ -475,15 +475,14 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	};
 	Yosys::dict<RTLIL::IdString, Memory> emitted_mems;
 
-	// Used to implement modports on uncollapsed levels of hierarchy
+	// Used to implement modports on `realm`
 	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
 
 	// Cache per-symbol Wire* pointers
 	Yosys::dict<const ast::Symbol*, RTLIL::Wire *> wire_cache;
 
-	// With this flag set we will not elaborate this netlist; we set this when
-	// `scopes_remap` is incomplete due to errors in processing an instantiation
-	// of `realm`.
+	// Flag to disable elaboration; we set this when `scopes_remap` is
+	// incomplete due to prior errors
 	bool disabled = false;
 
 	NetlistContext(RTLIL::Design *design,
@@ -506,12 +505,12 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	bool is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox=nullptr);
 	bool should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved=nullptr);
 
-	// Find the "realm" for given symbol, i.e. the containing instance body which is not
-	// getting dissolved (if we are flattening this will be the top body)
+	// Find the "realm" for the given symbol, i.e. the containing instance body
+	// which is not getting dissolved during netlist emission. If we are fully flattening
+	// this will be the top module.
 	const ast::InstanceBodySymbol &find_symbol_realm(const ast::Symbol &symbol);
 	const ast::InstanceBodySymbol &find_common_ancestor(const ast::InstanceBodySymbol &a, const ast::InstanceBodySymbol &b);
 	bool check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range);
-
 };
 
 // slang_frontend.cc
