@@ -569,6 +569,7 @@ public:
 			}
 		}
 
+		std::vector<slang::ast::ForeachLoopStatement::LoopDim> reversedDims(stmt.loopDims.rbegin(), stmt.loopDims.rend());
 		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 		unroll_limit.enter_unrolling();
 		while (true) {
@@ -597,26 +598,30 @@ public:
 				if (!loopVarStack[i])
 					continue;
 
-				if (*loopVarStack[i] != stmt.loopDims[i].range->right) {
-					(*loopVarStack[i])++;
+				if (*loopVarStack[i] != reversedDims[i].range->right) {
+					*loopVarStack[i] = *loopVarStack[i] > reversedDims[i].range->right ?
+								*loopVarStack[i] - 1 :
+								*loopVarStack[i] + 1 ;
 					doBreak = false;
 					break;
 				} else if (i != loopVarStack.size() - 1) {
 					bool nextDimFound = false;
 					int j = i + 1;
 					for (; j < loopVarStack.size(); ++j) {
-						if (loopVarStack[j] && *loopVarStack[j] != stmt.loopDims[j].range->right) {
+						if (loopVarStack[j] && *loopVarStack[j] != reversedDims[j].range->right) {
 							nextDimFound = true;
 							break;
 						}
 					}
 
 					if (nextDimFound) {
-						(*loopVarStack[j])++;
+						*loopVarStack[j] = *loopVarStack[j] > reversedDims[j].range->right ?
+									*loopVarStack[j] - 1 :
+									*loopVarStack[j] + 1 ;
 						doBreak = false;
 						for (int k = 0; k <= i; ++k) {
 							if (loopVarStack[k])
-								*loopVarStack[k] = 0;
+								*loopVarStack[k] = reversedDims[k].range->left;
 						}
 
 						break;
@@ -626,7 +631,7 @@ public:
 
 			for (auto i = 0; i < loopVarStack.size(); ++i) {
 				if (loopVarStack[i]) {
-					auto currDim = stmt.loopDims[i];
+					auto currDim = reversedDims[i];
 					set_nonstatic_variable_by_int(*currDim.loopVar, *loopVarStack[i]);
 				}
 			}

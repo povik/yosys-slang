@@ -32,6 +32,35 @@ module foreach_array_sum_1d;
 
 endmodule
 
+module foreach_array_sum_2d_with_1_iter_dim;
+
+    reg array2d[3][4] ='{'{0, 0, 0, 0},
+                          '{0, 0, 0, 0},
+                          '{0, 0, 0, 1}};
+    int sum = 0;
+
+    always_comb begin
+        foreach (array2d[i, ]) begin
+            sum += array2d[i][1];
+        end
+    end
+
+endmodule
+
+module foreach_array_sum_2d_packed_unpacked;
+
+    reg [3:0] array2d[3] ='{'{0, 0, 0, 0},
+                          '{0, 0, 0, 0},
+                          '{0, 0, 0, 1}};
+    int sum = 0;
+
+    always_comb begin
+        foreach (array2d[i, j]) begin
+            sum += array2d[i][j];
+        end
+    end
+
+endmodule
 
 module foreach_array_sum_2d;
 
@@ -43,6 +72,22 @@ module foreach_array_sum_2d;
     always_comb begin
         foreach (array2d[i, j]) begin
             sum += array2d[i][j];
+        end
+    end
+
+endmodule
+
+module foreach_array_sum_2d_with_break;
+
+    reg array2d[3][4] ='{'{0, 0, 0, 0},
+                          '{0, 0, 0, 0},
+                          '{0, 0, 0, 1}};
+    int sum = 0;
+
+    always_comb begin
+        foreach (array2d[i, j]) begin
+            sum += array2d[i][j];
+            break;
         end
     end
 
