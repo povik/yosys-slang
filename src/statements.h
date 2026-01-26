@@ -556,6 +556,94 @@ public:
 		context.current_case = context.current_case->add_switch({})->add_case({});
 	}
 
+	void handle(const ast::ForeachLoopStatement &stmt)
+	{
+		std::vector<SwitchHelper> sw_stack;
+		std::vector<std::optional<int32_t>> loopVarStack (stmt.loopDims.size(), std::nullopt);
+		// Initialize loop vars ranges
+		for (auto i = 0; i < stmt.loopDims.size(); ++i) {
+			auto loopDim = stmt.loopDims[i];
+			if (loopDim.loopVar && loopDim.range) {
+				loopVarStack[loopVarStack.size() - i - 1] = loopDim.range->left;
+				set_nonstatic_variable_by_int(*loopDim.loopVar, loopDim.range->left);
+			}
+		}
+
+		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
+		unroll_limit.enter_unrolling();
+		while (true) {
+			if (!unroll_limit.unroll_tick(&stmt))
+				break;
+			{
+				RegisterEscapeConstructGuard guard2(context, EscapeConstructKind::LoopBody, &stmt);
+				stmt.body.visit(*this);
+			}
+
+			RTLIL::SigSpec break_rv = context.substitute_rvalue(guard1.flag);
+
+			if (!break_rv.is_fully_const()) {
+				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, break_rv);
+				b.sw->statement = &stmt;
+				b.enter_branch({RTLIL::S0});
+				context.current_case->statement = &stmt.body;
+			} else if (break_rv.as_bool()) {
+				break;
+			} else {
+				log_assert(!break_rv.as_bool());
+			}
+
+			bool doBreak = true;
+			for (int i = 0; i < loopVarStack.size(); ++i) {
+				if (!loopVarStack[i])
+					continue;
+
+				if (*loopVarStack[i] != stmt.loopDims[i].range->right) {
+					(*loopVarStack[i])++;
+					doBreak = false;
+					break;
+				} else if (i != loopVarStack.size() - 1) {
+					bool nextDimFound = false;
+					int j = i + 1;
+					for (; j < loopVarStack.size(); ++j) {
+						if (loopVarStack[j] && *loopVarStack[j] != stmt.loopDims[j].range->right) {
+							nextDimFound = true;
+							break;
+						}
+					}
+
+					if (nextDimFound) {
+						(*loopVarStack[j])++;
+						doBreak = false;
+						for (int k = 0; k <= i; ++k) {
+							if (loopVarStack[k])
+								*loopVarStack[k] = 0;
+						}
+
+						break;
+					}
+				}
+			}
+
+			for (auto i = 0; i < loopVarStack.size(); ++i) {
+				if (loopVarStack[i]) {
+					auto currDim = stmt.loopDims[i];
+					set_nonstatic_variable_by_int(*currDim.loopVar, *loopVarStack[i]);
+				}
+			}
+
+			if (doBreak || !unroll_limit.unroll_tick(&stmt))
+				break;
+		}
+		unroll_limit.exit_unrolling();
+
+		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
+			it->exit_branch();
+			it->finish(netlist);
+		}
+
+		context.current_case = context.current_case->add_switch({})->add_case({});
+	}
+
 	void handle(const ast::EmptyStatement &) {}
 
 	void init_nonstatic_variable(const ast::ValueSymbol &symbol)
@@ -572,6 +660,18 @@ public:
 		else
 			initval = convert_const(symbol.getType().getDefaultValue());
 
+		context.do_simple_assign(symbol.location, target, initval, true);
+	}
+
+	void set_nonstatic_variable_by_int(const ast::ValueSymbol &symbol, int32_t val)
+	{
+		Variable target = eval.variable(symbol);
+		log_assert((bool)target);
+
+		if (!target.bitwidth())
+			return;
+
+		RTLIL::SigSpec initval = convert_const(slang::ConstantValue(slang::SVInt(32, val, true)));
 		context.do_simple_assign(symbol.location, target, initval, true);
 	}
 
