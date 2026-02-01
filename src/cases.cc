@@ -25,7 +25,7 @@ Case *Switch::add_case(std::vector<RTLIL::SigSpec> compare)
 	return case_;
 }
 
-RTLIL::SwitchRule *Switch::lower()
+RTLIL::SwitchRule *Switch::lower(NetlistContext &netlist)
 {
 	RTLIL::SwitchRule *rule = new RTLIL::SwitchRule;
 	rule->signal = signal;
@@ -37,10 +37,10 @@ RTLIL::SwitchRule *Switch::lower()
 		rule->attributes[ID::parallel_case] = true;
 
 	if (statement)
-		transfer_attrs(*statement, rule);
+		transfer_attrs(netlist, *statement, rule);
 
 	for (auto case_ : cases)
-		rule->cases.push_back(case_->lower());
+		rule->cases.push_back(case_->lower(netlist));
 
 	return rule;
 }

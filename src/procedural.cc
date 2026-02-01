@@ -124,7 +124,7 @@ void ProceduralContext::inherit_state(ProceduralContext &other)
 
 void ProceduralContext::copy_case_tree_into(RTLIL::CaseRule &rule)
 {
-	root_case->copy_into(&rule);
+	root_case->copy_into(netlist, &rule);
 }
 
 VariableBits ProceduralContext::all_driven()

@@ -182,15 +182,31 @@ static const RTLIL::Const convert_svint(const slang::SVInt &svint)
 	return bits;
 }
 
-const RTLIL::Const convert_const(const slang::ConstantValue &constval)
+const std::optional<RTLIL::Const> NetlistContext::convert_const(const slang::ConstantValue &constval,
+																slang::SourceLocation loc)
 {
-	log_assert(!constval.bad());
-	log_assert(!constval.isReal());
-	log_assert(!constval.isShortReal());
-	log_assert(!constval.isUnbounded());
-	log_assert(!constval.isMap());
-	log_assert(!constval.isQueue());
-	log_assert(!constval.isUnion());
+	if (constval.bad()) {
+		// no diagnostic in this case as we assume one has been raised upstream
+		return {};
+	} else if (constval.isReal()) {
+		add_diag(diag::UnsupportedBitConversion, loc) << "real"sv;
+		return {};
+	} else if (constval.isShortReal()) {
+		add_diag(diag::UnsupportedBitConversion, loc) << "shortreal"sv;
+		return {};
+	} else if (constval.isUnbounded()) {
+		add_diag(diag::UnsupportedBitConversion, loc) << "unbounded symbol"sv;
+		return {};
+	} else if (constval.isMap()) {
+		add_diag(diag::UnsupportedBitConversion, loc) << "map"sv;
+		return {};
+	} else if (constval.isQueue()) {
+		add_diag(diag::UnsupportedBitConversion, loc) << "queue"sv;
+		return {};
+	} else if (constval.isUnion()) {
+		add_diag(diag::UnsupportedBitConversion, loc) << "union"sv;
+		return {};
+	}
 
 	if (constval.isInteger()) {
 		return convert_svint(constval.integer());
@@ -200,8 +216,11 @@ const RTLIL::Const convert_const(const slang::ConstantValue &constval)
 
 		auto elems = constval.elements();
 		for (auto it = elems.rbegin(); it != elems.rend(); it++) {
-			auto piece = convert_const(*it);
-			bits.insert(bits.end(), piece.begin(), piece.end());
+			if (auto piece = convert_const(*it, loc)) {
+				bits.insert(bits.end(), piece->begin(), piece->end());	
+			} else {
+				return {};
+			}
 		}
 
 		log_assert(bits.size() == constval.getBitstreamWidth());
@@ -227,53 +246,52 @@ static const RTLIL::Const reverse_data(RTLIL::Const &orig, int width)
 	return bits;
 }
 
+std::optional<RTLIL::Const> convert_attr_value(NetlistContext &netlist, const ast::AttributeSymbol* symbol)
+{
+	auto value = netlist.convert_const(symbol->getValue(), symbol->location);
+	if (value) {
+		// slang converts string literals to integer constants per the spec;
+		// we need to look at the syntax tree to recover the information
+		if (symbol->getSyntax() &&
+			symbol->getSyntax()->kind == syntax::SyntaxKind::AttributeSpec &&
+			symbol->getSyntax()->template as<syntax::AttributeSpecSyntax>().value &&
+			symbol->getSyntax()->template as<syntax::AttributeSpecSyntax>().value->expr->kind ==
+				syntax::SyntaxKind::StringLiteralExpression) {
+			value->flags |= RTLIL::CONST_FLAG_STRING;
+		}
+	}
+	return value;
+}
+
 template<typename T>
-void transfer_attrs(T &from, RTLIL::AttrObject *to)
+void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to)
 {
 	auto src = format_src(from);
 	if (!src.empty())
 		to->attributes[ID::src] = src;
 
 	for (auto attr : global_compilation->getAttributes(from)) {
-		to->attributes[id(attr->name)] = convert_const(attr->getValue());
-
-		// slang converts string literals to integer constants per the spec;
-		// we need to dig into the syntax tree to recover the information
-		if (attr->getSyntax() &&
-			attr->getSyntax()->kind == syntax::SyntaxKind::AttributeSpec &&
-			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value &&
-			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value->expr->kind ==
-				syntax::SyntaxKind::StringLiteralExpression) {
-			to->attributes[id(attr->name)].flags |= RTLIL::CONST_FLAG_STRING;
+		if (auto value = convert_attr_value(netlist, attr)) {
+			to->attributes[id(attr->name)] = *value;
 		}
 	}
 }
-template void transfer_attrs<const ast::Symbol>(const ast::Symbol &from, RTLIL::AttrObject *to);
+template void transfer_attrs<const ast::Symbol>(NetlistContext &netlist, const ast::Symbol &from, RTLIL::AttrObject *to);
 
 template<typename T>
-void transfer_attrs(T &from, AttributeGuard &guard)
+void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard)
 {
 	auto src = format_src(from);
 	if (!src.empty())
 		guard.set(ID::src, src);
 
 	for (auto attr : global_compilation->getAttributes(from)) {
-		RTLIL::Const value = convert_const(attr->getValue());
-
-		// slang converts string literals to integer constants per the spec;
-		// we need to dig into the syntax tree to recover the information
-		if (attr->getSyntax() &&
-			attr->getSyntax()->kind == syntax::SyntaxKind::AttributeSpec &&
-			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value &&
-			attr->getSyntax()->template as<syntax::AttributeSpecSyntax>().value->expr->kind ==
-				syntax::SyntaxKind::StringLiteralExpression) {
-			value.flags |= RTLIL::CONST_FLAG_STRING;
+		if (auto value = convert_attr_value(netlist, attr)) {
+			guard.set(id(attr->name), *value);
 		}
-
-		guard.set(id(attr->name), value);
 	}
 }
-template void transfer_attrs<const ast::Symbol>(const ast::Symbol &from, AttributeGuard &guard);
+template void transfer_attrs<const ast::Symbol>(NetlistContext &netlist, const ast::Symbol &from, AttributeGuard &guard);
 };
 
 #include "cases.h"
@@ -858,7 +876,7 @@ void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 {
 	NetlistContext &netlist = context.netlist;
 	auto cell = netlist.canvas->addCell(netlist.new_id(), ID($print));
-	transfer_attrs(call, cell);
+	transfer_attrs(context.netlist, call, cell);
 	context.set_effects_trigger(cell);
 	cell->parameters[ID::PRIORITY] = --context.effects_priority;
 	std::vector<Yosys::VerilogFmtArg> fmt_args;
@@ -908,7 +926,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	size_t repl_count;
 
 	AttributeGuard guard(netlist);
-	transfer_attrs(expr, guard);
+	transfer_attrs(netlist, expr, guard);
 
 	// TODO: Interconnect (untyped) is unimplemented, waiting on slang width resolution
 	if (expr.type->isUntypedType())
@@ -929,8 +947,13 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			expr.kind == ast::ExpressionKind::StringLiteral) {
 		auto const_result = expr.eval(this->const_);
 		if (const_result) {
-			ret = convert_const(const_result);
-			goto done;
+			auto converted = netlist.convert_const(const_result, expr.sourceRange.start());
+			if (converted) {
+				ret = *converted;
+				goto done;
+			} else {
+				goto error;
+			}
 		}
 	}
 
@@ -1183,7 +1206,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				ret = netlist.canvas->addWire(netlist.new_id(), width);
 				memrd->setPort(ID::DATA, ret);
 				memrd->setParam(ID::WIDTH, width);
-				transfer_attrs(expr, memrd);
+				transfer_attrs(netlist, expr, memrd);
 				break;
 			}
 
@@ -1282,8 +1305,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					ret = visitor.handle_call(call);
 
 					RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
-					transfer_attrs(call, proc);
-					context.root_case->copy_into(&proc->root_case);
+					transfer_attrs(netlist, call, proc);
+					context.root_case->copy_into(netlist, &proc->root_case);
 				}
 			}
 		}
@@ -1411,7 +1434,7 @@ public:
 							  std::string{call.getSubroutineName()}, mod->name);
 			fmt.append_literal("\n");
 			fmt.emit_rtlil(cell);
-			transfer_attrs(call, cell);
+			transfer_attrs(netlist, call, cell);
 		}
 	} initial_eval;
 
@@ -1425,7 +1448,7 @@ public:
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
-		transfer_attrs(body, proc);
+		transfer_attrs(netlist, body, proc);
 
 		ProcessTiming implicit_timing;
 
@@ -1475,7 +1498,7 @@ public:
 				for (int i = 0; i < chunk.bitwidth(); i++) {
 					RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en[i],
 											staging[i], netlist.convert_static(chunk[i]), true);
-					transfer_attrs(symbol, cell);
+					transfer_attrs(netlist, symbol, cell);
 					signaling[chunk[i]] = {en[i], staging[i]};
 				}
 				enables.append(en);
@@ -1489,7 +1512,7 @@ public:
 			procedure.root_case->insert_latch_signaling(netlist, signaling);
 		}
 
-		procedure.root_case->copy_into(&proc->root_case);
+		procedure.root_case->copy_into(netlist, &proc->root_case);
 		netlist.GroupConnect(cl, cr);
 	}
 
@@ -1504,7 +1527,7 @@ public:
 		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
 
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
-		transfer_attrs(timed.stmt, proc);
+		transfer_attrs(netlist, timed.stmt, proc);
 
 		ProcessTiming prologue_timing;
 		{
@@ -1576,27 +1599,30 @@ public:
 				const ast::Type *type = &driven_chunk.variable.get_symbol()->getType();
 				RTLIL::SigSpec assigned = sync_procedure.vstate.evaluate(netlist, driven_chunk);
 
-				RTLIL::Cell *cell;
+				AttributeGuard guard(netlist);
+				transfer_attrs(netlist, symbol, guard);
+
 				if (aloads.empty()) {
-					if (clock.edge == ast::EdgeKind::BothEdges) {
-						for (auto named : generate_subfield_names(driven_chunk, type)) {
-							auto [named_chunk, name] = named;
-							add_dual_edge_aldff(netlist, symbol, named,
-													timing.triggers[0].signal,
-													RTLIL::S0,
-													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-													netlist.convert_static(named_chunk),
-													RTLIL::SigSpec(RTLIL::Sx, named_chunk.bitwidth()),
-													true);
-						}
-					} else {
-						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
-							cell = netlist.canvas->addDff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
-													timing.triggers[0].signal,
-													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-													netlist.convert_static(named_chunk),
-													timing.triggers[0].edge_polarity);
-							transfer_attrs(symbol, cell);
+
+					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
+						log_assert(named_chunk.variable.get_symbol() != nullptr);
+						std::string base_name = Yosys::stringf("$driver$%s%s",
+							RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+
+						if (clock.edge == ast::EdgeKind::BothEdges) {
+							netlist.add_dual_edge_aldff(base_name,
+														timing.triggers[0].signal,
+														RTLIL::S0,
+														assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+														netlist.convert_static(named_chunk),
+														RTLIL::SigSpec(RTLIL::Sx, named_chunk.bitwidth()),
+														true);
+						} else {
+							netlist.add_dff(netlist.canvas->uniquify(base_name),
+											timing.triggers[0].signal,
+											assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+											netlist.convert_static(named_chunk),
+											timing.triggers[0].edge_polarity);
 						}
 					}
 				} else if (aloads.size() == 1) {
@@ -1613,30 +1639,29 @@ public:
 					}
 
 					if (!aldff_q.empty()) {
-						if (clock.edge == ast::EdgeKind::BothEdges) {
-							for (auto driven_chunk2 : aldff_q.chunks())
-							for (auto named : generate_subfield_names(driven_chunk2, type)) {
-								auto [named_chunk, name] = named;
-								add_dual_edge_aldff(netlist, symbol, named,
-													timing.triggers[0].signal,
-													aloads[0].trigger,
-													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-													netlist.convert_static(named_chunk),
-													aloads[0].values.evaluate(netlist, named_chunk),
-													aloads[0].trigger_polarity);
-							}
-						} else {
-							for (auto driven_chunk2 : aldff_q.chunks())
-							for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-								cell = netlist.canvas->addAldff(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
-														timing.triggers[0].signal,
-														aloads[0].trigger,
-														assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-														netlist.convert_static(named_chunk),
-														aloads[0].values.evaluate(netlist, named_chunk),
-														timing.triggers[0].edge_polarity,
-														aloads[0].trigger_polarity);
-								transfer_attrs(symbol, cell);
+						for (auto driven_chunk2 : aldff_q.chunks())
+						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
+							log_assert(named_chunk.variable.get_symbol() != nullptr);
+							std::string base_name = Yosys::stringf("$driver$%s%s",
+								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+
+							if (clock.edge == ast::EdgeKind::BothEdges) {
+								netlist.add_dual_edge_aldff(base_name,
+															timing.triggers[0].signal,
+															aloads[0].trigger,
+															assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+															netlist.convert_static(named_chunk),
+															aloads[0].values.evaluate(netlist, named_chunk),
+															aloads[0].trigger_polarity);
+							} else {
+								netlist.add_aldff(netlist.canvas->uniquify(base_name),
+												  timing.triggers[0].signal,
+												  aloads[0].trigger,
+												  assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+												  netlist.convert_static(named_chunk),
+												  aloads[0].values.evaluate(netlist, named_chunk),
+												  timing.triggers[0].edge_polarity,
+												  aloads[0].trigger_polarity);
 							}
 						}
 					}
@@ -1650,14 +1675,16 @@ public:
 
 						for (auto driven_chunk2 : dffe_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							cell = netlist.canvas->addDffe(netlist.canvas->uniquify("$driver$" + RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())) + name),
-													timing.triggers[0].signal,
-													aloads[0].trigger,
-													assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
-													netlist.convert_static(named_chunk),
-													timing.triggers[0].edge_polarity,
-													!aloads[0].trigger_polarity);
-							transfer_attrs(symbol, cell);
+							std::string base_name = Yosys::stringf("$driver$%s%s",
+								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+
+							netlist.add_dffe(netlist.canvas->uniquify(base_name),
+											 timing.triggers[0].signal,
+											 aloads[0].trigger,
+											 assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+											 netlist.convert_static(named_chunk),
+											 timing.triggers[0].edge_polarity,
+											 !aloads[0].trigger_polarity);
 						}
 					}
 				} else {
@@ -1806,19 +1833,21 @@ public:
 			}
 
 			sym.body.visit(ast::makeVisitor([&](auto&, const ast::ParameterSymbol &symbol) {
-				RTLIL::Const val = convert_const(symbol.getValue());
-				if (symbol.isImplicitString(slang::SourceRange(sym.location, sym.location))
-						&& val.size() % 8 == 0) {
-					val.flags |= RTLIL::CONST_FLAG_STRING;
+				auto converted = netlist.convert_const(symbol.getValue(), symbol.location);
+				if (converted) {
+					if (symbol.isImplicitString(slang::SourceRange(sym.location, sym.location))
+							&& converted->size() % 8 == 0) {
+						converted->flags |= RTLIL::CONST_FLAG_STRING;
+					}
+					cell->setParam(RTLIL::escape_id(std::string(symbol.name)), *converted);
 				}
-				cell->setParam(RTLIL::escape_id(std::string(symbol.name)), val);
 			}, [&](auto&, const ast::TypeParameterSymbol &symbol) {
 				netlist.add_diag(diag::BboxTypeParameter, symbol.location);
 			}, [&](auto&, const ast::InstanceSymbol&) {
 				// no-op
 			}));
-			transfer_attrs(sym, cell);
-			export_blackbox_to_rtlil(netlist.compilation, sym, netlist.canvas->design);
+			transfer_attrs(netlist, sym, cell);
+			export_blackbox_to_rtlil(netlist, sym, netlist.canvas->design);
 			return;
 		}
 
@@ -1999,7 +2028,7 @@ public:
 					ast_unreachable(conn->port);
 				}
 			}
-			transfer_attrs(sym, cell);
+			transfer_attrs(netlist, sym, cell);
 		}
 	}
 
@@ -2087,7 +2116,7 @@ public:
 			if (netlist.is_inferred_memory(sym)) {
 				RTLIL::Memory *m = new RTLIL::Memory;
 				m->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
-				transfer_attrs(sym, m);
+				transfer_attrs(netlist, sym, m);
 				m->name = netlist.id(sym);
 				m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
 				auto range = sym.getType().getFixedRange();
@@ -2157,14 +2186,14 @@ public:
 			if (sym.getType().isFixedSize() && sym.lifetime == ast::VariableLifetime::Static) {
 				auto storage = initial_eval.context.findLocal(&sym);
 				log_assert(storage);
-				auto const_ = convert_const(*storage);
-				if (!const_.is_fully_undef()) {
+				auto converted = netlist.convert_const(*storage, sym.location);
+				if (converted && !converted->is_fully_undef()) {
 					if (netlist.is_inferred_memory(sym)) {
 						RTLIL::IdString id = netlist.id(sym);
 						RTLIL::Memory *m = netlist.canvas->memories.at(id);
 						RTLIL::Cell *meminit = netlist.canvas->addCell(netlist.new_id(), ID($meminit_v2));
 						int abits = 32;
-						ast_invariant(sym, m->width * m->size == const_.size());
+						ast_invariant(sym, m->width * m->size == converted->size());
 						meminit->setParam(ID::MEMID, id.str());
 						meminit->setParam(ID::PRIORITY, 0);
 						meminit->setParam(ID::ABITS, abits);
@@ -2172,12 +2201,12 @@ public:
 						meminit->setParam(ID::WIDTH, m->width);
 						meminit->setPort(ID::ADDR, m->start_offset);
 						bool little_endian = sym.getType().getFixedRange().isLittleEndian();
-						meminit->setPort(ID::DATA, little_endian ? const_ : reverse_data(const_, m->width));
+						meminit->setPort(ID::DATA, little_endian ? *converted : reverse_data(*converted, m->width));
 						meminit->setPort(ID::EN, RTLIL::Const(RTLIL::S1, m->width));
 					} else {
 						auto wire = netlist.wire(sym);
 						log_assert(wire);
-						wire->attributes[ID::init] = const_;
+						wire->attributes[ID::init] = *converted;
 					}
 				}
 			}
@@ -2230,7 +2259,7 @@ public:
 		RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym),
 													id(sym.definitionName));
 		cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
-		transfer_attrs(sym, cell);
+		transfer_attrs(netlist, sym, cell);
 
 		auto port_names = sym.getPortNames();
 		auto port_conns = sym.getPortConnections();
@@ -2393,7 +2422,7 @@ public:
 						auto mid_wire = netlist.canvas->addWire(id.str() + "_mid", in.size());
 						auto inv_cell = netlist.canvas->addNot(id.str() + "_ainv", in, mid_wire);
 						in = mid_wire;
-						transfer_attrs(sym, inv_cell);
+						transfer_attrs(netlist, sym, inv_cell);
 					}
 					auto a = inv_en ? in : RTLIL::Sz;
 					auto b = inv_en ? RTLIL::Sz : in;
@@ -2409,7 +2438,7 @@ public:
 					auto p_en = netlist.eval(*ports[3]);
 					auto nmos = netlist.canvas->addMux(id.str() + "_n", RTLIL::Sz, a, n_en, y);
 					auto pmos = netlist.canvas->addMux(id.str() + "_p", a, RTLIL::Sz, p_en, y);
-					transfer_attrs(sym, nmos);
+					transfer_attrs(netlist, sym, nmos);
 					cell = pmos; // transfer_attrs to pmos after switch block
 				} else {
 					// bidir (tran/rtran/tranif0/rtranif0/tranif1/rtranif1) are unsupported
@@ -2420,14 +2449,14 @@ public:
 		if (cell->type == ID($buf) && !Yosys::yosys_celltypes.cell_known(cell->type))
 			cell->type = ID($pos); // backwards compatibility for yosys < 0.46 (no $buf cells)
 		cell->fixup_parameters();
-		transfer_attrs(sym, cell);
+		transfer_attrs(netlist, sym, cell);
 		if (inv_y) {
 			// Invert output signal where needed
 			netlist.canvas->rename(cell->name, id.str() + "_yinv");
 			auto mid_wire = netlist.canvas->addWire(id.str() + "_mid", y.size());
 			auto inv_cell = netlist.canvas->addNot(id, mid_wire, y);
 			cell->setPort(ID::Y, mid_wire);
-			transfer_attrs(sym, inv_cell);
+			transfer_attrs(netlist, sym, inv_cell);
 		}
 	}
 
@@ -2631,7 +2660,7 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 	}
 
 	wire_cache[&symbol] = w;
-	transfer_attrs(symbol, w);
+	transfer_attrs(*this, symbol, w);
 	return w;
 }
 
@@ -2824,7 +2853,7 @@ NetlistContext::NetlistContext(
 	: settings(settings), compilation(compilation), realm(instance.body), eval(*this)
 {
 	canvas = design->addModule(module_type_id(instance.body));
-	transfer_attrs(instance.body.getDefinition(), canvas);
+	transfer_attrs(*this, instance.body.getDefinition(), canvas);
 }
 
 NetlistContext::NetlistContext(

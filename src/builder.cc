@@ -434,64 +434,69 @@ SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 
 // Synthesizes two single-edge FFs (one posedge, one negedge) with the same D input,
 // then uses a mux controlled by the clock to select the appropriate FF output.
-void add_dual_edge_aldff(NetlistContext &netlist, const ast::ProceduralBlockSymbol &symbol,
-		const NamedChunk &named, RTLIL::SigSpec clk, RTLIL::SigSpec aload, RTLIL::SigSpec d,
-		RTLIL::SigSpec q, RTLIL::SigSpec ad, bool aload_polarity)
+void RTLILBuilder::add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
+		RTLIL::SigSpec aload, RTLIL::SigSpec d, RTLIL::SigSpec q, RTLIL::SigSpec ad,
+		bool aload_polarity)
 {
-	auto [chunk, name] = named;
+	RTLIL::Wire *pos_q = canvas->addWire(
+			canvas->uniquify(Yosys::stringf("%s$pos$q", base_name.c_str())), d.size());
 
-	log_assert(chunk.variable.get_symbol() != nullptr);
-	log_assert(netlist.canvas != nullptr);
-
-	std::string base_name = Yosys::stringf("$driver$%s%s",
-			RTLIL::unescape_id(netlist.id(*chunk.variable.get_symbol())).c_str(), name.c_str());
-
-	RTLIL::Wire *pos_q = netlist.canvas->addWire(
-			netlist.canvas->uniquify(Yosys::stringf("%s$pos$q", base_name.c_str())),
-			chunk.bitwidth()); // intermediaries
-	log_assert(pos_q != nullptr);
-
-	RTLIL::Wire *neg_q = netlist.canvas->addWire(
-			netlist.canvas->uniquify(Yosys::stringf("%s$neg$q", base_name.c_str())),
-			chunk.bitwidth()); // intermediaries
-	log_assert(neg_q != nullptr);
+	RTLIL::Wire *neg_q = canvas->addWire(
+			canvas->uniquify(Yosys::stringf("%s$neg$q", base_name.c_str())), d.size());
 
 	if (aload.is_fully_def() && aload.size() == 1 && aload.as_bool() != aload_polarity) {
-		RTLIL::Cell *pos_ff = netlist.canvas->addDff(
-				netlist.canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())), clk, d,
-				pos_q, /*edge_polarity=*/true);
-		log_assert(pos_ff != nullptr);
-		transfer_attrs(symbol, pos_ff);
+		RTLIL::Cell *pos_ff =
+				canvas->addDff(canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())), clk,
+						d, pos_q, /*edge_polarity=*/true);
+		bless_cell(pos_ff);
 
 		// Create negedge FF
-		RTLIL::Cell *neg_ff = netlist.canvas->addDff(
-				netlist.canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())), clk, d,
-				neg_q, /*edge_polarity=*/false);
-		log_assert(neg_ff != nullptr);
-		transfer_attrs(symbol, neg_ff);
+		RTLIL::Cell *neg_ff =
+				canvas->addDff(canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())), clk,
+						d, neg_q, /*edge_polarity=*/false);
+		bless_cell(neg_ff);
 	} else {
-		RTLIL::Cell *pos_ff = netlist.canvas->addAldff(
-				netlist.canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())), clk, aload,
-				d, pos_q, ad,
-				/*clk_polarity=*/true, aload_polarity);
-		log_assert(pos_ff != nullptr);
-		transfer_attrs(symbol, pos_ff);
+		RTLIL::Cell *pos_ff =
+				canvas->addAldff(canvas->uniquify(Yosys::stringf("%s$pos", base_name.c_str())), clk,
+						aload, d, pos_q, ad,
+						/*clk_polarity=*/true, aload_polarity);
+		bless_cell(pos_ff);
 
-		RTLIL::Cell *neg_ff = netlist.canvas->addAldff(
-				netlist.canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())), clk, aload,
-				d, neg_q, ad,
-				/*clk_polarity=*/false, aload_polarity);
-		log_assert(neg_ff != nullptr);
-		transfer_attrs(symbol, neg_ff);
+		RTLIL::Cell *neg_ff =
+				canvas->addAldff(canvas->uniquify(Yosys::stringf("%s$neg", base_name.c_str())), clk,
+						aload, d, neg_q, ad,
+						/*clk_polarity=*/false, aload_polarity);
+		bless_cell(neg_ff);
 	}
 
 	// behaviour: when clk=0: select neg_q (captures on negedge), when clk=1: select pos_q (captures
 	// on posedge)
-	RTLIL::Cell *mux = netlist.canvas->addMux(
-			netlist.canvas->uniquify(Yosys::stringf("%s$mux", base_name.c_str())),
+	RTLIL::Cell *mux = canvas->addMux(canvas->uniquify(Yosys::stringf("%s$mux", base_name.c_str())),
 			/*A=*/neg_q, /*B=*/pos_q, /*S=*/clk, /*Y=*/q);
-	log_assert(mux != nullptr);
-	transfer_attrs(symbol, mux);
+	bless_cell(mux);
+}
+
+void RTLILBuilder::add_dff(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &d,
+		const RTLIL::SigSpec &q, bool clk_polarity)
+{
+	RTLIL::Cell *cell = canvas->addDff(name, clk, d, q, clk_polarity);
+	bless_cell(cell);
+}
+
+void RTLILBuilder::add_dffe(RTLIL::IdString name, const RTLIL::SigSpec &clk,
+		const RTLIL::SigSpec &en, const RTLIL::SigSpec &d, const RTLIL::SigSpec &q,
+		bool clk_polarity, bool en_polarity)
+{
+	RTLIL::Cell *cell = canvas->addDffe(name, clk, en, d, q, clk_polarity, en_polarity);
+	bless_cell(cell);
+}
+
+void RTLILBuilder::add_aldff(RTLIL::IdString name, const RTLIL::SigSpec &clk,
+		const RTLIL::SigSpec &aload, const RTLIL::SigSpec &d, const RTLIL::SigSpec &q,
+		const RTLIL::SigSpec &ad, bool clk_polarity, bool aload_polarity)
+{
+	RTLIL::Cell *cell = canvas->addAldff(name, clk, aload, d, q, ad, clk_polarity, aload_polarity);
+	bless_cell(cell);
 }
 
 SigSpec  RTLILBuilder::CountOnes(SigSpec sig, int result_width)

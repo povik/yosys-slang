@@ -135,7 +135,7 @@ public:
 				RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
 				RTLIL::Wire *w = netlist.canvas->addWire(new_id, chunk.bitwidth());
 				if (sw->statement)
-					transfer_attrs(*sw->statement, w);
+					transfer_attrs(netlist, *sw->statement, w);
 				parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
 				vstate.set(chunk, w);
 			}
@@ -220,7 +220,7 @@ public:
 		cell->setParam(ID::PRIORITY, --context.effects_priority);
 		cell->setPort(ID::ARGS, {});
 		cell->setPort(ID::A, netlist.ReduceBool(eval(statement.cond)));
-		transfer_attrs(statement, cell);
+		transfer_attrs(netlist, statement, cell);
 	}
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt)
@@ -567,11 +567,17 @@ public:
 			return;
 
 		RTLIL::SigSpec initval;
-		if (symbol.getInitializer())
+		if (symbol.getInitializer()) {
 			initval = eval(*symbol.getInitializer());
-		else
-			initval = convert_const(symbol.getType().getDefaultValue());
-
+		} else {
+			auto converted =
+					netlist.convert_const(symbol.getType().getDefaultValue(), symbol.location);
+			if (converted) {
+				initval = *converted;
+			} else {
+				initval = {RTLIL::Sx, target.bitwidth()};
+			}
+		}
 		context.do_simple_assign(symbol.location, target, initval, true);
 	}
 

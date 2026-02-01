@@ -40,7 +40,7 @@ struct Switch
 
 	~Switch();
 	Case *add_case(std::vector<RTLIL::SigSpec> compare);
-	RTLIL::SwitchRule *lower();
+	RTLIL::SwitchRule *lower(NetlistContext &netlist);
 
 	// trivial switch has signal={}, one case, and no special attributes
 	bool trivial();
@@ -79,10 +79,10 @@ struct Case
 		return sw;
 	}
 
-	void copy_into(RTLIL::CaseRule *rule)
+	void copy_into(NetlistContext &netlist, RTLIL::CaseRule *rule)
 	{
 		if (statement)
-			transfer_attrs(*statement, rule);
+			transfer_attrs(netlist, *statement, rule);
 
 		rule->compare = compare;
 		rule->actions.insert(rule->actions.end(), aux_actions.begin(), aux_actions.end());
@@ -106,14 +106,14 @@ struct Case
 			}
 			if (it == ite)
 				break;
-			rule->switches.push_back((*it)->lower());
+			rule->switches.push_back((*it)->lower(netlist));
 		}
 	}
 
-	RTLIL::CaseRule *lower()
+	RTLIL::CaseRule *lower(NetlistContext &netlist)
 	{
 		RTLIL::CaseRule *ret = new RTLIL::CaseRule;
-		copy_into(ret);
+		copy_into(netlist, ret);
 		return ret;
 	}
 
