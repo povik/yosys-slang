@@ -25,6 +25,7 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     diag.h
     initial_eval.cc
     initial_eval.h
+    initialization.cc
     memory.h
     naming.cc
     procedural.cc

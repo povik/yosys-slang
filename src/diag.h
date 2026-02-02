@@ -72,6 +72,7 @@ extern slang::DiagCode InlinedInOutUnsupported;
 extern slang::DiagCode PastGatingClockingUnsupported;
 extern slang::DiagCode SystemFunctionRequireClockedBlock;
 extern slang::DiagCode UnsupportedBitConversion;
+extern slang::DiagCode MultiPortConversion;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag

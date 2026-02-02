@@ -18,3 +18,15 @@ module top(input logic s);
 	m1 a(.*);
 	m2 b(.*);
 endmodule
+
+module m3(bus.primary intf, output logic x);
+	// Missing assign to intf.b
+	assign x = intf.a;
+endmodule
+
+module top2();
+	logic x;
+	bus intf();
+	m3 c(.*);
+	always_comb assert(intf.b === 'x);
+endmodule

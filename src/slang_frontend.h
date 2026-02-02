@@ -342,14 +342,6 @@ struct RTLILBuilder {
 	SigSpec Biop(RTLIL::IdString op, SigSpec a, SigSpec b,
 				 bool a_signed, bool b_signed, int y_width);
 
-	void GroupConnect(SigSpec lhs, SigSpec rhs)
-	{
-		int done = 0;
-		for (auto chunk : lhs.chunks()) {
-			canvas->connect(chunk, rhs.extract(done, chunk.size()));
-			done += chunk.size();
-		}
-	}
 	SigSpec CountOnes(SigSpec sig, int result_width);
 
 	void add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
@@ -363,6 +355,8 @@ struct RTLILBuilder {
 	void add_aldff(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &aload,
 				   const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, const RTLIL::SigSpec &ad, 
 				   bool clk_polarity = true, bool aload_polarity = true);
+
+	void connect(SigSpec target, SigSpec source);
 
 private:
 	std::pair<std::string, SigSpec> add_y_wire(int width);
@@ -487,6 +481,11 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// Cache per-symbol Wire* pointers
 	Yosys::dict<const ast::Symbol*, RTLIL::Wire *> wire_cache;
 
+	Yosys::pool<VariableBit> driven_variables;
+
+	// Driven by a register, including a latch
+	Yosys::pool<VariableBit> register_driven_variables;
+
 	// Flag to disable elaboration; we set this when `scopes_remap` is
 	// incomplete due to prior errors
 	bool disabled = false;
@@ -517,6 +516,10 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	const ast::InstanceBodySymbol &find_symbol_realm(const ast::Symbol &symbol);
 	const ast::InstanceBodySymbol &find_common_ancestor(const ast::InstanceBodySymbol &a, const ast::InstanceBodySymbol &b);
 	bool check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range);
+
+	void register_driven(const VariableBits &vbits);
+	void register_driven(const ast::Symbol &symbol);
+	void add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs);
 
 	const std::optional<RTLIL::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc);
 };
@@ -549,5 +552,9 @@ extern void export_blackbox_to_rtlil(NetlistContext &netlist, const ast::Instanc
 // naming.cc
 typedef std::pair<VariableChunk, std::string> NamedChunk;
 std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type);
+
+// initialization.cc
+void evaluate_decl_initializers(NetlistContext &netlist, ast::EvalContext &eval_context);
+void finalize_variable_initialization(NetlistContext &netlist, ast::EvalContext &eval_context);
 
 };
