@@ -682,8 +682,7 @@ public:
 		if (!target.bitwidth())
 			return;
 
-		RTLIL::SigSpec initval = convert_const(slang::ConstantValue(slang::SVInt(32, val, true)));
-		context.do_simple_assign(symbol.location, target, initval, true);
+		context.do_simple_assign(symbol.location, target, RTLIL::Const(val, 32), true);
 	}
 
 	void handle(const ast::VariableSymbol &symbol)
