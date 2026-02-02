@@ -2265,13 +2265,28 @@ public:
 		auto port_conns = sym.getPortConnections();
 		ast_invariant(sym, port_names.size() == port_conns.size());
 		for (int i = 0; i < (int) port_names.size(); i++) {
+			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
+			std::string port_name = std::string{port_names[i]};
 			if (port_names[i].empty()) {
-				netlist.add_diag(diag::ConnNameRequiredOnUnkBboxes, sym.location);
-				continue;
+				switch (expr.kind) {
+					case slang::ast::ExpressionKind::NamedValue:
+					case slang::ast::ExpressionKind::ElementSelect:
+					case slang::ast::ExpressionKind::RangeSelect: {
+						if (auto sym_ref = expr.getSymbolReference(true); sym_ref->isValue())
+							port_name = sym_ref->name;
+						break;
+					}
+					default:
+						break;
+				}
+
+				if (port_name.empty()) {
+					netlist.add_diag(diag::SimpleConnNameRequiredOnUnkBboxes, sym.location);
+					continue;
+				}
 			}
 
-			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
-			cell->setPort(RTLIL::escape_id(std::string{port_names[i]}), netlist.eval(expr));
+			cell->setPort(RTLIL::escape_id(port_name), netlist.eval(expr));
 		}
 	}
 
