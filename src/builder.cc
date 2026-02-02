@@ -432,6 +432,15 @@ SigSpec RTLILBuilder::Unop(IdString op, SigSpec a, bool a_signed, int y_width)
 	return y;
 }
 
+void RTLILBuilder::connect(SigSpec lhs, SigSpec rhs)
+{
+	log_assert(lhs.size() == rhs.size());
+	if (!lhs.empty()) {
+		Cell *cell = canvas->addBuf(new_id(), rhs, lhs);
+		bless_cell(cell);
+	}
+}
+
 // Synthesizes two single-edge FFs (one posedge, one negedge) with the same D input,
 // then uses a mux controlled by the clock to select the appropriate FF output.
 void RTLILBuilder::add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
