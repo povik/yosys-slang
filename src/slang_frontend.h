@@ -358,6 +358,18 @@ struct RTLILBuilder {
 	}
 	SigSpec CountOnes(SigSpec sig, int result_width);
 
+	void add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
+							 RTLIL::SigSpec aload, RTLIL::SigSpec d, RTLIL::SigSpec q,
+							 RTLIL::SigSpec ad, bool aload_polarity);
+	void add_dff(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &d,
+				 const RTLIL::SigSpec &q, bool clk_polarity=true);
+	void add_dffe(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &en,
+				 const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, bool clk_polarity=true,
+				 bool en_polarity=true);
+	void add_aldff(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &aload,
+				   const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, const RTLIL::SigSpec &ad, 
+				   bool clk_polarity = true, bool aload_polarity = true);
+
 private:
 	std::pair<std::string, SigSpec> add_y_wire(int width);
 	// apply attributes to newly created cell
@@ -475,15 +487,14 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	};
 	Yosys::dict<RTLIL::IdString, Memory> emitted_mems;
 
-	// Used to implement modports on uncollapsed levels of hierarchy
+	// Used to implement modports on `realm`
 	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
 
 	// Cache per-symbol Wire* pointers
 	Yosys::dict<const ast::Symbol*, RTLIL::Wire *> wire_cache;
 
-	// With this flag set we will not elaborate this netlist; we set this when
-	// `scopes_remap` is incomplete due to errors in processing an instantiation
-	// of `realm`.
+	// Flag to disable elaboration; we set this when `scopes_remap` is
+	// incomplete due to prior errors
 	bool disabled = false;
 
 	NetlistContext(RTLIL::Design *design,
@@ -506,24 +517,25 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	bool is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox=nullptr);
 	bool should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved=nullptr);
 
-	// Find the "realm" for given symbol, i.e. the containing instance body which is not
-	// getting dissolved (if we are flattening this will be the top body)
+	// Find the "realm" for the given symbol, i.e. the containing instance body
+	// which is not getting dissolved during netlist emission. If we are fully flattening
+	// this will be the top module.
 	const ast::InstanceBodySymbol &find_symbol_realm(const ast::Symbol &symbol);
 	const ast::InstanceBodySymbol &find_common_ancestor(const ast::InstanceBodySymbol &a, const ast::InstanceBodySymbol &b);
 	bool check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range);
 
+	const std::optional<RTLIL::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc);
 };
 
 // slang_frontend.cc
-const RTLIL::Const convert_const(const slang::ConstantValue &constval);
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
-template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
+template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);
 
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source);
 extern bool is_decl_empty_module(const slang::syntax::SyntaxNode &syntax);
-extern void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::InstanceSymbol &inst, RTLIL::Design *target);
+extern void export_blackbox_to_rtlil(NetlistContext &netlist, const ast::InstanceSymbol &inst, RTLIL::Design *target);
 
 // abort_helpers.cc
 [[noreturn]] void unimplemented_(const ast::Symbol &obj, const char *file, int line, const char *condition);
@@ -541,10 +553,5 @@ extern void export_blackbox_to_rtlil(ast::Compilation &comp, const ast::Instance
 // naming.cc
 typedef std::pair<VariableChunk, std::string> NamedChunk;
 std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type);
-
-// builder.cc
-void add_dual_edge_aldff(NetlistContext &netlist, const ast::ProceduralBlockSymbol &symbol,
-                         const NamedChunk &named, RTLIL::SigSpec clk, RTLIL::SigSpec aload,
-                         RTLIL::SigSpec d, RTLIL::SigSpec q, RTLIL::SigSpec ad, bool aload_polarity);
 
 };

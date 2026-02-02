@@ -168,7 +168,7 @@ bool is_decl_empty_module(const slang::syntax::SyntaxNode &syntax)
 }
 
 void export_blackbox_to_rtlil(
-		ast::Compilation &comp, const ast::InstanceSymbol &inst, RTLIL::Design *target)
+		NetlistContext &netlist, const ast::InstanceSymbol &inst, RTLIL::Design *target)
 {
 	using namespace slang::ast;
 	using namespace slang::syntax;
@@ -180,7 +180,7 @@ void export_blackbox_to_rtlil(
 		return;
 	}
 
-	for (auto instance : comp.getRoot().topInstances) {
+	for (auto instance : netlist.compilation.getRoot().topInstances) {
 		if (!instance->name.compare(inst.name)) {
 			// A top module with the same name will be added later, nothing to do
 			return;
@@ -189,7 +189,7 @@ void export_blackbox_to_rtlil(
 
 	RTLIL::Module *mod = target->addModule(name);
 	mod->set_bool_attribute(ID(blackbox), true);
-	transfer_attrs<const ast::Symbol>((ast::Symbol &)inst.getDefinition(), mod);
+	transfer_attrs<const ast::Symbol>(netlist, (ast::Symbol &)inst.getDefinition(), mod);
 
 	inst.body.visit(ast::makeVisitor(
 			[&](auto &, const ast::PortSymbol &port) {
@@ -267,7 +267,7 @@ void export_blackbox_to_rtlil(
 
 				RTLIL::Wire *wire = mod->addWire(RTLIL::escape_id(std::string{port.name}),
 						port.getType().getBitstreamWidth());
-				transfer_attrs<const ast::Symbol>(port, wire);
+				transfer_attrs<const ast::Symbol>(netlist, port, wire);
 
 				switch (port.direction) {
 				case ast::ArgumentDirection::In:  wire->port_input = true; break;

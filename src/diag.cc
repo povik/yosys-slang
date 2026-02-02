@@ -115,6 +115,7 @@ DiagCode RefUnsupported(DiagSubsystem::Netlist, 1061);
 DiagCode InlinedInOutUnsupported(DiagSubsystem::Netlist, 1062);
 DiagCode PastGatingClockingUnsupported(DiagSubsystem::Netlist, 1063);
 DiagCode SystemFunctionRequireClockedBlock(DiagSubsystem::Netlist, 1064);
+DiagCode UnsupportedBitConversion(DiagSubsystem::Netlist, 1065);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -284,6 +285,9 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(SystemFunctionRequireClockedBlock, "system function '{}' can only be called within a clocked procedural block with explicit timing");
 	engine.setSeverity(SystemFunctionRequireClockedBlock, DiagnosticSeverity::Error);
+
+	engine.setMessage(UnsupportedBitConversion, "value of type '{}' is unsupported for conversion to bits in this context");
+	engine.setSeverity(UnsupportedBitConversion, DiagnosticSeverity::Error);
 
 	// clang-format on
 }
