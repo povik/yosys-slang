@@ -2286,7 +2286,7 @@ public:
 				}
 			}
 
-			cell->setPort(RTLIL::escape_id(port_name), netlist.eval(expr));
+			cell->setPort(netlist.new_id(), netlist.eval(expr));
 		}
 	}
 
