@@ -1,10 +1,10 @@
 # yosys-slang: SystemVerilog frontend for Yosys
 
-yosys-slang is a Yosys plugin providing a new command (`read_slang`) for loading SystemVerilog designs.
+yosys-slang is a Yosys plugin providing a new command (`read_slang`) for elaborating SystemVerilog designs.
 
 yosys-slang builds on top of the [slang](https://github.com/MikePopoloski/slang) library to provide comprehensive SystemVerilog support. The plugin supports an (informally defined) synthesizable subset of SystemVerilog in version IEEE 1800-2017 or IEEE 1800-2023.
 
-Please open GitHub issues for missing features and/or confusing error messages.
+Visit [the Feature Support wiki page](https://github.com/povik/yosys-slang/wiki/Feature-support).
 
 The plugin is available prebuilt as part of
 
