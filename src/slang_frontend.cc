@@ -2266,8 +2266,9 @@ public:
 		ast_invariant(sym, port_names.size() == port_conns.size());
 		for (int i = 0; i < (int) port_names.size(); i++) {
 			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
+			bool portNameWasSet = !port_names[i].empty();
 			std::string port_name = std::string{port_names[i]};
-			if (port_names[i].empty()) {
+			if (!portNameWasSet) {
 				switch (expr.kind) {
 					case slang::ast::ExpressionKind::NamedValue:
 					case slang::ast::ExpressionKind::ElementSelect:
@@ -2286,7 +2287,7 @@ public:
 				}
 			}
 
-			cell->setPort(netlist.new_id(), netlist.eval(expr));
+			cell->setPort(portNameWasSet ? RTLIL::escape_id(std::string{port_names[i]}) : netlist.new_id(), netlist.eval(expr));
 		}
 	}
 
