@@ -573,8 +573,6 @@ public:
 		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 		unroll_limit.enter_unrolling();
 		while (true) {
-			if (!unroll_limit.unroll_tick(&stmt))
-				break;
 			{
 				RegisterEscapeConstructGuard guard2(context, EscapeConstructKind::LoopBody, &stmt);
 				stmt.body.visit(*this);
