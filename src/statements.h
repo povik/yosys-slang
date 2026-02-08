@@ -627,12 +627,15 @@ public:
 				}
 			}
 
+			printf("setting to ");
 			for (auto i = 0; i < loopVarStack.size(); ++i) {
 				if (loopVarStack[i]) {
 					auto currDim = reversedDims[i];
 					set_nonstatic_variable_by_int(*currDim.loopVar, *loopVarStack[i]);
+					printf("%d ", *loopVarStack[i]);
 				}
 			}
+			printf("\n");
 
 			if (doBreak || !unroll_limit.unroll_tick(&stmt))
 				break;
