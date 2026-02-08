@@ -1009,7 +1009,10 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
 				goto error;
 			}
-
+			if (ast::ClassPropertySymbol::isKind(symbol.kind)) {
+				netlist.add_diag(diag::UnsynthesizableFeature, expr.sourceRange);
+				goto error;
+			}
 			ret = (*this)(symbol);
 		}
 		break;
