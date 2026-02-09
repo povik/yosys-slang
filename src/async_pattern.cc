@@ -4,11 +4,13 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "slang/ast/Expression.h"
 #include "slang/ast/TimingControl.h"
 #include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/OperatorExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/statements/ConditionalStatements.h"
 #include "slang/ast/statements/MiscStatements.h"
 #include "slang/ast/symbols/BlockSymbols.h"
@@ -16,6 +18,7 @@
 
 #include "async_pattern.h"
 #include "diag.h"
+#include "slang/syntax/AllSyntax.h"
 
 namespace slang_frontend {
 
@@ -221,15 +224,54 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 			}
 		}
 
+		auto compareSigEventsExprs = [this](const ast::Expression& firstExpr, const ast::Expression& secondExpr) {
+			auto compareValSymBases = [](const ast::Expression& first, const ast::Expression& second, bool checkSigSize = false) {
+				if (ast::ValueExpressionBase::isKind(first.kind) &&
+					ast::ValueExpressionBase::isKind(second.kind) &&
+					&first.as<ast::ValueExpressionBase>().symbol ==
+						&second.as<ast::ValueExpressionBase>().symbol &&
+					(checkSigSize || first.as<ast::ValueExpressionBase>()
+								.symbol.getType()
+								.getBitstreamWidth() == 1))
+					return true;
+
+				return false;
+			};
+
+			if (compareValSymBases(firstExpr, secondExpr))
+				return true;
+
+			if (firstExpr.kind == ast::ExpressionKind::ElementSelect && secondExpr.kind == ast::ExpressionKind::ElementSelect) {
+				const auto& firstES = firstExpr.as<ast::ElementSelectExpression>();
+				const auto& secondES = secondExpr.as<ast::ElementSelectExpression>();
+				// Compare selection bases
+				if (!compareValSymBases(firstES.value(), secondES.value(), true))
+					return false;
+
+				// Compare selection indexes
+				const auto& firstInd = firstES.selector();
+				const auto& secondInd = secondES.selector();
+				return firstInd.eval(evalCtx.const_) == secondInd.eval(evalCtx.const_);
+			}
+
+			if (firstExpr.kind == ast::ExpressionKind::RangeSelect && secondExpr.kind == ast::ExpressionKind::RangeSelect) {
+				// Compare selection bases
+				const auto& firstRS = firstExpr.as<ast::RangeSelectExpression>();
+				const auto& secondRS = secondExpr.as<ast::RangeSelectExpression>();
+				if (!compareValSymBases(firstRS.value(), secondRS.value(), true))
+					return false;
+
+				// Compare selection left and right bounds
+				return firstRS.left().eval(evalCtx.const_) == secondRS.left().eval(evalCtx.const_)
+					|| firstRS.right().eval(evalCtx.const_) == secondRS.right().eval(evalCtx.const_);
+			}
+
+			return false;
+		};
+
 		auto found = std::find_if(
 				triggers.begin(), triggers.end(), [=](const ast::SignalEventControl *trigger) {
-					return ast::ValueExpressionBase::isKind(trigger->expr.kind) &&
-						   ast::ValueExpressionBase::isKind(condition->kind) &&
-						   &trigger->expr.as<ast::ValueExpressionBase>().symbol ==
-								   &condition->as<ast::ValueExpressionBase>().symbol &&
-						   trigger->expr.as<ast::ValueExpressionBase>()
-										   .symbol.getType()
-										   .getBitstreamWidth() == 1;
+					return compareSigEventsExprs(trigger->expr, *condition);
 				});
 
 		if (found != triggers.end()) {

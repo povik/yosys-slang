@@ -1442,9 +1442,9 @@ public:
 	} initial_eval;
 
 	PopulateNetlist(HierarchyQueue &queue, NetlistContext &netlist)
-		: TimingPatternInterpretor(netlist.settings, (DiagnosticIssuer&) netlist),
+		: TimingPatternInterpretor(netlist.settings, (DiagnosticIssuer&) netlist, netlist.eval),
 		  queue(queue), netlist(netlist), settings(netlist.settings),
-		  mem_detect(settings, std::bind(&NetlistContext::should_dissolve, &netlist, std::placeholders::_1, nullptr)),
+		  mem_detect(settings, std::bind(&NetlistContext::should_dissolve, &netlist, std::placeholders::_1, nullptr), netlist.eval),
 		  initial_eval(netlist, &netlist.compilation, netlist.canvas,
 					   netlist.settings.ignore_timing.value_or(false)) {}
 

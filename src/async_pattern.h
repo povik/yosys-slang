@@ -17,8 +17,8 @@ namespace slang_frontend {
 
 struct TimingPatternInterpretor
 {
-	TimingPatternInterpretor(SynthesisSettings &settings, DiagnosticIssuer &issuer)
-		: settings(settings), issuer(issuer) {};
+	TimingPatternInterpretor(SynthesisSettings &settings, DiagnosticIssuer &issuer, EvalContext& evalCtx)
+		: settings(settings), issuer(issuer), evalCtx(evalCtx) {};
 
 	struct AsyncBranch
 	{
@@ -47,6 +47,7 @@ private:
 
 	SynthesisSettings &settings;
 	DiagnosticIssuer &issuer;
+	EvalContext& evalCtx;
 };
 
 }; // namespace slang_frontend
