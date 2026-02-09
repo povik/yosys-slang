@@ -3,3 +3,5 @@
 !/.git*
 !.gitkeep
 !/.clang-format
+compile_commands.json
+dhkbuild.sh

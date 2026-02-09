@@ -34,6 +34,8 @@
 #include "diag.h"
 #include "async_pattern.h"
 #include "variables.h"
+#include "slang_sva.h"
+#include <cstdlib>
 
 namespace slang_frontend {
 
@@ -365,11 +367,6 @@ static Yosys::pool<VariableBit> detect_possibly_unassigned_subset(Yosys::pool<Va
 	return remaining;
 }
 
-bool ProcessTiming::implicit() const
-{
-	return triggers.empty();
-}
-
 // extract trigger for side-effect cells like $print, $check
 void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
 {
@@ -377,12 +374,21 @@ void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, 
 
 	cell->setPort(ID::EN, netlist.LogicAnd(background_enable, enable));
 
-	if (implicit()) {
+	switch (get_mode()) {
+	case ProcessTimingMode::Initial:
+		// Initial block: edge-triggered with no triggers = fires once at init
+		params[ID::TRG_ENABLE] = true;
+		params[ID::TRG_WIDTH] = 0;
+		params[ID::TRG_POLARITY] = {};
+		cell->setPort(ID::TRG, {});
+		break;
+	case ProcessTimingMode::Implicit:
 		params[ID::TRG_ENABLE] = false;
 		params[ID::TRG_WIDTH] = 0;
 		params[ID::TRG_POLARITY] = {};
 		cell->setPort(ID::TRG, {});
-	} else {
+		break;
+	case ProcessTimingMode::Clocked:
 		params[ID::TRG_ENABLE] = true;
 		params[ID::TRG_WIDTH] = triggers.size();
 		std::vector<RTLIL::State> pol_bits;
@@ -393,6 +399,7 @@ void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, 
 		}
 		params[ID::TRG_POLARITY] = RTLIL::Const(pol_bits);
 		cell->setPort(ID::TRG, trg_signals);
+		break;
 	}
 }
 
@@ -1705,6 +1712,12 @@ public:
 		if (result != ast::Statement::EvalResult::Success)
 			initial_eval.context.addDiag(diag::NoteIgnoreInitial,
 										 slang::SourceLocation::NoLocation);
+
+		ProcessTiming initial_timing;
+		initial_timing.mode = ProcessTimingMode::Initial;
+
+		ProceduralContext initial_procedure(netlist, initial_timing);
+		body.visit(InitialAssertionVisitor(initial_procedure));
 	}
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
@@ -2464,9 +2477,8 @@ public:
 	}
 
 	void handle(const ast::PropertySymbol &sym) {
-		if (!netlist.settings.ignore_assertions.value_or(false)) {
+		if (netlist.settings.ignore_assertions.value_or(false)) return;
 			netlist.add_diag(diag::SVAUnsupported, sym.location);
-		}
 	}
 
 	void handle(const ast::Symbol &sym)
