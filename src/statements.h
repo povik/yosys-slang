@@ -570,6 +570,15 @@ public:
 		}
 
 		std::vector<slang::ast::ForeachLoopStatement::LoopDim> reversedDims(stmt.loopDims.rbegin(), stmt.loopDims.rend());
+		printf("setting to | ");
+		for (auto i = 0; i < loopVarStack.size(); ++i) {
+			if (loopVarStack[i]) {
+				auto currDim = reversedDims[i];
+				printf("%s %d | ", std::string(currDim.loopVar->name).c_str(), *loopVarStack[i]);
+			}
+		}
+		printf("\n");
+
 		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 		unroll_limit.enter_unrolling();
 		while (true) {
@@ -617,7 +626,7 @@ public:
 									*loopVarStack[j] - 1 :
 									*loopVarStack[j] + 1 ;
 						doBreak = false;
-						for (int k = 0; k <= i; ++k) {
+						for (int k = 0; k < j; ++k) {
 							if (loopVarStack[k])
 								*loopVarStack[k] = reversedDims[k].range->left;
 						}
@@ -627,12 +636,12 @@ public:
 				}
 			}
 
-			printf("setting to ");
+			printf("setting to | ");
 			for (auto i = 0; i < loopVarStack.size(); ++i) {
 				if (loopVarStack[i]) {
 					auto currDim = reversedDims[i];
 					set_nonstatic_variable_by_int(*currDim.loopVar, *loopVarStack[i]);
-					printf("%d ", *loopVarStack[i]);
+					printf("%s %d | ", std::string(currDim.loopVar->name).c_str(), *loopVarStack[i]);
 				}
 			}
 			printf("\n");
