@@ -283,13 +283,13 @@ public:
 			for (int i = 0; i < (int)arg_symbols.size(); i++) {
 				auto dir = arg_symbols[i]->direction;
 				if (dir == ast::ArgumentDirection::Out || dir == ast::ArgumentDirection::InOut)
-					arg_out.push_back(eval(*arg_symbols[i]));
+					arg_out.push_back(context.substitute_rvalue(eval.variable(*arg_symbols[i])));
 				else
 					arg_out.push_back({});
 			}
 
 			if (subroutine->returnValVar)
-				ret = eval(*subroutine->returnValVar);
+				ret = context.substitute_rvalue(eval.variable(*subroutine->returnValVar));
 		}
 
 		for (int i = 0; i < (int)arg_symbols.size(); i++) {

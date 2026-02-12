@@ -139,7 +139,6 @@ struct EvalContext {
 
 	// Evaluates the given symbols/expressions to their value in this context
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
-	RTLIL::SigSpec operator()(ast::Symbol const &symbol);
 
 	// Evaluates the given expression, inserts an extra sign bit if need
 	// be so that the result can always be interpreted as a signed value

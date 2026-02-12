@@ -726,49 +726,6 @@ RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assi
 	return link;
 }
 
-RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
-{
-	switch (symbol.kind) {
-	case ast::SymbolKind::ModportPort:
-		{
-			if (!netlist.scopes_remap.count(symbol.getParentScope())) {
-				ast_invariant(symbol, ast::ModportPortSymbol::isKind(symbol.kind));
-				auto &modport_port = symbol.as<ast::ModportPortSymbol>();
-				ast_invariant(symbol, modport_port.getConnectionExpr() != nullptr);
-				return (*this)(*modport_port.getConnectionExpr());
-			}
-		}
-		[[fallthrough]];
-	case ast::SymbolKind::Net:
-	case ast::SymbolKind::Variable:
-	case ast::SymbolKind::FormalArgument:
-	case ast::SymbolKind::Iterator:
-		{
-			log_assert(ast::ValueSymbol::isKind(symbol.kind));
-			Variable var = variable(symbol.as<ast::ValueSymbol>());
-			log_assert((bool) var);
-			RTLIL::SigSpec value;
-			if (procedural)
-				value = procedural->substitute_rvalue(var);
-			else
-				value = netlist.convert_static(var);
-			return value;
-		}
-		break;
-	case ast::SymbolKind::Parameter:
-		{
-			auto &valsym = symbol.as<ast::ValueSymbol>();
-			require(valsym, valsym.getInitializer());
-			auto exprconst = valsym.getInitializer()->eval(this->const_);
-			require(valsym, exprconst.isInteger());
-			return convert_svint(exprconst.integer());
-		}
-		break;
-	default:
-		ast_unreachable(symbol);
-	}
-}
-
 VariableBits EvalContext::streaming_lhs(ast::StreamingConcatenationExpression const &expr)
 {
 	require(expr, expr.isFixedSize());
@@ -1049,11 +1006,29 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
 				goto error;
 			}
-			if (ast::ClassPropertySymbol::isKind(symbol.kind)) {
-				netlist.add_diag(diag::UnsynthesizableFeature, expr.sourceRange);
-				goto error;
+
+			if (ast::ParameterSymbol::isKind(symbol.kind)) {
+				auto &valsym = symbol.as<ast::ValueSymbol>();
+				require(valsym, valsym.getInitializer());
+				auto exprconst = valsym.getInitializer()->eval(this->const_);
+				require(valsym, exprconst.isInteger());
+				return convert_svint(exprconst.integer());
 			}
-			ret = (*this)(symbol);
+
+			if (ast::ModportPortSymbol::isKind(symbol.kind) &&
+					!netlist.scopes_remap.count(symbol.getParentScope())) {
+				auto &modport_port = symbol.as<ast::ModportPortSymbol>();
+				ast_invariant(symbol, modport_port.getConnectionExpr() != nullptr);
+				return (*this)(*modport_port.getConnectionExpr());
+			}
+
+			ast_invariant(symbol, ast::ValueSymbol::isKind(symbol.kind));
+			Variable variable1 = variable(symbol.as<ast::ValueSymbol>());
+			log_assert((bool) variable1);
+			if (procedural)
+				ret = procedural->substitute_rvalue(variable1);
+			else
+				ret = netlist.convert_static(variable1);
 		}
 		break;
 	case ast::ExpressionKind::UnaryOp:
