@@ -36,3 +36,16 @@ module m_labeled_concurrent(input clk, input rst_n, input [7:0] data);
 	// Labeled concurrent assertion
 	my_concurrent_assert: assert property (@(posedge clk) disable iff (!rst_n) data != 8'hFF);
 endmodule
+
+module m_concurrent_past (input clk, input rst_n, input [7:0] index);
+    reg [7:0] regs[7:0];
+    reg [7:0] past1_reg;
+    reg [7:0] past2_reg;
+    always @(posedge clk) begin
+        past1_reg <= regs[index];
+        past2_reg <= past1_reg;
+    end
+	past_assert1: assert property (@(posedge clk) disable iff (!rst_n) $past(regs[index]) == past1_reg);
+	past_assert2: assert property (@(posedge clk) disable iff (!rst_n) $past(regs[index], 1) == past1_reg);
+	past_assert3: assert property (@(posedge clk) disable iff (!rst_n || !$past(rst_n)) $past(regs[index], 2) == past2_reg);
+endmodule

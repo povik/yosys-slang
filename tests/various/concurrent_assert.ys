@@ -1,7 +1,7 @@
 read_slang concurrent_assert.sv
 
 # Test basic concurrent assertions exist
-select -assert-count 10 t:$check
+select -assert-count 13 t:$check
 
 # Test m_concurrent_assert: posedge clk, no disable iff
 select -assert-count 1 m_concurrent_assert/t:$check

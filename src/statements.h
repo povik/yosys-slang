@@ -315,6 +315,12 @@ public:
 
 		auto cell = netlist.canvas->addCell(cell_name, ID($check));
 
+		// Concurrent assertions must not appear inside a clocked procedural block
+		if (!context.timing.triggers.empty()) {
+			netlist.add_diag(diag::ConcurrentAssertionInClockedBlock, stmt.sourceRange);
+			return;
+		}
+
 		// Set up the trigger (clock)
 		RTLIL::SigBit clk_sig = netlist.eval(sigEvent.expr);
 		bool clk_polarity = (sigEvent.edge == ast::EdgeKind::PosEdge);
@@ -323,6 +329,9 @@ public:
 		cell->setParam(ID::TRG_WIDTH, 1);
 		cell->setParam(ID::TRG_POLARITY, clk_polarity ? RTLIL::S1 : RTLIL::S0);
 		cell->setPort(ID::TRG, clk_sig);
+
+		// Set up timing for clocked side effect cells (e.g. $past) in concurrent assertions
+		context.timing.triggers.push_back({clk_sig, clk_polarity, clocking});
 
 		// Set up the enable (disable iff inverted)
 		RTLIL::SigBit enable;
@@ -340,6 +349,9 @@ public:
 		cell->setPort(ID::ARGS, {});
 		cell->setPort(ID::A, netlist.ReduceBool(eval(simpleExpr.expr)));
 		transfer_attrs(netlist, stmt, cell);
+
+		// Clear timing triggers after evaluation
+		context.timing.triggers.clear();
 	}
 
 	RTLIL::SigSpec handle_call(const ast::CallExpression &call)
