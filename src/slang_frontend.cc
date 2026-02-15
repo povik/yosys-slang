@@ -2275,13 +2275,10 @@ public:
 		auto port_conns = sym.getPortConnections();
 		ast_invariant(sym, port_names.size() == port_conns.size());
 		for (int i = 0; i < (int) port_names.size(); i++) {
-			if (port_names[i].empty()) {
-				netlist.add_diag(diag::ConnNameRequiredOnUnkBboxes, sym.location);
-				continue;
-			}
-
 			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
-			cell->setPort(RTLIL::escape_id(std::string{port_names[i]}), netlist.eval(expr));
+			std::string port_name = std::string{port_names[i]};
+			cell->setPort(port_names[i].empty() ? Yosys::stringf("$%d", i + 1)
+							: RTLIL::escape_id(std::string{port_names[i]}), netlist.eval(expr));
 		}
 	}
 
