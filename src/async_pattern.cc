@@ -224,70 +224,29 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 			}
 		}
 
-		auto compareSigEventsExprs = [this](const ast::Expression& firstExpr, const ast::Expression& secondExpr) {
-			auto compareValSymBases = [](const ast::Expression& first, const ast::Expression& second, bool checkSigSize = false) {
-				if (ast::ValueExpressionBase::isKind(first.kind) &&
-					ast::ValueExpressionBase::isKind(second.kind) &&
-					&first.as<ast::ValueExpressionBase>().symbol ==
-						&second.as<ast::ValueExpressionBase>().symbol &&
-					(checkSigSize || first.as<ast::ValueExpressionBase>()
-								.symbol.getType()
-								.getBitstreamWidth() == 1))
-					return true;
+		VariableBits condition1 = eval.lhs(*condition, /* silent= */ true);
 
-				return false;
-			};
+		if (condition1.size() == 1 && !condition1.has_dummy_bits()) {
+			auto found = std::find_if(
+					triggers.begin(), triggers.end(), [&](const ast::SignalEventControl *trigger) {
+						return eval.lhs(trigger->expr, /* silent= */ true) == condition1;
+					});
 
-			if (compareValSymBases(firstExpr, secondExpr))
-				return true;
+			if (found != triggers.end()) {
+				if ((*found)->edge !=
+						(polarity ? ast::EdgeKind::PosEdge : ast::EdgeKind::NegEdge)) {
+					auto &diag = issuer.add_diag(
+							diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
+					diag.addNote(diag::NoteSignalEvent, (*found)->sourceRange);
+					diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+					// We raised an error. Do infer the async load anyway
+				}
 
-			if (firstExpr.kind == ast::ExpressionKind::ElementSelect && secondExpr.kind == ast::ExpressionKind::ElementSelect) {
-				const auto& firstES = firstExpr.as<ast::ElementSelectExpression>();
-				const auto& secondES = secondExpr.as<ast::ElementSelectExpression>();
-				// Compare selection bases
-				if (!compareValSymBases(firstES.value(), secondES.value(), true))
-					return false;
-
-				// Compare selection indexes
-				const auto& firstInd = firstES.selector();
-				const auto& secondInd = secondES.selector();
-				return firstInd.eval(evalCtx.const_) == secondInd.eval(evalCtx.const_);
+				found_async.push_back({condition1[0], polarity, cond_stmt.ifTrue});
+				triggers.erase(found);
+				stmt = cond_stmt.ifFalse;
+				continue;
 			}
-
-			if (firstExpr.kind == ast::ExpressionKind::RangeSelect && secondExpr.kind == ast::ExpressionKind::RangeSelect) {
-				// Compare selection bases
-				const auto& firstRS = firstExpr.as<ast::RangeSelectExpression>();
-				const auto& secondRS = secondExpr.as<ast::RangeSelectExpression>();
-				if (!compareValSymBases(firstRS.value(), secondRS.value(), true))
-					return false;
-
-				// Compare selection left and right bounds
-				return firstRS.left().eval(evalCtx.const_) == secondRS.left().eval(evalCtx.const_)
-					|| firstRS.right().eval(evalCtx.const_) == secondRS.right().eval(evalCtx.const_);
-			}
-
-			return false;
-		};
-
-		auto found = std::find_if(
-				triggers.begin(), triggers.end(), [=](const ast::SignalEventControl *trigger) {
-					return compareSigEventsExprs(trigger->expr, *condition);
-				});
-
-		if (found != triggers.end()) {
-			if ((*found)->edge != (polarity ? ast::EdgeKind::PosEdge : ast::EdgeKind::NegEdge)) {
-				auto &diag = issuer.add_diag(
-						diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
-				diag.addNote(diag::NoteSignalEvent, (*found)->sourceRange);
-				diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-				// We raised an error. Do infer the async load anyway
-			}
-
-			found_async.push_back({(*found)->expr, polarity, cond_stmt.ifTrue});
-
-			triggers.erase(found);
-			stmt = cond_stmt.ifFalse;
-			continue;
 		}
 
 		auto &diag = issuer.add_diag(diag::IfElseAloadMismatch, stmt->sourceRange);

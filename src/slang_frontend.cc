@@ -572,14 +572,16 @@ Vector extract_struct_field(Vector value, const ast::MemberAccessExpression &exp
 		expr.type->getBitstreamWidth());
 }
 
-VariableBits EvalContext::lhs(const ast::Expression &expr)
+VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 {
 	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
 	VariableBits ret;
 
 	if (!expr.type->isFixedSize()) {
-		auto &diag = netlist.add_diag(diag::FixedSizeRequired, expr.sourceRange);
-		diag << expr.type->toString();
+		if (!silent) {
+			auto &diag = netlist.add_diag(diag::FixedSizeRequired, expr.sourceRange);
+			diag << expr.type->toString();
+		}
 		goto error;
 	}
 
@@ -597,7 +599,9 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 		{
 			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
 			if (netlist.is_inferred_memory(symbol)) {
-				netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
+				if (!silent) {
+					netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
+				}
 				goto error;
 			}
 
@@ -654,7 +658,9 @@ VariableBits EvalContext::lhs(const ast::Expression &expr)
 		}
 		[[fallthrough]];
 	default:
-		netlist.add_diag(diag::UnsupportedLhs, expr.sourceRange);
+		if (!silent) {
+			netlist.add_diag(diag::UnsupportedLhs, expr.sourceRange);
+		}
 		goto error;
 	}
 
@@ -1536,7 +1542,7 @@ public:
 		{
 			prologue_timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
 			for (auto &abranch : async)	{
-				RTLIL::SigSpec sig = netlist.eval(abranch.trigger);
+				RTLIL::SigSpec sig = netlist.convert_static(abranch.trigger);
 				log_assert(sig.size() == 1);
 				prologue_timing.triggers.push_back({sig, abranch.polarity, nullptr});
 			}
@@ -1560,7 +1566,7 @@ public:
 		RTLIL::SigSpec prior_branch_taken;
 
 		for (auto &async_branch : async) {
-			RTLIL::SigSpec sig = netlist.eval(async_branch.trigger);
+			RTLIL::SigSpec sig = netlist.convert_static(async_branch.trigger);
 			log_assert(sig.size() == 1);
 
 			ProcessTiming branch_timing;
