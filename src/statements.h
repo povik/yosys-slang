@@ -556,6 +556,109 @@ public:
 		context.current_case = context.current_case->add_switch({})->add_case({});
 	}
 
+	void handle(const ast::ForeachLoopStatement &stmt)
+	{
+		auto set_iterator_value = [this, &stmt](const ast::VariableSymbol &target, int32_t value) {
+			context.do_simple_assign(
+					stmt.sourceRange.start(), eval.variable(target), RTLIL::Const(value, 32), true);
+		};
+
+		std::vector<SwitchHelper> sw_stack;
+		std::vector<std::optional<int32_t>> loopVarStack(stmt.loopDims.size(), std::nullopt);
+		// Initialize loop vars ranges
+		for (auto i = 0; i < stmt.loopDims.size(); ++i) {
+			auto loopDim = stmt.loopDims[i];
+			if (loopDim.loopVar && loopDim.range) {
+				loopVarStack[loopVarStack.size() - i - 1] = loopDim.range->left;
+				set_iterator_value(*loopDim.loopVar, loopDim.range->left);
+			}
+		}
+
+		std::vector<slang::ast::ForeachLoopStatement::LoopDim> reversedDims(
+				stmt.loopDims.rbegin(), stmt.loopDims.rend());
+		for (auto i = 0; i < loopVarStack.size(); ++i) {
+			if (loopVarStack[i]) {
+				auto currDim = reversedDims[i];
+			}
+		}
+
+		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
+		unroll_limit.enter_unrolling();
+		while (true) {
+			{
+				RegisterEscapeConstructGuard guard2(context, EscapeConstructKind::LoopBody, &stmt);
+				stmt.body.visit(*this);
+			}
+
+			RTLIL::SigSpec break_rv = context.substitute_rvalue(guard1.flag);
+
+			if (!break_rv.is_fully_const()) {
+				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, break_rv);
+				b.sw->statement = &stmt;
+				b.enter_branch({RTLIL::S0});
+				context.current_case->statement = &stmt.body;
+			} else if (break_rv.as_bool()) {
+				break;
+			} else {
+				log_assert(!break_rv.as_bool());
+			}
+
+			bool doBreak = true;
+			for (int i = 0; i < loopVarStack.size(); ++i) {
+				if (!loopVarStack[i])
+					continue;
+
+				if (*loopVarStack[i] != reversedDims[i].range->right) {
+					*loopVarStack[i] = *loopVarStack[i] > reversedDims[i].range->right
+											   ? *loopVarStack[i] - 1
+											   : *loopVarStack[i] + 1;
+					doBreak = false;
+					break;
+				} else if (i != loopVarStack.size() - 1) {
+					bool nextDimFound = false;
+					int j = i + 1;
+					for (; j < loopVarStack.size(); ++j) {
+						if (loopVarStack[j] && *loopVarStack[j] != reversedDims[j].range->right) {
+							nextDimFound = true;
+							break;
+						}
+					}
+
+					if (nextDimFound) {
+						*loopVarStack[j] = *loopVarStack[j] > reversedDims[j].range->right
+												   ? *loopVarStack[j] - 1
+												   : *loopVarStack[j] + 1;
+						doBreak = false;
+						for (int k = 0; k < j; ++k) {
+							if (loopVarStack[k])
+								*loopVarStack[k] = reversedDims[k].range->left;
+						}
+
+						break;
+					}
+				}
+			}
+
+			for (auto i = 0; i < loopVarStack.size(); ++i) {
+				if (loopVarStack[i]) {
+					auto currDim = reversedDims[i];
+					set_iterator_value(*currDim.loopVar, *loopVarStack[i]);
+				}
+			}
+
+			if (doBreak || !unroll_limit.unroll_tick(&stmt))
+				break;
+		}
+		unroll_limit.exit_unrolling();
+
+		for (auto it = sw_stack.rbegin(); it != sw_stack.rend(); it++) {
+			it->exit_branch();
+			it->finish(netlist);
+		}
+
+		context.current_case = context.current_case->add_switch({})->add_case({});
+	}
+
 	void handle(const ast::EmptyStatement &) {}
 
 	void init_nonstatic_variable(const ast::ValueSymbol &symbol)

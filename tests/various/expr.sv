@@ -255,4 +255,33 @@ function unpacked_t f4();
 endfunction
 initial $t(f4());
 
+// foreach
+function int f5();
+	automatic logic [3:0] g[2:0][0:3] = '{
+		'{0, 5, 2, 4},
+		'{3, 1, 1, 1},
+		'{9, 6, 0, 2}
+	};
+	automatic int acc = 0;
+	foreach (g[i, j, k]) begin
+		acc = (acc << 1) ^ (acc + g[i][j][k]);
+	end
+    return acc;
+endfunction
+initial $t(f5());
+// foreach
+function int f6();
+	automatic logic [3:0] g[1:-1][-3:0] = '{
+		'{0, 5, 2, 4},
+		'{3, 1, 1, 1},
+		'{9, 6, 0, 2}
+	};
+	automatic int acc = 0;
+	foreach (g[i, j, k]) begin
+		acc = (acc << 1) ^ (acc + i ^ (j << 1) ^ (k << 2));
+	end
+    return acc;
+endfunction
+initial $t(f6());
+
 endmodule

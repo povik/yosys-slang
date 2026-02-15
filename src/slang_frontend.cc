@@ -703,6 +703,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Symbol const &symbol)
 	case ast::SymbolKind::Net:
 	case ast::SymbolKind::Variable:
 	case ast::SymbolKind::FormalArgument:
+	case ast::SymbolKind::Iterator:
 		{
 			log_assert(ast::ValueSymbol::isKind(symbol.kind));
 			Variable var = variable(symbol.as<ast::ValueSymbol>());
