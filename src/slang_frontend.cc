@@ -2269,13 +2269,29 @@ public:
 		auto port_conns = sym.getPortConnections();
 		ast_invariant(sym, port_names.size() == port_conns.size());
 		for (int i = 0; i < (int) port_names.size(); i++) {
-			if (port_names[i].empty()) {
-				netlist.add_diag(diag::ConnNameRequiredOnUnkBboxes, sym.location);
-				continue;
+			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
+			bool portNameWasSet = !port_names[i].empty();
+			std::string port_name = std::string{port_names[i]};
+			if (!portNameWasSet) {
+				switch (expr.kind) {
+					case slang::ast::ExpressionKind::NamedValue:
+					case slang::ast::ExpressionKind::ElementSelect:
+					case slang::ast::ExpressionKind::RangeSelect: {
+						if (auto sym_ref = expr.getSymbolReference(true); sym_ref->isValue())
+							port_name = sym_ref->name;
+						break;
+					}
+					default:
+						break;
+				}
+
+				if (port_name.empty()) {
+					netlist.add_diag(diag::SimpleConnNameRequiredOnUnkBboxes, sym.location);
+					continue;
+				}
 			}
 
-			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
-			cell->setPort(RTLIL::escape_id(std::string{port_names[i]}), netlist.eval(expr));
+			cell->setPort(portNameWasSet ? RTLIL::escape_id(std::string{port_names[i]}) : netlist.new_id(), netlist.eval(expr));
 		}
 	}
 
