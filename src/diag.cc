@@ -89,7 +89,6 @@ DiagCode FixedSizeRequired(DiagSubsystem::Netlist, 1033);
 DiagCode AloadOne(DiagSubsystem::Netlist, 1034);
 DiagCode BadInlinedPortConnection(DiagSubsystem::Netlist, 1035);
 DiagCode NoParamsOnUnkBboxes(DiagSubsystem::Netlist, 1037);
-DiagCode SimpleConnNameRequiredOnUnkBboxes(DiagSubsystem::Netlist, 1038);
 DiagCode BboxTypeParameter(DiagSubsystem::Netlist, 1039);
 DiagCode BboxExportPortWidths(DiagSubsystem::Netlist, 1040);
 DiagCode NoteIgnoreInitial(DiagSubsystem::Netlist, 1041);
@@ -214,9 +213,6 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(NoParamsOnUnkBboxes, "parameters on unknown blackboxes unsupported");
 	engine.setSeverity(NoParamsOnUnkBboxes, DiagnosticSeverity::Error);
-
-	engine.setMessage(SimpleConnNameRequiredOnUnkBboxes, "simple expression or port name required in connections on unknown blackboxes");
-	engine.setSeverity(SimpleConnNameRequiredOnUnkBboxes, DiagnosticSeverity::Error);
 
 	engine.setMessage(BboxTypeParameter, "blackbox cannot have a type parameter");
 	engine.setSeverity(BboxTypeParameter, DiagnosticSeverity::Error);

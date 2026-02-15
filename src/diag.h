@@ -45,7 +45,6 @@ extern slang::DiagCode FixedSizeRequired;
 extern slang::DiagCode AloadOne;
 extern slang::DiagCode BadInlinedPortConnection;
 extern slang::DiagCode NoParamsOnUnkBboxes;
-extern slang::DiagCode SimpleConnNameRequiredOnUnkBboxes;
 extern slang::DiagCode BboxTypeParameter;
 extern slang::DiagCode BboxExportPortWidths;
 extern slang::DiagCode NoteIgnoreInitial;
