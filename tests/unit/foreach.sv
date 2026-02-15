@@ -4,16 +4,17 @@ module multi_array_sum;
                           '{0, 0, 0, 1}}, '{'{0, 0, 0, 0},
                           '{0, 0, 0, 0},
                           '{0, 0, 0, 1}}};
-  int array1[2][3][4]  ='{ '{'{0, 0, 0, 0},
-                          '{0, 0, 0, 0},
-                          '{0, 0, 0, 1}}, '{'{0, 0, 0, 0},
-                          '{0, 0, 0, 0},
-                          '{0, 0, 0, 1}}};
+  int array1[2][3][4];
   int sum;
     localparam O = 32;
     localparam I = 16;
 
   always_comb begin
+    array1 = '{ '{'{0, 0, 0, 0},
+                          '{0, 0, 0, 0},
+                          '{0, 0, 0, 1}}, '{'{0, 0, 0, 0},
+                          '{0, 0, 0, 0},
+                          '{0, 0, 0, 1}}};
     foreach (array[i, j, k])
         array1[i][j][k] += {{O - I-1{array[i][j][k][I]}}, array[i][j][k]};
   end
@@ -150,13 +151,15 @@ module foreach_array_sum_3d(array3d);
 endmodule
 
 module load_and_store;
-        int array[5] = '{1, 2, 3, 4, 5};
-        int sum = 0;
+        int array[5];
+        int sum;
 
         always_comb begin
-                foreach (array[l_index]) begin
-                        array[l_index] += 1;
-                        sum += array[l_index];
-                end
+            sum = 0;
+            array = '{1, 2, 3, 4, 5};
+            foreach (array[l_index]) begin
+                array[l_index] += 1;
+                sum += array[l_index];
+            end
         end
 endmodule
