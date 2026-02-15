@@ -558,26 +558,29 @@ public:
 
 	void handle(const ast::ForeachLoopStatement &stmt)
 	{
+		auto set_iterator_value = [this, &stmt](const ast::VariableSymbol &target, int32_t value) {
+			context.do_simple_assign(
+					stmt.sourceRange.start(), eval.variable(target), RTLIL::Const(value, 32), true);
+		};
+
 		std::vector<SwitchHelper> sw_stack;
-		std::vector<std::optional<int32_t>> loopVarStack (stmt.loopDims.size(), std::nullopt);
+		std::vector<std::optional<int32_t>> loopVarStack(stmt.loopDims.size(), std::nullopt);
 		// Initialize loop vars ranges
 		for (auto i = 0; i < stmt.loopDims.size(); ++i) {
 			auto loopDim = stmt.loopDims[i];
 			if (loopDim.loopVar && loopDim.range) {
 				loopVarStack[loopVarStack.size() - i - 1] = loopDim.range->left;
-				set_nonstatic_variable_by_int(*loopDim.loopVar, loopDim.range->left);
+				set_iterator_value(*loopDim.loopVar, loopDim.range->left);
 			}
 		}
 
-		std::vector<slang::ast::ForeachLoopStatement::LoopDim> reversedDims(stmt.loopDims.rbegin(), stmt.loopDims.rend());
-		printf("setting to | ");
+		std::vector<slang::ast::ForeachLoopStatement::LoopDim> reversedDims(
+				stmt.loopDims.rbegin(), stmt.loopDims.rend());
 		for (auto i = 0; i < loopVarStack.size(); ++i) {
 			if (loopVarStack[i]) {
 				auto currDim = reversedDims[i];
-				printf("%s %d | ", std::string(currDim.loopVar->name).c_str(), *loopVarStack[i]);
 			}
 		}
-		printf("\n");
 
 		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 		unroll_limit.enter_unrolling();
@@ -606,9 +609,9 @@ public:
 					continue;
 
 				if (*loopVarStack[i] != reversedDims[i].range->right) {
-					*loopVarStack[i] = *loopVarStack[i] > reversedDims[i].range->right ?
-								*loopVarStack[i] - 1 :
-								*loopVarStack[i] + 1 ;
+					*loopVarStack[i] = *loopVarStack[i] > reversedDims[i].range->right
+											   ? *loopVarStack[i] - 1
+											   : *loopVarStack[i] + 1;
 					doBreak = false;
 					break;
 				} else if (i != loopVarStack.size() - 1) {
@@ -622,9 +625,9 @@ public:
 					}
 
 					if (nextDimFound) {
-						*loopVarStack[j] = *loopVarStack[j] > reversedDims[j].range->right ?
-									*loopVarStack[j] - 1 :
-									*loopVarStack[j] + 1 ;
+						*loopVarStack[j] = *loopVarStack[j] > reversedDims[j].range->right
+												   ? *loopVarStack[j] - 1
+												   : *loopVarStack[j] + 1;
 						doBreak = false;
 						for (int k = 0; k < j; ++k) {
 							if (loopVarStack[k])
@@ -636,15 +639,12 @@ public:
 				}
 			}
 
-			printf("setting to | ");
 			for (auto i = 0; i < loopVarStack.size(); ++i) {
 				if (loopVarStack[i]) {
 					auto currDim = reversedDims[i];
-					set_nonstatic_variable_by_int(*currDim.loopVar, *loopVarStack[i]);
-					printf("%s %d | ", std::string(currDim.loopVar->name).c_str(), *loopVarStack[i]);
+					set_iterator_value(*currDim.loopVar, *loopVarStack[i]);
 				}
 			}
-			printf("\n");
 
 			if (doBreak || !unroll_limit.unroll_tick(&stmt))
 				break;
@@ -682,17 +682,6 @@ public:
 			}
 		}
 		context.do_simple_assign(symbol.location, target, initval, true);
-	}
-
-	void set_nonstatic_variable_by_int(const ast::ValueSymbol &symbol, int32_t val)
-	{
-		Variable target = eval.variable(symbol);
-		log_assert((bool)target);
-
-		if (!target.bitwidth())
-			return;
-
-		context.do_simple_assign(symbol.location, target, RTLIL::Const(val, 32), true);
 	}
 
 	void handle(const ast::VariableSymbol &symbol)
