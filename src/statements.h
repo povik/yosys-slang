@@ -10,6 +10,8 @@
 
 #include "cases.h"
 #include "slang/ast/ASTVisitor.h"
+#include "slang/ast/TimingControl.h"
+#include "slang/ast/expressions/AssertionExpr.h"
 #include "slang_frontend.h"
 #include "variables.h"
 
@@ -225,13 +227,131 @@ public:
 
 	void handle(const ast::ConcurrentAssertionStatement &stmt)
 	{
-		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			if (stmt.assertionKind == ast::AssertionKind::Expect) {
-				netlist.add_diag(diag::ExpectStatementUnsupported, stmt.sourceRange);
-			} else {
-				netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
-			}
+		if (netlist.settings.ignore_assertions.value_or(false))
+			return;
+
+		if (stmt.assertionKind == ast::AssertionKind::Expect) {
+			netlist.add_diag(diag::ExpectStatementUnsupported, stmt.sourceRange);
+			return;
 		}
+
+		// Try to handle simple concurrent assertions of the form:
+		// assert property (@(posedge clk) disable iff (reset) expr);
+		const ast::AssertionExpr *propExpr = &stmt.propertySpec;
+
+		// Extract clocking if present
+		const ast::TimingControl *clocking = nullptr;
+		if (propExpr->kind == ast::AssertionExprKind::Clocking) {
+			auto &clockExpr = propExpr->as<ast::ClockingAssertionExpr>();
+			clocking = &clockExpr.clocking;
+			propExpr = &clockExpr.expr;
+		}
+
+		// Extract disable iff condition if present
+		const ast::Expression *disableCondition = nullptr;
+		if (propExpr->kind == ast::AssertionExprKind::DisableIff) {
+			auto &disableExpr = propExpr->as<ast::DisableIffAssertionExpr>();
+			disableCondition = &disableExpr.condition;
+			propExpr = &disableExpr.expr;
+		}
+
+		// The remaining expression should be a simple assertion expression
+		if (propExpr->kind != ast::AssertionExprKind::Simple) {
+			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			return;
+		}
+
+		auto &simpleExpr = propExpr->as<ast::SimpleAssertionExpr>();
+
+		// We don't support repetition in simple assertions
+		if (simpleExpr.repetition.has_value()) {
+			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			return;
+		}
+
+		// We need a clock for concurrent assertions
+		if (!clocking) {
+			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			return;
+		}
+
+		// The clocking must be a signal event (posedge/negedge)
+		if (clocking->kind != ast::TimingControlKind::SignalEvent) {
+			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			return;
+		}
+
+		auto &sigEvent = clocking->as<ast::SignalEventControl>();
+
+		// We don't support iff condition on the clock
+		if (sigEvent.iffCondition) {
+			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			return;
+		}
+
+		// We need posedge or negedge
+		if (sigEvent.edge != ast::EdgeKind::PosEdge && sigEvent.edge != ast::EdgeKind::NegEdge) {
+			netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+			return;
+		}
+
+		std::string flavor;
+		switch (stmt.assertionKind) {
+		case ast::AssertionKind::Assert:        flavor = "assert"; break;
+		case ast::AssertionKind::Assume:        flavor = "assume"; break;
+		case ast::AssertionKind::CoverProperty: flavor = "cover"; break;
+		default:                                netlist.add_diag(diag::AssertionUnsupported, stmt.sourceRange); return;
+		}
+
+		RTLIL::IdString cell_name;
+
+		if (containing_block && unwrap_statement(containing_block->tryGetStatement()) == &stmt &&
+				!containing_block->name.empty()) {
+			// If we are the sole statement in a block, use the block's label
+			cell_name = netlist.id(*containing_block);
+		} else {
+			cell_name = netlist.new_id();
+		}
+
+		auto cell = netlist.canvas->addCell(cell_name, ID($check));
+
+		// Concurrent assertions must not appear inside a clocked procedural block
+		if (!context.timing.triggers.empty()) {
+			netlist.add_diag(diag::ConcurrentAssertionInClockedBlock, stmt.sourceRange);
+			return;
+		}
+
+		// Set up the trigger (clock)
+		RTLIL::SigBit clk_sig = netlist.eval(sigEvent.expr);
+		bool clk_polarity = (sigEvent.edge == ast::EdgeKind::PosEdge);
+
+		cell->setParam(ID::TRG_ENABLE, true);
+		cell->setParam(ID::TRG_WIDTH, 1);
+		cell->setParam(ID::TRG_POLARITY, clk_polarity ? RTLIL::S1 : RTLIL::S0);
+		cell->setPort(ID::TRG, clk_sig);
+
+		// Set up timing for clocked side effect cells (e.g. $past) in concurrent assertions
+		context.timing.triggers.push_back({clk_sig, clk_polarity, clocking});
+
+		// Set up the enable (disable iff inverted)
+		RTLIL::SigBit enable;
+		if (disableCondition) {
+			enable = netlist.LogicNot(netlist.ReduceBool(eval(*disableCondition)));
+		} else {
+			enable = RTLIL::S1;
+		}
+		cell->setPort(ID::EN, enable);
+
+		cell->setParam(ID::FLAVOR, flavor);
+		cell->setParam(ID::FORMAT, std::string(""));
+		cell->setParam(ID::ARGS_WIDTH, 0);
+		cell->setParam(ID::PRIORITY, --context.effects_priority);
+		cell->setPort(ID::ARGS, {});
+		cell->setPort(ID::A, netlist.ReduceBool(eval(simpleExpr.expr)));
+		transfer_attrs(netlist, stmt, cell);
+
+		// Clear timing triggers after evaluation
+		context.timing.triggers.clear();
 	}
 
 	RTLIL::SigSpec handle_call(const ast::CallExpression &call)

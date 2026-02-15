@@ -1,0 +1,37 @@
+read_slang concurrent_assert.sv
+
+# Test basic concurrent assertions exist
+select -assert-count 13 t:$check
+
+# Test m_concurrent_assert: posedge clk, no disable iff
+select -assert-count 1 m_concurrent_assert/t:$check
+select -assert-count 1 m_concurrent_assert/t:$check r:FLAVOR=assert %i
+select -assert-count 1 m_concurrent_assert/t:$check r:TRG_ENABLE=1 %i
+select -assert-count 1 m_concurrent_assert/t:$check r:TRG_POLARITY=1'1 %i
+
+# Test m_concurrent_assume: posedge clk, assume flavor
+select -assert-count 1 m_concurrent_assume/t:$check
+select -assert-count 1 m_concurrent_assume/t:$check r:FLAVOR=assume %i
+
+# Test m_concurrent_cover: posedge clk, cover flavor
+select -assert-count 1 m_concurrent_cover/t:$check
+select -assert-count 1 m_concurrent_cover/t:$check r:FLAVOR=cover %i
+
+# Test m_negedge_assert: negedge clk (TRG_POLARITY=0)
+select -assert-count 1 m_negedge_assert/t:$check
+select -assert-count 1 m_negedge_assert/t:$check r:TRG_POLARITY=1'0 %i
+
+# Test m_disable_iff: posedge clk with disable iff
+select -assert-count 1 m_disable_iff/t:$check
+select -assert-count 1 m_disable_iff/t:$check r:FLAVOR=assert %i
+
+# Test m_multiple_concurrent: 4 assertions (1 assert posedge, 1 assume, 1 cover, 1 assert negedge)
+select -assert-count 4 m_multiple_concurrent/t:$check
+select -assert-count 2 m_multiple_concurrent/t:$check r:FLAVOR=assert %i
+select -assert-count 1 m_multiple_concurrent/t:$check r:FLAVOR=assume %i
+select -assert-count 1 m_multiple_concurrent/t:$check r:FLAVOR=cover %i
+select -assert-count 1 m_multiple_concurrent/t:$check r:TRG_POLARITY=1'0 %i
+
+# Test m_labeled_concurrent: labeled assertion
+select -assert-count 1 m_labeled_concurrent/t:$check
+select -assert-count 1 m_labeled_concurrent/t:$check n:*my_concurrent_assert %i
