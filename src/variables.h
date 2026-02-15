@@ -107,6 +107,15 @@ public:
 
 	void append(const VariableBits &other) { insert(end(), other.begin(), other.end()); }
 
+	bool has_dummy_bits()
+	{
+		for (auto chunk : chunks()) {
+			if (chunk.variable.kind == Variable::Dummy)
+				return true;
+		}
+		return false;
+	}
+
 	VariableBits extract(int base, int width)
 	{
 		VariableBits ret;

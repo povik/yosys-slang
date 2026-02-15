@@ -6,6 +6,7 @@
 //
 #pragma once
 #include "slang_frontend.h"
+#include "variables.h"
 
 namespace slang {
 namespace ast {
@@ -17,12 +18,13 @@ namespace slang_frontend {
 
 struct TimingPatternInterpretor
 {
-	TimingPatternInterpretor(SynthesisSettings &settings, DiagnosticIssuer &issuer)
-		: settings(settings), issuer(issuer) {};
+	TimingPatternInterpretor(
+			SynthesisSettings &settings, DiagnosticIssuer &issuer, EvalContext &eval)
+		: settings(settings), issuer(issuer), eval(eval) {};
 
 	struct AsyncBranch
 	{
-		const ast::Expression &trigger;
+		const VariableBit trigger;
 		bool polarity;
 		const ast::Statement &body;
 	};
@@ -47,6 +49,7 @@ private:
 
 	SynthesisSettings &settings;
 	DiagnosticIssuer &issuer;
+	EvalContext &eval;
 };
 
 }; // namespace slang_frontend

@@ -19,8 +19,8 @@ struct InferredMemoryDetector : public TimingPatternInterpretor,
 	bool disallow_implicit = false;
 
 	InferredMemoryDetector(SynthesisSettings &settings,
-			std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve)
-		: TimingPatternInterpretor(settings, (DiagnosticIssuer &)*this),
+			std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve, EvalContext& evalCtx)
+		: TimingPatternInterpretor(settings, (DiagnosticIssuer &)*this, evalCtx),
 		  should_dissolve(should_dissolve),
 		  disallow_implicit(settings.no_implicit_memories.value_or(false))
 	{}

@@ -4,11 +4,13 @@
 // Copyright 2024 Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "slang/ast/Expression.h"
 #include "slang/ast/TimingControl.h"
 #include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/OperatorExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/statements/ConditionalStatements.h"
 #include "slang/ast/statements/MiscStatements.h"
 #include "slang/ast/symbols/BlockSymbols.h"
@@ -16,6 +18,7 @@
 
 #include "async_pattern.h"
 #include "diag.h"
+#include "slang/syntax/AllSyntax.h"
 
 namespace slang_frontend {
 
@@ -221,31 +224,29 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 			}
 		}
 
-		auto found = std::find_if(
-				triggers.begin(), triggers.end(), [=](const ast::SignalEventControl *trigger) {
-					return ast::ValueExpressionBase::isKind(trigger->expr.kind) &&
-						   ast::ValueExpressionBase::isKind(condition->kind) &&
-						   &trigger->expr.as<ast::ValueExpressionBase>().symbol ==
-								   &condition->as<ast::ValueExpressionBase>().symbol &&
-						   trigger->expr.as<ast::ValueExpressionBase>()
-										   .symbol.getType()
-										   .getBitstreamWidth() == 1;
-				});
+		VariableBits condition1 = eval.lhs(*condition, /* silent= */ true);
 
-		if (found != triggers.end()) {
-			if ((*found)->edge != (polarity ? ast::EdgeKind::PosEdge : ast::EdgeKind::NegEdge)) {
-				auto &diag = issuer.add_diag(
-						diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
-				diag.addNote(diag::NoteSignalEvent, (*found)->sourceRange);
-				diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
-				// We raised an error. Do infer the async load anyway
+		if (condition1.size() == 1 && !condition1.has_dummy_bits()) {
+			auto found = std::find_if(
+					triggers.begin(), triggers.end(), [&](const ast::SignalEventControl *trigger) {
+						return eval.lhs(trigger->expr, /* silent= */ true) == condition1;
+					});
+
+			if (found != triggers.end()) {
+				if ((*found)->edge !=
+						(polarity ? ast::EdgeKind::PosEdge : ast::EdgeKind::NegEdge)) {
+					auto &diag = issuer.add_diag(
+							diag::IfElseAloadPolarity, cond_stmt.conditions[0].expr->sourceRange);
+					diag.addNote(diag::NoteSignalEvent, (*found)->sourceRange);
+					diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
+					// We raised an error. Do infer the async load anyway
+				}
+
+				found_async.push_back({condition1[0], polarity, cond_stmt.ifTrue});
+				triggers.erase(found);
+				stmt = cond_stmt.ifFalse;
+				continue;
 			}
-
-			found_async.push_back({(*found)->expr, polarity, cond_stmt.ifTrue});
-
-			triggers.erase(found);
-			stmt = cond_stmt.ifFalse;
-			continue;
 		}
 
 		auto &diag = issuer.add_diag(diag::IfElseAloadMismatch, stmt->sourceRange);

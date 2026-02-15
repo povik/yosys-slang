@@ -151,7 +151,7 @@ struct EvalContext {
 	//
 	// This doesn't handle dynamic addressing and streaming expressions,
 	// the caller needs to handle those separately.
-	VariableBits lhs(ast::Expression const &expr);
+	VariableBits lhs(ast::Expression const &expr, bool silent=false);
 
 	// Helper for cases where the AST uses `EmptyArgument` on the RHS of
 	// an assignment as a stand-in for a value implied by the context

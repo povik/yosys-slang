@@ -96,3 +96,250 @@ async2sync
 equiv_make async02_gold async02_gate async02_equiv
 equiv_induct async02_equiv
 equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module async03_gate(CLK, SET, CLR, D, Q);
+
+  parameter WIDTH = 8;
+  parameter SET_POLARITY = 1;
+  input CLK;
+  input [WIDTH-1:0] SET, CLR, D;
+  output reg [WIDTH-1:0] Q;
+
+  wire pos_clk = ~CLK;
+  wire [WIDTH-1:0] pos_set = SET_POLARITY ? SET : ~SET;
+  wire single_bit_pos_set = SET_POLARITY ? SET[0] : ~SET[0];
+
+  always @(posedge single_bit_pos_set, posedge pos_clk)
+    if (single_bit_pos_set)
+      Q[0] <= D[1];
+    else
+      Q[0] <= 0;
+
+  always @(posedge pos_set[1], posedge pos_clk)
+    if (pos_set[1])
+      Q[1] <= D[1];
+    else
+      Q[1] <= 0;
+
+  always @(posedge pos_set[1:1], posedge pos_clk)
+    if (pos_set[1:1])
+      Q[2] <= D[1];
+    else
+      Q[2] <= 0;
+
+  genvar i;
+  generate
+  for (i = 3; i < WIDTH; i = i+1) begin: slices
+    always @(posedge pos_set[i], posedge pos_clk)
+      if (pos_set[i])
+        Q[i] <= 1;
+      else
+        Q[i] <= D[i];
+    end
+  endgenerate
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \async03_gold
+  wire input 1 \CLK
+  wire width 8 input 3 \D
+  wire width 8 input 2 \CLR
+  wire width 8 input 5 \SET
+  wire width 8 output 4 \Q
+  wire \pos_clk
+  wire width 8 \pos_set
+  wire \single_bit_pos_set
+
+  attribute \src "<inlined>:13.3"
+  cell $aldff $driver$Q[1:1]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \single_bit_pos_set
+    connect \D 1'0
+    connect \AD \D [1]
+    connect \Q \Q [0]
+  end
+
+  attribute \src "<inlined>:19.3"
+  cell $aldff $driver$Q[1:1]_1
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [1]
+    connect \D 1'0
+    connect \AD \D [1]
+    connect \Q \Q [1]
+  end
+
+  attribute \src "<inlined>:25.3"
+  cell $aldff $driver$Q[1:1]_2
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [1]
+    connect \D 1'0
+    connect \AD \D [1]
+    connect \Q \Q [2]
+  end
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[0:0]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [0]
+    connect \D \D [0]
+    connect \AD 1'1
+    connect \Q \Q [0]
+  end
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[1:1]_3
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [1]
+    connect \D \D [1]
+    connect \AD 1'1
+    connect \Q \Q [1]
+  end
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[2:2]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [2]
+    connect \D \D [2]
+    connect \AD 1'1
+    connect \Q \Q [2]
+  end
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[3:3]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [3]
+    connect \D \D [3]
+    connect \AD 1'1
+    connect \Q \Q [3]
+  end
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[4:4]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [4]
+    connect \D \D [4]
+    connect \AD 1'1
+    connect \Q \Q [4]
+  end
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[5:5]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [5]
+    connect \D \D [5]
+    connect \AD 1'1
+    connect \Q \Q [5]
+  end
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[6:6]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [6]
+    connect \D \D [6]
+    connect \AD 1'1
+    connect \Q \Q [6]
+  end
+
+
+  attribute \src "<inlined>:34.5"
+  cell $aldff $driver$Q[7:7]
+    parameter \CLK_POLARITY 0
+    parameter \ALOAD_POLARITY 1
+    parameter \WIDTH 1
+    connect \CLK \CLK
+    connect \ALOAD \pos_set [7]
+    connect \D \D [7]
+    connect \AD 1'1
+    connect \Q \Q [7]
+  end
+
+  connect \pos_set \SET
+  connect \single_bit_pos_set \SET [0]
+end
+EOF
+
+async2sync
+equiv_make async03_gold async03_gate async03_equiv
+equiv_induct async03_equiv
+equiv_status -assert
+
+design -reset
+test_slangdiag -expect "polarity of condition doesn't match edge sensitivity"
+read_slang <<EOF
+module async04_gate(CLK, SET, CLR, D, Q);
+  parameter WIDTH = 8;
+  parameter SET_POLARITY = 1;
+  input CLK;
+  input [WIDTH-1:0] SET, CLR, D;
+  output reg [WIDTH-1:0] Q;
+
+  wire pos_clk = ~CLK;
+  wire [WIDTH-1:0] pos_set = SET_POLARITY ? SET : ~SET;
+  wire single_bit_pos_set = SET_POLARITY ? SET[0] : ~SET[0];
+
+  always @(posedge pos_set[1:1], posedge pos_clk)
+  begin
+    if (!pos_set[1:1])
+      Q[1] <= D[1];
+    else
+      Q[1] <= 0;
+  end
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "condition cannot be matched to any signal from the event list"
+read_slang <<EOF
+module async05_gate(CLK, SET, CLR, D, Q);
+  parameter WIDTH = 8;
+  parameter SET_POLARITY = 1;
+  input CLK;
+  input [WIDTH-1:0] SET, CLR, D;
+  output reg [WIDTH-1:0] Q;
+
+  wire pos_clk = ~CLK;
+  wire [WIDTH-1:0] pos_set = SET_POLARITY ? SET : ~SET;
+  wire single_bit_pos_set = SET_POLARITY ? SET[0] : ~SET[0];
+
+  always @(posedge pos_set[2], posedge pos_clk)
+  begin
+    if (pos_set[1])
+      Q[1] <= D[1];
+    else
+      Q[1] <= 0;
+  end  
+endmodule
+EOF
