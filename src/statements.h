@@ -42,8 +42,9 @@ public:
 		std::vector<std::tuple<Case *, VariableBits, RTLIL::SigSpec>> branch_updates;
 		bool entered = false, finished = false;
 
-		SwitchHelper(Case *&current_case, VariableState &vstate, RTLIL::SigSpec signal)
-			: parent(current_case), current_case(current_case), vstate(vstate)
+		SwitchHelper(ProceduralContext &context, RTLIL::SigSpec signal)
+			: parent(context.current_case), current_case(context.current_case),
+			  vstate(context.vstate)
 		{
 			sw = parent->add_switch(signal);
 		}
@@ -330,7 +331,7 @@ public:
 		for (auto &stmt : list.list) {
 			RTLIL::SigSpec disable_rv = disable ? context.substitute_rvalue(disable) : RTLIL::S0;
 			if (!disable_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, disable_rv);
+				auto &b = sw_stack.emplace_back(context, disable_rv);
 				b.sw->statement = stmt;
 				b.enter_branch({RTLIL::S0});
 				context.current_case->statement = stmt;
@@ -360,7 +361,7 @@ public:
 		require(cond, cond.conditions[0].pattern == NULL);
 
 		RTLIL::SigSpec condition = netlist.ReduceBool(eval(*cond.conditions[0].expr));
-		SwitchHelper b(context.current_case, context.vstate, condition);
+		SwitchHelper b(context, condition);
 		b.sw->statement = &cond;
 
 		b.branch({RTLIL::S1}, [&]() {
@@ -394,9 +395,9 @@ public:
 		}
 
 		RTLIL::SigSpec dispatch = eval(stmt.expr);
-		SwitchHelper b(context.current_case, context.vstate,
-				stmt.condition == ast::CaseStatementCondition::Inside ? RTLIL::SigSpec(RTLIL::S1)
-																	  : dispatch);
+		SwitchHelper b(context, stmt.condition == ast::CaseStatementCondition::Inside
+										? RTLIL::SigSpec(RTLIL::S1)
+										: dispatch);
 
 		b.sw->statement = &stmt;
 		switch (stmt.check) {
@@ -461,7 +462,7 @@ public:
 			RTLIL::SigSpec joint_break = netlist.LogicOr(netlist.LogicNot(cv), break_rv);
 
 			if (!joint_break.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, joint_break);
+				auto &b = sw_stack.emplace_back(context, joint_break);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S0});
 				context.current_case->statement = &stmt.body;
@@ -512,7 +513,7 @@ public:
 			RTLIL::SigSpec cv = netlist.ReduceBool(eval(*stmt.stopExpr));
 
 			if (!cv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, cv);
+				auto &b = sw_stack.emplace_back(context, cv);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S1});
 				context.current_case->statement = &stmt.body;
@@ -530,7 +531,7 @@ public:
 			RTLIL::SigSpec break_rv = context.substitute_rvalue(guard1.flag);
 
 			if (!break_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, break_rv);
+				auto &b = sw_stack.emplace_back(context, break_rv);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S0});
 				context.current_case->statement = &stmt.body;
@@ -593,7 +594,7 @@ public:
 			RTLIL::SigSpec break_rv = context.substitute_rvalue(guard1.flag);
 
 			if (!break_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context.current_case, context.vstate, break_rv);
+				auto &b = sw_stack.emplace_back(context, break_rv);
 				b.sw->statement = &stmt;
 				b.enter_branch({RTLIL::S0});
 				context.current_case->statement = &stmt.body;
