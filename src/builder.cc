@@ -508,10 +508,10 @@ void RTLILBuilder::add_aldff(RTLIL::IdString name, const RTLIL::SigSpec &clk,
 	bless_cell(cell);
 }
 
-SigSpec  RTLILBuilder::CountOnes(SigSpec sig, int result_width)
+SigSpec RTLILBuilder::CountOnes(SigSpec sig, int result_width)
 {
 	SigSpec ret;
-	int x= 1, y = 0;
+	int x = 1, y = 0;
 	auto width = sig.size();
 	if (width == 0) {
 		ret = RTLIL::Const(0, 1);
@@ -530,7 +530,8 @@ SigSpec  RTLILBuilder::CountOnes(SigSpec sig, int result_width)
 		while (curr_level.size() > 1) {
 			std::vector<RTLIL::SigSpec> nxt_level;
 			for (size_t i = 0; i + 1 < curr_level.size(); i += 2) {
-				auto sum = Biop(ID($add), curr_level[i], curr_level[i+1], false, false, result_width);
+				auto sum = Biop(
+						ID($add), curr_level[i], curr_level[i + 1], false, false, result_width);
 				if (sum.size() < result_width)
 					sum.extend_u0(result_width);
 				nxt_level.push_back(sum);

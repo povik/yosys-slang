@@ -327,7 +327,7 @@ struct RTLILBuilder {
 	SigSpec Le(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Ge(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Lt(SigSpec a, SigSpec b, bool is_signed);
-	SigSpec EqWildcard(RTLIL::SigSpec a, RTLIL::SigSpec b);
+	SigSpec EqWildcard(SigSpec a, SigSpec b);
 	SigSpec Eq(SigSpec a, SigSpec b);
 	SigSpec LogicAnd(SigSpec a, SigSpec b);
 	SigSpec LogicOr(SigSpec a, SigSpec b);
