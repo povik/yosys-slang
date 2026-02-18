@@ -73,6 +73,9 @@ extern slang::DiagCode SystemFunctionRequireClockedBlock;
 extern slang::DiagCode UnsupportedBitConversion;
 extern slang::DiagCode MultiPortConversion;
 extern slang::DiagCode InputPortCannotBeSpecialNet;
+extern slang::DiagCode ReadingNetStateFromInitialBlockUnsupported;
+extern slang::DiagCode NonblockingAssignInInitialUnsupported;
+extern slang::DiagCode ErrorNonconstantInitialEval;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag

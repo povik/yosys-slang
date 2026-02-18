@@ -6,8 +6,8 @@ module top();
 	reg [3:0] y[1:0];
 
 	initial begin
-		x <= '{7, 1};
-		y <= '{7, 1};
+		x = '{7, 1};
+		y = '{7, 1};
 	end
 
 	always_comb
@@ -29,8 +29,8 @@ module top();
 	reg [3:0] y[0:1];
 
 	initial begin
-		x <= '{7, 1};
-		y <= '{7, 1};
+		x = '{7, 1};
+		y = '{7, 1};
 	end
 
 	always_comb
@@ -52,8 +52,8 @@ module top();
 	reg [3:0] y[1:2];
 
 	initial begin
-		x <= '{7, 1};
-		y <= '{7, 1};
+		x = '{7, 1};
+		y = '{7, 1};
 	end
 
 	always_comb
@@ -74,8 +74,8 @@ module top();
 	reg [3:0] y[2:1];
 
 	initial begin
-		x <= '{7, 1};
-		y <= '{7, 1};
+		x = '{7, 1};
+		y = '{7, 1};
 	end
 
 	always_comb
@@ -96,8 +96,8 @@ module top();
 	reg [3:0] y[0:-1];
 
 	initial begin
-		x <= '{7, 1};
-		y <= '{7, 1};
+		x = '{7, 1};
+		y = '{7, 1};
 	end
 
 	always_comb

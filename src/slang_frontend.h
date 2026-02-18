@@ -192,8 +192,13 @@ private:
 };
 
 struct ProcessTiming {
-	RTLIL::SigBit background_enable = RTLIL::S1;
+	enum Kind {
+		Initial,
+		Implicit,
+		EdgeTriggered
+	} kind = Implicit;
 
+	RTLIL::SigBit background_enable = RTLIL::S1;
 	struct Sensitivity {
 		RTLIL::SigBit signal;
 		bool edge_polarity;
@@ -201,8 +206,12 @@ struct ProcessTiming {
 	};
 	std::vector<Sensitivity> triggers;
 
-	bool implicit() const;
 	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable);
+
+	static ProcessTiming implicit;
+	static ProcessTiming initial;
+
+	ProcessTiming(Kind kind);
 };
 
 class ProceduralContext {
@@ -215,6 +224,9 @@ public:
 
 	std::unique_ptr<Case> root_case;
 	Case *current_case;
+
+	// only used when timing.kind==ProcessTiming::Initial
+	Yosys::dict<VariableBit, RTLIL::State> initial_locals_state;
 
 private:
 	int flag_counter = 0;
@@ -361,7 +373,17 @@ struct RTLILBuilder {
 
 	void connect(SigSpec target, SigSpec source);
 
+	// Add initialization data on the given memory. The data starts
+	// at bit position `base` which doesn't need to be on a word boundary
+	void add_memory_init(RTLIL::IdString name, uint64_t bit_offset,
+						 bool big_endian, RTLIL::Const data);
+
 private:
+	int meminit_prio_counter = 0;
+	void emit_meminit_cell(RTLIL::Memory *mem, uint64_t word_offset,
+						   bool big_endian, RTLIL::Const data,
+						   RTLIL::Const mask);
+
 	std::pair<std::string, SigSpec> add_y_wire(int width);
 	// apply attributes to newly created cell
 	void bless_cell(RTLIL::Cell *cell);
@@ -498,6 +520,9 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	Yosys::dict<VariableBit, RTLIL::SigSpec> special_net_drivers;
 	std::vector<const ast::NetSymbol *> special_net_symbols;
 
+	// Initial variable state
+	Yosys::dict<VariableBit, RTLIL::State> initial_state;
+
 	// Flag to disable elaboration; we set this when `scopes_remap` is
 	// incomplete due to prior errors
 	bool disabled = false;
@@ -569,7 +594,7 @@ typedef std::pair<VariableChunk, std::string> NamedChunk;
 std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type);
 
 // initialization.cc
-void evaluate_decl_initializers(NetlistContext &netlist, ast::EvalContext &eval_context);
-void finalize_variable_initialization(NetlistContext &netlist, ast::EvalContext &eval_context);
+void evaluate_decl_initializers(NetlistContext &netlist);
+void finalize_variable_initialization(NetlistContext &netlist);
 
 };

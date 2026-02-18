@@ -72,6 +72,12 @@ RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(
 	context.do_simple_assign(statement->sourceRange.start(), flag, RTLIL::S0, true);
 }
 
+ProcessTiming::ProcessTiming(Kind kind) : kind(kind)
+{}
+
+ProcessTiming ProcessTiming::implicit(ProcessTiming::Implicit);
+ProcessTiming ProcessTiming::initial(ProcessTiming::Initial);
+
 void ProceduralContext::signal_escape(slang::SourceLocation loc, EscapeConstructKind kind)
 {
 	auto it = escape_stack.rbegin();
@@ -146,10 +152,14 @@ VariableBits ProceduralContext::all_driven()
 
 RTLIL::SigBit ProceduralContext::case_enable()
 {
-	RTLIL::SigBit ret = netlist.canvas->addWire(netlist.new_id(), 1);
-	root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
-	current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
-	return ret;
+	if (timing.kind == ProcessTiming::Initial) {
+		return RTLIL::S1;
+	} else {
+		RTLIL::SigBit ret = netlist.canvas->addWire(netlist.new_id(), 1);
+		root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
+		current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
+		return ret;
+	}
 }
 
 void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
@@ -164,6 +174,22 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, VariableBits &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
 		if (mask[i] == RTLIL::S0)
+			target.erase(target.begin() + i);
+	}
+}
+
+void crop_undef_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
+{
+	for (int i = mask.size() - 1; i >= 0; i--) {
+		if (mask[i] == RTLIL::Sx)
+			target.remove(i, 1);
+	}
+}
+
+void crop_undef_mask(const RTLIL::SigSpec &mask, VariableBits &target)
+{
+	for (int i = mask.size() - 1; i >= 0; i--) {
+		if (mask[i] == RTLIL::Sx)
 			target.erase(target.begin() + i);
 	}
 }
@@ -190,7 +216,13 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 					seen_blocking_assignment[chunk.variable] = loc;
 				}
 			} else {
-				if (seen_blocking_assignment.count(chunk.variable)) {
+				if (timing.kind == ProcessTiming::Initial) {
+					auto &diag = netlist.add_diag(diag::NonblockingAssignInInitialUnsupported, loc);
+					diag.addNote(diag::NoteIgnoreInitial, slang::SourceLocation::NoLocation);
+					// We have issued the diagnostic, handle as blocking from
+					// this point onward.
+					blocking = true;
+				} else if (seen_blocking_assignment.count(chunk.variable)) {
 					auto &diag = netlist.add_diag(diag::NonblockingAssignmentAfterBlocking, loc);
 					diag << chunk.variable.get_symbol()->name;
 					diag.addNote(diag::NotePreviousAssignment,
@@ -208,6 +240,49 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 			// assert
 			log_assert(blocking);
 		}
+	}
+
+	if (timing.kind == ProcessTiming::Initial) {
+		crop_undef_mask(mask, lvalue);
+		crop_undef_mask(mask, unmasked_rvalue);
+		crop_undef_mask(mask, mask);
+
+		RTLIL::SigSpec &rvalue = unmasked_rvalue;
+
+		if (!rvalue.is_fully_const()) {
+			netlist.add_diag(diag::ErrorNonconstantInitialEval, loc);
+			return;
+		}
+
+		for (auto [base, size, chunk] : lvalue.chunk_spans()) {
+			switch (chunk.variable.kind) {
+			case Variable::Dummy:
+			case Variable::Invalid: continue;
+
+			case Variable::Local:
+			case Variable::EscapeFlag:
+				for (int i = 0; i < size; i++) {
+					initial_locals_state[chunk[i]] = rvalue[base + i].data;
+				}
+				break;
+			case Variable::Static: {
+				for (int i = 0; i < size; i++) {
+					netlist.initial_state[chunk[i]] = rvalue[base + i].data;
+				}
+				const ast::Symbol &symbol = *chunk.variable.get_symbol();
+				if (netlist.is_inferred_memory(symbol)) {
+					bool big_endian = !symbol.as<ast::ValueSymbol>()
+											   .getType()
+											   .getFixedRange()
+											   .isLittleEndian();
+					netlist.add_memory_init(netlist.id(symbol), chunk.base, big_endian,
+							rvalue.extract(base, size).as_const());
+				}
+			} break;
+			default: log_abort();
+			}
+		}
+		return;
 	}
 
 	current_case->actions.push_back(Case::Action{loc, lvalue, mask, unmasked_rvalue});
@@ -233,16 +308,41 @@ void ProceduralContext::do_simple_assign(
 RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 {
 	RTLIL::SigSpec subed;
-	for (auto chunk : bits.chunks()) {
-		// We disallow mixing of blocking and non-blocking assignments to the
-		// same variable from the same process. That simplifies the handling
-		// here.
-		if (chunk.variable.kind != Variable::Static ||
-				seen_blocking_assignment.count(chunk.variable))
-			subed.append(vstate.evaluate(netlist, chunk));
-		else
-			subed.append(netlist.convert_static(chunk));
+
+	if (timing.kind == ProcessTiming::Initial) {
+		// No non-blocking assignments allowed in initial procedures.
+		for (auto [base, size, chunk] : bits.chunk_spans()) {
+			switch (chunk.variable.kind) {
+			case Variable::Dummy:
+			case Variable::Invalid: log_abort();
+
+			case Variable::Local:
+			case Variable::EscapeFlag:
+				for (int i = 0; i < size; i++) {
+					subed.append(initial_locals_state.at(chunk[i], RTLIL::Sx));
+				}
+				break;
+			case Variable::Static:
+				for (int i = 0; i < size; i++) {
+					subed.append(netlist.initial_state.at(chunk[i], RTLIL::Sx));
+				}
+				break;
+			default: log_abort();
+			}
+		}
+	} else {
+		for (auto chunk : bits.chunks()) {
+			// We disallow mixing of blocking and non-blocking assignments to the
+			// same variable from the same process. That simplifies the handling
+			// here.
+			if (chunk.variable.kind != Variable::Static ||
+					seen_blocking_assignment.count(chunk.variable))
+				subed.append(vstate.evaluate(netlist, chunk));
+			else
+				subed.append(netlist.convert_static(chunk));
+		}
 	}
+
 	return subed;
 }
 
@@ -314,7 +414,7 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 		case ast::ExpressionKind::ElementSelect: {
 			auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
 
-			if (netlist.is_inferred_memory(sel.value())) {
+			if (netlist.is_inferred_memory(sel.value()) && timing.kind != ProcessTiming::Initial) {
 				finished_etching = true;
 				memory_write = true;
 				break;
@@ -374,16 +474,18 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 		RTLIL::IdString id = netlist.id(sel.value().as<ast::ValueExpressionBase>().symbol);
 		RTLIL::Cell *memwr = netlist.canvas->addCell(netlist.new_id(), ID($memwr_v2));
 		memwr->setParam(ID::MEMID, id.str());
-		if (timing.implicit()) {
+		if (timing.kind == ProcessTiming::Implicit) {
 			memwr->setParam(ID::CLK_ENABLE, false);
 			memwr->setParam(ID::CLK_POLARITY, false);
 			memwr->setPort(ID::CLK, RTLIL::Sx);
-		} else {
+		} else if (timing.kind == ProcessTiming::EdgeTriggered) {
 			require(assign, timing.triggers.size() == 1);
 			auto &trigger = timing.triggers[0];
 			memwr->setParam(ID::CLK_ENABLE, true);
 			memwr->setParam(ID::CLK_POLARITY, trigger.edge_polarity);
 			memwr->setPort(ID::CLK, trigger.signal);
+		} else {
+			ast_unreachable(assign);
 		}
 		int portid = netlist.emitted_mems[id].num_wr_ports++;
 		memwr->setParam(ID::PORTID, portid);

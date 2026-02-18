@@ -117,6 +117,9 @@ DiagCode SystemFunctionRequireClockedBlock(DiagSubsystem::Netlist, 1064);
 DiagCode UnsupportedBitConversion(DiagSubsystem::Netlist, 1065);
 DiagCode MultiPortConversion(DiagSubsystem::Netlist, 1066);
 DiagCode InputPortCannotBeSpecialNet(DiagSubsystem::Netlist, 1067);
+DiagCode ReadingNetStateFromInitialBlockUnsupported(DiagSubsystem::Netlist, 1068);
+DiagCode NonblockingAssignInInitialUnsupported(DiagSubsystem::Netlist, 1070);
+DiagCode ErrorNonconstantInitialEval(DiagSubsystem::Netlist, 1071);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -292,6 +295,15 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(InputPortCannotBeSpecialNet, "'input' or 'inout' port of special type '{}' is not supported on preserved module boundary");
 	engine.setSeverity(InputPortCannotBeSpecialNet, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadingNetStateFromInitialBlockUnsupported, "reading net state during design initialization unsupported");
+	engine.setSeverity(ReadingNetStateFromInitialBlockUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(NonblockingAssignInInitialUnsupported, "non-blocking assignments unsupported in design initialization");
+	engine.setSeverity(NonblockingAssignInInitialUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(ErrorNonconstantInitialEval, "internal error: evaluation does not resolve to a constant in design initialization");
+	engine.setSeverity(ErrorNonconstantInitialEval, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag

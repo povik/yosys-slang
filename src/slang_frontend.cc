@@ -31,7 +31,6 @@
 
 #include "statements.h"
 #include "version.h"
-#include "initial_eval.h"
 #include "slang_frontend.h"
 #include "diag.h"
 #include "async_pattern.h"
@@ -128,15 +127,6 @@ std::string format_src(const T &obj)
 
 #include "addressing.h"
 
-namespace slang_frontend {
-
-// step outside slang_frontend namespace for a minute, to patch in
-// unimplemented() into the SlangInitial evaluator
-};
-slang::ast::Statement::EvalResult SlangInitial::EvalVisitor::visit(const slang::ast::Statement &stmt)
-{
-	unimplemented(stmt);
-}
 namespace slang_frontend {
 
 const RTLIL::IdString id(const std::string_view &view)
@@ -362,11 +352,6 @@ static Yosys::pool<VariableBit> detect_possibly_unassigned_subset(Yosys::pool<Va
 	return remaining;
 }
 
-bool ProcessTiming::implicit() const
-{
-	return triggers.empty();
-}
-
 // extract trigger for side-effect cells like $print, $check
 void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
 {
@@ -374,12 +359,15 @@ void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, 
 
 	cell->setPort(ID::EN, netlist.LogicAnd(background_enable, enable));
 
-	if (implicit()) {
+	switch (kind) {
+	case Implicit: {
 		params[ID::TRG_ENABLE] = false;
 		params[ID::TRG_WIDTH] = 0;
 		params[ID::TRG_POLARITY] = {};
 		cell->setPort(ID::TRG, {});
-	} else {
+		break;
+	}
+	case EdgeTriggered: {
 		params[ID::TRG_ENABLE] = true;
 		params[ID::TRG_WIDTH] = triggers.size();
 		std::vector<RTLIL::State> pol_bits;
@@ -390,6 +378,17 @@ void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, 
 		}
 		params[ID::TRG_POLARITY] = RTLIL::Const(pol_bits);
 		cell->setPort(ID::TRG, trg_signals);
+		break;
+	}
+	case Initial: {
+		params[ID::TRG_ENABLE] = true;
+		params[ID::TRG_WIDTH] = 0;
+		params[ID::TRG_POLARITY] = {};
+		cell->setPort(ID::TRG, {});
+		break;
+	}
+	default:
+		log_abort();
 	}
 }
 
@@ -596,10 +595,16 @@ VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 		{
 			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
 			if (netlist.is_inferred_memory(symbol)) {
-				if (!silent) {
-					netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
+				// Unless we are evaluating initial procedures, directly evaluating
+				// the memory as an assignment target is disallowed. Memory writes should
+				// be handled in `ProceduralContext::assign_rvalue_inner` before they
+				// would get here.
+				if (!(procedural && procedural->timing.kind == ProcessTiming::Initial)) {
+					if (!silent) {
+						netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
+					}
+					goto error;
 				}
-				goto error;
 			}
 
 			if (symbol.kind == ast::SymbolKind::ModportPort \
@@ -831,7 +836,7 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 		netlist.add_diag(diag::PastGatingClockingUnsupported, call.sourceRange);
 		return RTLIL::SigSpec(RTLIL::Sx, (int) call.type->getBitstreamWidth());
 	}
-	if (procedural == nullptr || procedural->timing.implicit() || procedural->timing.triggers.size() != 1) {
+	if (procedural == nullptr || procedural->timing.kind == ProcessTiming::Implicit || procedural->timing.triggers.size() != 1) {
 		netlist.add_diag(diag::SystemFunctionRequireClockedBlock, call.sourceRange) << call.getSubroutineName();
 		return RTLIL::SigSpec(RTLIL::Sx, (int) call.type->getBitstreamWidth());
 	}
@@ -1025,10 +1030,16 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			ast_invariant(symbol, ast::ValueSymbol::isKind(symbol.kind));
 			Variable variable1 = variable(symbol.as<ast::ValueSymbol>());
 			log_assert((bool) variable1);
-			if (procedural)
+			if (procedural) {
+				if (procedural->timing.kind == ProcessTiming::Initial && ast::NetSymbol::isKind(symbol.kind)) {
+					netlist.add_diag(diag::ReadingNetStateFromInitialBlockUnsupported, expr.sourceRange);
+					ret = RTLIL::SigSpec(RTLIL::Sx, ret.size());
+					break;
+				}
 				ret = procedural->substitute_rvalue(variable1);
-			else
+			} else {
 				ret = netlist.convert_static(variable1);
+			}
 		}
 		break;
 	case ast::ExpressionKind::UnaryOp:
@@ -1316,8 +1327,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					ret = StatementExecutor(*procedural).handle_call(call);
 				} else {
 					require(subr, subr.subroutineKind == ast::SubroutineKind::Function);
-					ProcessTiming implicit;
-					ProceduralContext context(netlist, implicit);
+					ProceduralContext context(netlist, ProcessTiming::implicit);
 					StatementExecutor visitor(context);
 					visitor.eval.ignore_ast_constants = ignore_ast_constants;
 					ret = visitor.handle_call(call);
@@ -1402,75 +1412,17 @@ public:
 	InferredMemoryDetector mem_detect;
 	std::vector<NetlistContext> deferred_modules;
 
-	struct InitialEvalVisitor : SlangInitial::EvalVisitor {
-		NetlistContext &netlist;
-		RTLIL::Module *mod;
-		int print_priority;
-
-		InitialEvalVisitor(NetlistContext &netlist, ast::Compilation *compilation,
-						   RTLIL::Module *mod, bool ignore_timing=false)
-			: SlangInitial::EvalVisitor(compilation, ignore_timing), netlist(netlist), mod(mod), print_priority(0) {}
-
-		void handleDisplay(const slang::ast::CallExpression &call, const std::vector<slang::ConstantValue> &args) {
-			auto cell = mod->addCell(netlist.new_id(), ID($print));
-			cell->parameters[ID::TRG_ENABLE] = true;
-			cell->parameters[ID::TRG_WIDTH] = 0;
-			cell->parameters[ID::TRG_POLARITY] = {};
-			cell->parameters[ID::PRIORITY] = print_priority--;
-			cell->setPort(ID::EN, RTLIL::S1);
-			cell->setPort(ID::TRG, {});
-			std::vector<Yosys::VerilogFmtArg> fmt_args;
-			for (int i = 0; i < (int) call.arguments().size(); i++) {
-				const ast::Expression *arg_expr = call.arguments()[i];
-				const auto &arg = args[i];
-				Yosys::VerilogFmtArg fmt_arg = {};
-				// TODO: location info in fmt_arg
-				if (arg_expr->kind == ast::ExpressionKind::StringLiteral) {
-					fmt_arg.type = Yosys::VerilogFmtArg::STRING;
-					fmt_arg.str = std::string{arg_expr->as<ast::StringLiteral>().getValue()};
-					fmt_arg.sig = RTLIL::Const(fmt_arg.str);
-				} else if (arg.isString()) {
-					fmt_arg.type = Yosys::VerilogFmtArg::STRING;
-					fmt_arg.str = arg.str();
-					fmt_arg.sig = RTLIL::Const(fmt_arg.str);
-				} else if (arg.isInteger()) {
-					fmt_arg.type = Yosys::VerilogFmtArg::INTEGER;
-					fmt_arg.sig = convert_svint(arg.integer());
-					fmt_arg.signed_ = arg.integer().isSigned();
-				} else {
-					auto &diag = netlist.add_diag(diag::ArgumentTypeUnsupported, call.sourceRange);
-					diag << arg_expr->type->toString();
-					mod->remove(cell);
-					return;
-				}
-				fmt_args.push_back(fmt_arg);
-			}
-			Yosys::Fmt fmt = {};
-			// TODO: default_base is subroutine dependent, final newline is $display-only
-			// TODO: calls aborts
-			fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
-							  std::string{call.getSubroutineName()}, mod->name);
-			fmt.append_literal("\n");
-			fmt.emit_rtlil(cell);
-			transfer_attrs(netlist, call, cell);
-		}
-	} initial_eval;
-
 	PopulateNetlist(HierarchyQueue &queue, NetlistContext &netlist)
 		: TimingPatternInterpretor(netlist.settings, (DiagnosticIssuer&) netlist, netlist.eval),
 		  queue(queue), netlist(netlist), settings(netlist.settings),
-		  mem_detect(settings, std::bind(&NetlistContext::should_dissolve, &netlist, std::placeholders::_1, nullptr), netlist.eval),
-		  initial_eval(netlist, &netlist.compilation, netlist.canvas,
-					   netlist.settings.ignore_timing.value_or(false)) {}
+		  mem_detect(settings, std::bind(&NetlistContext::should_dissolve, &netlist, std::placeholders::_1, nullptr), netlist.eval) {}
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(netlist, body, proc);
 
-		ProcessTiming implicit_timing;
-
-		ProceduralContext procedure(netlist, implicit_timing);
+		ProceduralContext procedure(netlist, ProcessTiming::implicit);
 		body.visit(StatementExecutor(procedure));
 
 		VariableBits all_driven = procedure.all_driven();
@@ -1549,7 +1501,7 @@ public:
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(netlist, timed.stmt, proc);
 
-		ProcessTiming prologue_timing;
+		ProcessTiming prologue_timing(ProcessTiming::EdgeTriggered);
 		{
 			prologue_timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
 			for (auto &abranch : async)	{
@@ -1580,7 +1532,7 @@ public:
 			RTLIL::SigSpec sig = netlist.convert_static(async_branch.trigger);
 			log_assert(sig.size() == 1);
 
-			ProcessTiming branch_timing;
+			ProcessTiming branch_timing(ProcessTiming::Implicit);
 			RTLIL::SigSpec sig_depol = async_branch.polarity ? sig : netlist.LogicNot(sig);
 			branch_timing.background_enable = netlist.LogicAnd(netlist.LogicNot(prior_branch_taken), sig_depol);
 			prior_branch_taken.append(sig_depol);
@@ -1603,7 +1555,7 @@ public:
 		}
 
 		{
-			ProcessTiming timing;
+			ProcessTiming timing(ProcessTiming::EdgeTriggered);
 			timing.background_enable = netlist.LogicNot(prior_branch_taken);
 			timing.triggers.push_back({netlist.eval(clock.expr), clock.edge == ast::EdgeKind::PosEdge, &clock});
 
@@ -1723,10 +1675,8 @@ public:
 		if (settings.ignore_initial.value_or(false))
 			return;
 
-		auto result = body.visit(initial_eval);
-		if (result != ast::Statement::EvalResult::Success)
-			initial_eval.context.addDiag(diag::NoteIgnoreInitial,
-										 slang::SourceLocation::NoLocation);
+		ProceduralContext procedure(netlist, ProcessTiming::initial);
+		body.visit(StatementExecutor(procedure));
 	}
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
@@ -2299,14 +2249,13 @@ public:
 			// add all internal wires before we enter the body
 			add_internal_wires(body);
 			// Evaluate inline initializers on variables
-			evaluate_decl_initializers(netlist, initial_eval.context);
+			evaluate_decl_initializers(netlist);
 			// Visit the body for the bulk of processing
 			visitDefault(body);
 			// Now transfer initializers (possibly updated from initial statements)
 			// onto RTLIL wires
-			finalize_variable_initialization(netlist, initial_eval.context);
+			finalize_variable_initialization(netlist);
 			finalize_special_nets(netlist);
-			netlist.add_diagnostics(initial_eval.context.getAllDiagnostics());
 		} else {
 			visitDefault(body);
 		}

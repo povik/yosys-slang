@@ -72,7 +72,7 @@ template <typename Func> void visit_netlist_variables(NetlistContext &netlist, F
 	}
 }
 
-void evaluate_decl_initializers(NetlistContext &netlist, ast::EvalContext &eval_context)
+void evaluate_decl_initializers(NetlistContext &netlist)
 {
 	visit_netlist_variables(netlist, [&](const ast::ValueSymbol &symbol) {
 		const ast::VariableSymbol *variable = nullptr;
@@ -87,34 +87,40 @@ void evaluate_decl_initializers(NetlistContext &netlist, ast::EvalContext &eval_
 			ast_unreachable(symbol);
 		}
 
-		slang::ConstantValue initval = nullptr;
-		if (variable->getInitializer()) {
-			initval = variable->getInitializer()->eval(eval_context);
+		// Use ProceduralContext to get $meminit emission if the target is a memory
+		ProceduralContext context(netlist, ProcessTiming::initial);
+		RTLIL::SigSpec value;
+
+		const ast::Expression *initializer = nullptr;
+
+		if (symbol.getInitializer()) {
+			initializer = symbol.getInitializer();
 		} else {
 			for (const ast::ValueSymbol::PortBackref *backref = symbol.getFirstPortBackref();
 					backref; backref = backref->getNextBackreference()) {
 				if (backref->port->internalSymbol == &symbol &&
 						backref->port->direction == ast::ArgumentDirection::Out &&
 						backref->port->getInitializer()) {
-					initval = backref->port->getInitializer()->eval(eval_context);
+					initializer = backref->port->getInitializer();
+					break;
 				}
 			}
 		}
-		eval_context.createLocal(&symbol, initval);
+
+		if (initializer) {
+			context.do_simple_assign(symbol.location, context.eval.variable(symbol),
+					context.eval(*initializer), true);
+		} else if (!symbol.getType().isFourState()) {
+			if (auto converted = netlist.convert_const(
+						symbol.getType().getDefaultValue(), variable->location)) {
+				context.do_simple_assign(
+						symbol.location, context.eval.variable(symbol), *converted, true);
+			}
+		}
 	});
 }
 
-static const RTLIL::Const reverse_data(RTLIL::Const &orig, int width)
-{
-	std::vector<RTLIL::State> bits;
-	log_assert(orig.size() % width == 0);
-	bits.reserve(orig.size());
-	for (int i = orig.size() - width; i >= 0; i -= width)
-		bits.insert(bits.end(), orig.begin() + i, orig.begin() + i + width);
-	return bits;
-}
-
-void finalize_variable_initialization(NetlistContext &netlist, ast::EvalContext &eval_context)
+void finalize_variable_initialization(NetlistContext &netlist)
 {
 	visit_netlist_variables(netlist, [&](const ast::ValueSymbol &symbol) {
 		const ast::VariableSymbol *variable_symbol = nullptr;
@@ -130,65 +136,39 @@ void finalize_variable_initialization(NetlistContext &netlist, ast::EvalContext 
 		}
 
 		auto variable = Variable::from_symbol(&symbol);
-		auto storage = eval_context.findLocal(&symbol);
-		log_assert(storage);
-
-		auto converted = netlist.convert_const(*storage, symbol.location);
-		if (converted) {
-			if (netlist.is_inferred_memory(*variable_symbol)) {
-				if (!converted->is_fully_undef()) {
-					RTLIL::IdString id = netlist.id(*variable_symbol);
-					RTLIL::Memory *m = netlist.canvas->memories.at(id);
-					RTLIL::Cell *meminit =
-							netlist.canvas->addCell(netlist.new_id(), ID($meminit_v2));
-					int abits = 32;
-					ast_invariant(*variable_symbol, m->width * m->size == converted->size());
-					meminit->setParam(ID::MEMID, id.str());
-					meminit->setParam(ID::PRIORITY, 0);
-					meminit->setParam(ID::ABITS, abits);
-					meminit->setParam(ID::WORDS, m->size);
-					meminit->setParam(ID::WIDTH, m->width);
-					meminit->setPort(ID::ADDR, m->start_offset);
-					bool little_endian =
-							variable_symbol->getType().getFixedRange().isLittleEndian();
-					meminit->setPort(ID::DATA,
-							little_endian ? *converted : reverse_data(*converted, m->width));
-					meminit->setPort(ID::EN, RTLIL::Const(RTLIL::S1, m->width));
-				}
-			} else {
-				auto signal = netlist.convert_static(variable);
-				// lhs/rhs of connections to be created
-
-				RTLIL::SigSpec cl, cr;
-				for (int i = 0; i < converted->size(); i++) {
-					VariableBit vbit(variable, i);
-					bool register_driven = netlist.register_driven_variables.count(vbit);
-					bool driven = netlist.driven_variables.count(vbit);
-					// register_driven implies driven
-					log_assert(!register_driven || driven);
-					if (!register_driven) {
-						if (!driven) {
-							cl.append(signal[i]);
-							cr.append((*converted)[i]);
-						}
-						// If not register driven, the init attribute
-						// must be Sx
+		if (netlist.is_inferred_memory(*variable_symbol)) {
+			// Nothing to do
+		} else {
+			auto signal = netlist.convert_static(variable);
+			RTLIL::SigSpec cl, cr; // lhs/rhs of a new connection
+			RTLIL::Const attr_value(RTLIL::Sx, signal.size());
+			for (int i = 0; i < signal.size(); i++) {
+				VariableBit vbit(variable, i);
+				bool register_driven = netlist.register_driven_variables.count(vbit);
+				bool driven = netlist.driven_variables.count(vbit);
+				// register_driven implies driven
+				log_assert(!register_driven || driven);
+				RTLIL::State state = netlist.initial_state.at(vbit, RTLIL::Sx);
+				if (register_driven) {
 #if YOSYS_MAJOR == 0 && YOSYS_MINOR < 58
-						converted->bits()[i] = RTLIL::Sx;
+					attr_value.bits()[i] = state;
 #else
-						converted->set(i, RTLIL::Sx);
+					attr_value.set(i, state);
 #endif
+				} else {
+					if (!driven) {
+						cl.append(signal[i]);
+						cr.append(state);
 					}
 				}
-
-				if (!converted->is_fully_undef()) {
-					log_assert(signal.is_wire());
-					RTLIL::Wire *wire = signal.chunks().begin()->wire;
-					wire->attributes[ID::init] = *converted;
-				}
-
-				netlist.connect(cl, cr);
 			}
+
+			if (!attr_value.is_fully_undef()) {
+				log_assert(signal.is_wire());
+				RTLIL::Wire *wire = signal.chunks().begin()->wire;
+				wire->attributes[ID::init] = attr_value;
+			}
+			netlist.connect(cl, cr);
 		}
 	});
 }

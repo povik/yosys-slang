@@ -96,7 +96,7 @@ The following organizations have supported the project and contributed to yosys-
 
 ## License
 
-The bulk of yosys-slang source code is is distributed under the ISC license, see `LICENSE`. An exception is `src/initial_eval.cc` which contains modified portions of Slang and is distributed under the terms of the MIT license, see the file header.
+yosys-slang is distributed under the ISC license, see `LICENSE`.
 
 In addition, yosys-slang embeds
 

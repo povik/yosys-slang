@@ -548,4 +548,93 @@ SigSpec RTLILBuilder::CountOnes(SigSpec sig, int result_width)
 	return ret;
 }
 
+static const RTLIL::Const reverse_data(RTLIL::Const &orig, int width)
+{
+	std::vector<RTLIL::State> bits;
+	log_assert(orig.size() % width == 0);
+	bits.reserve(orig.size());
+	for (int i = orig.size() - width; i >= 0; i -= width)
+		bits.insert(bits.end(), orig.begin() + i, orig.begin() + i + width);
+	return bits;
+}
+
+// Private helper
+void RTLILBuilder::emit_meminit_cell(RTLIL::Memory *mem, uint64_t word_offset, bool big_endian,
+		RTLIL::Const data, RTLIL::Const mask)
+{
+	if (data.empty())
+		return;
+
+	int abits = 32; // TODO: error out if abits too low
+	int nwords = data.size() / mem->width;
+	log_assert(data.size() % mem->width == 0);
+	log_assert(mask.size() == mem->width);
+	RTLIL::Cell *cell = canvas->addCell(new_id(), ID($meminit_v2));
+	cell->setParam(ID::MEMID, mem->name.str());
+	cell->setParam(ID::PRIORITY, meminit_prio_counter++);
+	cell->setParam(ID::ABITS, abits);
+	cell->setParam(ID::WORDS, nwords);
+	cell->setParam(ID::WIDTH, mem->width);
+	cell->setPort(ID::ADDR,
+			mem->start_offset + (big_endian ? (mem->size - word_offset - nwords) : word_offset));
+	cell->setPort(ID::DATA, big_endian ? reverse_data(data, mem->width) : data);
+	cell->setPort(ID::EN, mask);
+	bless_cell(cell);
+}
+
+void RTLILBuilder::add_memory_init(
+		RTLIL::IdString name, uint64_t bit_offset, bool big_endian, RTLIL::Const data)
+{
+	if (data.empty())
+		return;
+
+	RTLIL::Memory *mem = canvas->memories.at(name);
+	log_assert(mem);
+
+	uint64_t processed = 0;
+
+	using RTLIL::Const;
+	using RTLIL::S0;
+	using RTLIL::S1;
+	using RTLIL::Sx;
+
+	// Depending on the offset alignment with respect to word boundaries
+	// we might need to emit up to 3 instances of the `$meminit_v2` cell.
+	if (bit_offset % mem->width != 0) {
+		int offset_in_cell = bit_offset % mem->width;
+		uint64_t length = std::min(mem->width - offset_in_cell, data.size());
+		Const data1, mask1;
+		data1.append(Const(Sx, offset_in_cell));
+		data1.append(data.extract(0, length));
+		data1.append(Const(Sx, mem->width - offset_in_cell - length));
+		mask1.append(Const(S0, offset_in_cell));
+		mask1.append(Const(S1, length));
+		mask1.append(Const(S0, mem->width - offset_in_cell - length));
+		emit_meminit_cell(mem, bit_offset / mem->width, big_endian, data1, mask1);
+		processed += length;
+	}
+
+	if (processed < data.size()) {
+		log_assert((bit_offset + processed) % mem->width == 0);
+		uint64_t length = ((((uint64_t)data.size()) - processed) / mem->width) * mem->width;
+		emit_meminit_cell(mem, (bit_offset + processed) / mem->width, big_endian,
+				data.extract(processed, length), RTLIL::Const(S1, mem->width));
+		processed += length;
+	}
+
+	if (processed < data.size()) {
+		uint64_t length = data.size() - processed;
+		log_assert(length < mem->width);
+		Const data1, mask1;
+		data1.append(data.extract(0, length));
+		data1.append(Const(Sx, mem->width - length));
+		mask1.append(Const(S1, length));
+		mask1.append(Const(S0, mem->width - length));
+		emit_meminit_cell(mem, bit_offset / mem->width, big_endian, data1, mask1);
+		processed += length;
+	}
+
+	log_assert(processed == data.size());
+}
+
 }; // namespace slang_frontend
