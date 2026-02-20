@@ -414,6 +414,10 @@ public:
 	std::vector<Diagnostic> issued_diagnostics;
 };
 
+#define UDP_HANDL(x) x(error) x(blackboxes)
+SLANG_ENUM(UdpHandleMode, UDP_HANDL)
+#undef UDP_HANDL
+
 struct SynthesisSettings {
 	std::optional<bool> dump_ast;
 	std::optional<bool> no_proc;
@@ -431,6 +435,7 @@ struct SynthesisSettings {
 	std::optional<bool> no_default_translate_off;
 	std::optional<bool> allow_dual_edge_ff;
 	std::optional<bool> no_synthesis_define;
+	std::optional<UdpHandleMode> udp_handling;
 	// pass std::less<> to enable transparent lookup
 	std::set<std::string, std::less<>> blackboxed_modules;
 	bool disable_instance_caching = false;

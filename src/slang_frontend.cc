@@ -84,6 +84,10 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				},
 				"Mark the named module for blackboxing. Whenever an instance of the given module is found in the design"
 				"hierarchy, its content will not be elaborated and instead the instance will be imported as a black box.");
+	cmdLine.addEnum<UdpHandleMode, UdpHandleMode_traits>(
+			"--udp-handling", udp_handling, "Set the processing mode for user defined primitives."
+			" When set to 'blackboxes' the UDP is treated as a blackboxed instance."
+			" When set to 'error', an error is emitted if a UDP is encountered. By default, the frontend emits an error.");
 }
 
 namespace ast = slang::ast;
@@ -2391,24 +2395,27 @@ public:
 			}
 		case ast::PrimitiveSymbol::PrimitiveKind::UserDefined:
 			{
-				netlist.add_diag(diag::UdpUnsupported, sym.location);
-				RTLIL::Cell *cell = netlist.canvas->addCell(id, RTLIL::escape_id(std::string(sym.primitiveType.name)));
-				cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
-				transfer_attrs(netlist, sym, cell);
-				const auto& ports = sym.primitiveType.ports;
+				if (settings.udp_handling.has_value() && *settings.udp_handling == UdpHandleMode::blackboxes) {
+					RTLIL::Cell *cell = netlist.canvas->addCell(id, RTLIL::escape_id(std::string(sym.primitiveType.name)));
+					cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
+					transfer_attrs(netlist, sym, cell);
+					const auto& ports = sym.primitiveType.ports;
 
-				for (int i = 0; i < sym.getPortConnections().size(); ++i) {
-					const auto *conn= sym.getPortConnections()[i];
-					if (!conn)
-						continue;
+					for (int i = 0; i < sym.getPortConnections().size(); ++i) {
+						const auto *conn= sym.getPortConnections()[i];
+						if (!conn)
+							continue;
 
-					const auto& port = ports[i];
-					if (port->direction != ast::PrimitivePortDirection::In) {
-						auto &assign = conn->as<ast::AssignmentExpression>();
-						cell->setPort(RTLIL::escape_id(std::string(port->name)), netlist.eval.connection_lhs(assign));
-					} else {
-						cell->setPort(RTLIL::escape_id(std::string(port->name)), netlist.eval(*conn));
+						const auto& port = ports[i];
+						if (port->direction != ast::PrimitivePortDirection::In) {
+							auto &assign = conn->as<ast::AssignmentExpression>();
+							cell->setPort(RTLIL::escape_id(std::string(port->name)), netlist.eval.connection_lhs(assign));
+						} else {
+							cell->setPort(RTLIL::escape_id(std::string(port->name)), netlist.eval(*conn));
+						}
 					}
+				} else {
+					netlist.add_diag(diag::UdpUnsupported, sym.location);
 				}
 				return;
 			}

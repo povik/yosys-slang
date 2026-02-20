@@ -25,8 +25,7 @@ endmodule
 EOF
 
 design -reset
-test_slangdiag -expect "user-defined primitives unsupported"
-read_slang <<EOF
+read_slang --udp-handling=blackboxes <<EOF
 primitive xor_gate (output out, input a, b);
    table
    // a   b   : out

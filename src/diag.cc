@@ -240,8 +240,8 @@ void setup_messages(slang::DiagnosticEngine &engine)
 	engine.setMessage(ForbiddenDemotion, "disabling error '{}' is unsupported with yosys-slang");
 	engine.setSeverity(ForbiddenDemotion, DiagnosticSeverity::Error);
 
-	engine.setMessage(UdpUnsupported, "user-defined primitives unsupported");
-	engine.setSeverity(UdpUnsupported, DiagnosticSeverity::Warning);
+	engine.setMessage(UdpUnsupported, "user-defined primitives unsupported, set '--udp-handling=blackboxes' option to treat it as blackboxes");
+	engine.setSeverity(UdpUnsupported, DiagnosticSeverity::Error);
 
 	engine.setMessage(PrimTypeUnsupported, "primitives of type '{}' unsupported");
 	engine.setSeverity(PrimTypeUnsupported, DiagnosticSeverity::Error);
