@@ -241,7 +241,7 @@ void setup_messages(slang::DiagnosticEngine &engine)
 	engine.setSeverity(ForbiddenDemotion, DiagnosticSeverity::Error);
 
 	engine.setMessage(UdpUnsupported, "user-defined primitives unsupported");
-	engine.setSeverity(UdpUnsupported, DiagnosticSeverity::Error);
+	engine.setSeverity(UdpUnsupported, DiagnosticSeverity::Warning);
 
 	engine.setMessage(PrimTypeUnsupported, "primitives of type '{}' unsupported");
 	engine.setSeverity(PrimTypeUnsupported, DiagnosticSeverity::Error);
