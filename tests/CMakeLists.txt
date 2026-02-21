@@ -33,6 +33,7 @@ set(ALL_TESTS
     various/bb_detect.ys
     various/blackbox_scenarios.ys
     various/bus_range.ys
+    various/concurrent_assert.ys
     various/defaults.ys
     various/delays.ys
     various/dualedge.ys
