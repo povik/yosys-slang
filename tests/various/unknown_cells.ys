@@ -23,3 +23,22 @@ module test_top ();
     assign bar.a = !(bar.b);
 endmodule
 EOF
+
+design -reset
+read_slang --udp-handling=blackboxes <<EOF
+primitive xor_gate (output out, input a, b);
+   table
+   // a   b   : out
+      0   0   : 0;
+      0   1   : 1;
+      1   0   : 1;
+      1   1   : 0;
+   endtable
+endprimitive
+
+module xor_gate_inst();
+    reg in_a, in_b;
+    wire out_q;
+    xor_gate uut (out_q, in_a, in_b);
+endmodule
+EOF
