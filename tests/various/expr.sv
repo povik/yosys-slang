@@ -284,4 +284,24 @@ function int f6();
 endfunction
 initial $t(f6());
 
+// order of operations
+function automatic int f7();
+	f7 = 6;
+	f7[f7++] = 1;
+endfunction
+initial $t(f7());
+function automatic int f8();
+	automatic int j = 5;
+	f8 = 6;
+	{f8[j++], f8[j++], f8[j++]} = 3;
+endfunction
+initial $t(f8());
+function automatic int f9();
+	automatic int j = 2;
+	{j[j++], j[j++], j[j++]} = 3'b111;
+	f9 = j;
+endfunction
+// disabled -- pending issue 293
+//initial $t(f9());
+
 endmodule
