@@ -194,8 +194,15 @@ private:
 	bool error_issued = false;
 };
 
+
+// Implicit by default.
+// Clocked when triggers are set
+// Initial when manually set to initial. 
+enum class ProcessTimingMode { Implicit, Clocked, Initial };
+
 struct ProcessTiming {
 	RTLIL::SigBit background_enable = RTLIL::S1;
+	ProcessTimingMode mode = ProcessTimingMode::Implicit;
 
 	struct Sensitivity {
 		RTLIL::SigBit signal;
@@ -204,7 +211,18 @@ struct ProcessTiming {
 	};
 	std::vector<Sensitivity> triggers;
 
-	bool implicit() const;
+	ProcessTimingMode get_mode() const {
+		if (!triggers.empty())
+			return ProcessTimingMode::Clocked;
+		else {
+			return mode;
+		}
+	}
+
+	bool implicit() const {
+		return get_mode() == ProcessTimingMode::Implicit;
+	}
+
 	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable);
 };
 
