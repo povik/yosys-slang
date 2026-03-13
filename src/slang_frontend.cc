@@ -862,7 +862,7 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 
 	for (int i = 0; i < num_cycles; i++) {
 		past_wire = netlist.add_placeholder_signal(width, "$past");
-		netlist.canvas->addDff(netlist.new_id("$past"),
+		netlist.add_dff(netlist.new_id("past"),
 			trigger.signal,
 			prev_val,
 			past_wire,
