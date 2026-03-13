@@ -496,8 +496,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	std::string id(const ast::ValueSymbol &sym);
 	std::string hdlname(const ast::Symbol &sym);
 
-	RTLIL::Wire *add_wire(const ast::ValueSymbol &sym);
-	RTLIL::Wire *wire(const ast::Symbol &sym);
+	RTLIL::SigSpec add_wire(const ast::ValueSymbol &sym);
+	RTLIL::SigSpec wire(const ast::Symbol &sym);
 	RTLIL::SigSpec convert_static(VariableBits bits);
 
 	struct Memory {
@@ -508,8 +508,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// Used to implement modports on `realm`
 	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
 
-	// Cache per-symbol Wire* pointers
-	Yosys::dict<const ast::Symbol*, RTLIL::Wire *> wire_cache;
+	// Cache per-symbol SigSpec
+	Yosys::dict<const ast::Symbol*, RTLIL::SigSpec> wire_cache;
 
 	Yosys::pool<VariableBit> driven_variables;
 

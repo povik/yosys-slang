@@ -485,8 +485,7 @@ RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableBits vbi
 			ret.append(visible_assignments.at(vbit));
 		} else {
 			log_assert(vbit.variable.kind == Variable::Static);
-			RTLIL::SigBit bit{netlist.wire(*vbit.variable.get_symbol()), vbit.offset};
-			ret.append(bit);
+			ret.append(netlist.wire(*vbit.variable.get_symbol())[vbit.offset]);
 		}
 	}
 	return ret;
@@ -500,8 +499,7 @@ RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableChunk vc
 			ret.append(visible_assignments.at(vchunk[i]));
 		} else {
 			log_assert(vchunk.variable.kind == Variable::Static);
-			RTLIL::SigBit bit{netlist.wire(*vchunk.variable.get_symbol()), vchunk.base + i};
-			ret.append(bit);
+			ret.append(netlist.wire(*vchunk.variable.get_symbol())[vchunk.base + i]);
 		}
 	}
 	return ret;
@@ -1701,8 +1699,8 @@ public:
 			return;
 		}
 
-		RTLIL::Wire *wire = netlist.wire(*symbol.internalSymbol);
-		log_assert(wire);
+		RTLIL::Wire *w = netlist.wire(*symbol.internalSymbol).as_wire();
+		log_assert(w);
 		switch (symbol.direction) {
 		case ast::ArgumentDirection::In:
 			if (is_special_net(*symbol.internalSymbol)) {
@@ -1712,7 +1710,7 @@ public:
 				return;
 			}
 			netlist.register_driven(*symbol.internalSymbol);
-			wire->port_input = true;
+			w->port_input = true;
 			break;
 		case ast::ArgumentDirection::InOut:
 			if (is_special_net(*symbol.internalSymbol)) {
@@ -1722,11 +1720,11 @@ public:
 				return;
 			}
 			netlist.register_driven(*symbol.internalSymbol);
-			wire->port_input = true;
-			wire->port_output = true;
+			w->port_input = true;
+			w->port_output = true;
 			break;
 		case ast::ArgumentDirection::Out:
-			wire->port_output = true;
+			w->port_output = true;
 			break;
 		case ast::ArgumentDirection::Ref:
 			netlist.add_diag(diag::RefUnsupported, symbol.location);
@@ -2067,22 +2065,23 @@ public:
 							}
 						},
 						[&](auto&, const ast::ModportPortSymbol &port) {
-							RTLIL::Wire *wire;
+							RTLIL::SigSpec port_sig;
 							if (inserted) {
-								wire = submodule.add_wire(port);
-								log_assert(wire);
+								port_sig = submodule.add_wire(port);
+								RTLIL::Wire *w = port_sig.as_wire();
+								log_assert(w);
 								switch (port.direction) {
 								case ast::ArgumentDirection::In:
 									submodule.register_driven(Variable::from_symbol(&port));
-									wire->port_input = true;
+									w->port_input = true;
 									break;
 								case ast::ArgumentDirection::Out:
-									wire->port_output = true;
+									w->port_output = true;
 									break;
 								case ast::ArgumentDirection::InOut:
 									submodule.register_driven(Variable::from_symbol(&port));
-									wire->port_input = true;
-									wire->port_output = true;
+									w->port_input = true;
+									w->port_output = true;
 									break;
 								case ast::ArgumentDirection::Ref:
 									netlist.add_diag(diag::RefUnsupported, port.location);
@@ -2091,7 +2090,7 @@ public:
 									log_abort();
 								}
 							} else {
-								wire = submodule.wire(port);
+								port_sig = submodule.wire(port);
 							}
 
 							ast_invariant(port, port.internalSymbol);
@@ -2099,10 +2098,11 @@ public:
 							ast_invariant(port, parent->asSymbol().kind == ast::SymbolKind::Modport);
 							const ast::ModportSymbol &modport = parent->asSymbol().as<ast::ModportSymbol>();
 
+							RTLIL::IdString port_name = port_sig.as_wire()->name;
 							if (netlist.scopes_remap.count(&modport)) {
-								cell->setPort(wire->name, netlist.wire(port));
+								cell->setPort(port_name, netlist.wire(port));
 							} else {
-								cell->setPort(wire->name, netlist.wire(*port.internalSymbol));
+								cell->setPort(port_name, netlist.wire(*port.internalSymbol));
 								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
 									netlist.register_driven(*port.internalSymbol);
 							}
@@ -2700,7 +2700,7 @@ bool is_special_net(const ast::Symbol &symbol)
 		&& is_special_net_type(symbol.as<ast::NetSymbol>().netType);
 }
 
-RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
+RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto &type = symbol.getType();
 	auto w = canvas->addWire(id(symbol), type.getBitstreamWidth());
@@ -2714,7 +2714,8 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 		w->start_offset = range.lower();
 	}
 
-	wire_cache[&symbol] = w;
+	RTLIL::SigSpec sig(w);
+	wire_cache[&symbol] = sig;
 	transfer_attrs(*this, symbol, w);
 	if (ast::NetSymbol::isKind(symbol.kind)) {
 		auto &net = symbol.as<ast::NetSymbol>();
@@ -2722,7 +2723,7 @@ RTLIL::Wire *NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 			special_net_symbols.push_back(&net);
 		}
 	}
-	return w;
+	return sig;
 }
 
 void finalize_special_nets(NetlistContext &netlist)
@@ -2902,7 +2903,7 @@ bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::Sourc
 	return true;
 }
 
-RTLIL::Wire *NetlistContext::wire(const ast::Symbol &symbol)
+RTLIL::SigSpec NetlistContext::wire(const ast::Symbol &symbol)
 {
 	auto it = wire_cache.find(&symbol);
 	if (it == wire_cache.end())
@@ -2916,11 +2917,10 @@ RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 
 	for (auto vchunk : bits.chunks()) {
 		switch (vchunk.variable.kind) {
-		case Variable::Static: {
-			RTLIL::SigChunk chunk{wire(*vchunk.variable.get_symbol()),
-					vchunk.base, vchunk.length};
-			ret.append(chunk);
-		} break;
+		case Variable::Static:
+			ret.append(wire(*vchunk.variable.get_symbol())
+					.extract(vchunk.base, vchunk.length));
+			break;
 		case Variable::Dummy:
 			ret.append(canvas->addWire(new_id("dummy"), vchunk.length));
 			break;
