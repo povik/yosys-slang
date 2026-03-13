@@ -651,7 +651,7 @@ SigSpec RTLILBuilder::add_placeholder_signal(
 {
 	RTLIL::IdString name;
 	if (public_name) {
-		name = name_suggestion;
+		name = id(name_suggestion);
 	} else {
 		name = new_id(std::string(name_suggestion));
 	}

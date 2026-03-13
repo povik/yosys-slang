@@ -155,7 +155,7 @@ RTLIL::SigBit ProceduralContext::case_enable()
 	if (timing.kind == ProcessTiming::Initial) {
 		return RTLIL::S1;
 	} else {
-		RTLIL::SigBit ret = netlist.canvas->addWire(netlist.new_id(), 1);
+		RTLIL::SigBit ret = netlist.add_placeholder_signal(1);
 		root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
 		current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
 		return ret;

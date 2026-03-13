@@ -279,6 +279,7 @@ void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard)
 	}
 }
 template void transfer_attrs<const ast::Symbol>(NetlistContext &netlist, const ast::Symbol &from, AttributeGuard &guard);
+template void transfer_attrs<const ast::Statement>(NetlistContext &netlist, const ast::Statement &from, AttributeGuard &guard);
 };
 
 #include "cases.h"
@@ -722,7 +723,7 @@ RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assi
 	ast_invariant(assign, rsymbol->kind == ast::ExpressionKind::EmptyArgument);
 	ast_invariant(assign, rsymbol->type->isBitstreamType());
 
-	RTLIL::SigSpec link = netlist.canvas->addWire(netlist.new_id(),
+	RTLIL::SigSpec link = netlist.add_placeholder_signal(
 								rsymbol->type->getBitstreamWidth());
 	netlist.add_continuous_driver(vbits,
 			apply_nested_conversion(assign.right(), link));
@@ -857,10 +858,10 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 
 	// Create a chain of DFFs for num_cycles delay
 	RTLIL::SigSpec prev_val = current_val;
-	RTLIL::Wire *past_wire = nullptr;
+	RTLIL::SigSpec past_wire;
 
 	for (int i = 0; i < num_cycles; i++) {
-		past_wire = netlist.canvas->addWire(netlist.new_id("$past"), width);
+		past_wire = netlist.add_placeholder_signal(width, "$past");
 		netlist.canvas->addDff(netlist.new_id("$past"),
 			trigger.signal,
 			prev_val,
@@ -1113,7 +1114,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				}
 				if (!right.is_fully_const()) {
 					netlist.add_diag(diag::NonconstWildcardEq, expr.sourceRange);
-					ret = netlist.canvas->addWire(netlist.new_id(), expr.type->getBitstreamWidth());
+					ret = netlist.add_placeholder_signal(expr.type->getBitstreamWidth());
 					return ret;
 				}
 				return netlist.Unop(
@@ -1230,7 +1231,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				RTLIL::SigSpec addr = (*this)(elemsel.selector());
 				memrd->setPort(ID::ADDR, addr);
 				memrd->setParam(ID::ABITS, addr.size());
-				ret = netlist.canvas->addWire(netlist.new_id(), width);
+				ret = netlist.add_placeholder_signal(width);
 				memrd->setPort(ID::DATA, ret);
 				memrd->setParam(ID::WIDTH, width);
 				transfer_attrs(netlist, expr, memrd);
@@ -1460,8 +1461,8 @@ public:
 
 			latch_driven.sort_and_unify();
 			for (auto chunk : latch_driven.chunks()) {
-				RTLIL::SigSpec en = netlist.canvas->addWire(netlist.new_id(), chunk.bitwidth());
-				RTLIL::SigSpec staging = netlist.canvas->addWire(netlist.new_id(), chunk.bitwidth());
+				RTLIL::SigSpec en = netlist.add_placeholder_signal(chunk.bitwidth());
+				RTLIL::SigSpec staging = netlist.add_placeholder_signal(chunk.bitwidth());
 
 				for (int i = 0; i < chunk.bitwidth(); i++) {
 					RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en[i],
@@ -2453,7 +2454,7 @@ public:
 					}
 					auto in = netlist.eval(*ports[1]);
 					if (inv_a) {
-						auto mid_wire = netlist.canvas->addWire(id + "_mid", in.size());
+						auto mid_wire = netlist.add_placeholder_signal(in.size(), id + "_mid", true);
 						auto inv_cell = netlist.canvas->addNot(id + "_ainv", in, mid_wire);
 						in = mid_wire;
 						transfer_attrs(netlist, sym, inv_cell);
@@ -2485,7 +2486,7 @@ public:
 		if (inv_y) {
 			// Invert output signal where needed
 			netlist.canvas->rename(cell->name, id + "_yinv");
-			auto mid_wire = netlist.canvas->addWire(id + "_mid", y.size());
+			auto mid_wire = netlist.add_placeholder_signal(y.size(), id + "_mid", true);
 			auto inv_cell = netlist.canvas->addNot(id, mid_wire, y);
 			cell->setPort(ID::Y, mid_wire);
 			transfer_attrs(netlist, sym, inv_cell);
@@ -2703,20 +2704,23 @@ bool is_special_net(const ast::Symbol &symbol)
 RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto &type = symbol.getType();
-	auto w = canvas->addWire(id(symbol), type.getBitstreamWidth());
-	w->set_string_attribute(ID::hdlname, hdlname(symbol));
+
+	AttributeGuard guard(*this);
+	guard.set(ID::hdlname, hdlname(symbol));
+	transfer_attrs(*this, symbol, guard);
+
+	RTLIL::SigSpec sig = add_placeholder_signal(type.getBitstreamWidth(), id(symbol), true);
 
 	if (type.kind == ast::SymbolKind::PackedArrayType &&
 			type.as<ast::PackedArrayType>().elementType.isScalar()) {
 		auto range = type.getFixedRange();
+		auto *w = sig.as_wire();
 		if (!range.isLittleEndian())
 			w->upto = true;
 		w->start_offset = range.lower();
 	}
 
-	RTLIL::SigSpec sig(w);
 	wire_cache[&symbol] = sig;
-	transfer_attrs(*this, symbol, w);
 	if (ast::NetSymbol::isKind(symbol.kind)) {
 		auto &net = symbol.as<ast::NetSymbol>();
 		if (is_special_net_type(net.netType)) {
@@ -2922,7 +2926,7 @@ RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 					.extract(vchunk.base, vchunk.length));
 			break;
 		case Variable::Dummy:
-			ret.append(canvas->addWire(new_id("dummy"), vchunk.length));
+			ret.append(add_placeholder_signal(vchunk.length, "dummy"));
 			break;
 		default:
 			log_abort();

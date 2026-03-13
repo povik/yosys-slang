@@ -126,17 +126,17 @@ public:
 					continue;
 				}
 
-				RTLIL::IdString new_id;
+				std::string name_suggestion;
 				if (auto symbol = chunk.variable.get_symbol())
-					new_id = netlist.new_id(
-							RTLIL::unescape_id(netlist.id(*symbol)) + chunk.slice_text());
-				else
-					new_id = netlist.new_id();
+					name_suggestion = RTLIL::unescape_id(netlist.id(*symbol)) + chunk.slice_text();
+
+				AttributeGuard guard(netlist);
+				if (sw->statement)
+					transfer_attrs(netlist, *sw->statement, guard);
 
 				RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
-				RTLIL::Wire *w = netlist.canvas->addWire(new_id, chunk.bitwidth());
-				if (sw->statement)
-					transfer_attrs(netlist, *sw->statement, w);
+				RTLIL::SigSpec w =
+						netlist.add_placeholder_signal(chunk.bitwidth(), name_suggestion);
 				parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
 				vstate.set(chunk, w);
 			}

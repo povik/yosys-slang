@@ -371,6 +371,10 @@ struct RTLILBuilder {
 				   const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, const RTLIL::SigSpec &ad,
 				   bool clk_polarity = true, bool aload_polarity = true);
 
+    // Create a placeholder signal which will be connected to a driver using `connect` later
+	SigSpec add_placeholder_signal(int width, std::string_view name_suggestion=""sv, bool public_name=false);
+
+    // `target` must be composed solely of signal bits created using add_placeholder_signal
 	void connect(SigSpec target, SigSpec source);
 
 	// Add initialization data on the given memory. The data starts
@@ -565,6 +569,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);
+template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard);
 template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
 uint64_t bitstream_member_offset(const ast::FieldSymbol &member);
 bool is_special_net_type(const ast::NetType &type);
