@@ -1333,7 +1333,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 
 					RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 					transfer_attrs(netlist, call, proc);
-					context.root_case->copy_into(netlist, &proc->root_case);
+					context.copy_case_tree_into(proc->root_case);
 				}
 			}
 		}
@@ -1483,7 +1483,7 @@ public:
 			procedure.root_case->insert_latch_signaling(netlist, signaling);
 		}
 
-		procedure.root_case->copy_into(netlist, &proc->root_case);
+		procedure.copy_case_tree_into(proc->root_case);
 		netlist.add_continuous_driver(cl, cr);
 	}
 
