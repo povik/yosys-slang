@@ -471,9 +471,9 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 		log_assert(netlist.is_inferred_memory(sel.value()));
 		require(assign, !blocking);
 
-		RTLIL::IdString id = netlist.id(sel.value().as<ast::ValueExpressionBase>().symbol);
+		std::string id = netlist.id(sel.value().as<ast::ValueExpressionBase>().symbol);
 		RTLIL::Cell *memwr = netlist.canvas->addCell(netlist.new_id(), ID($memwr_v2));
-		memwr->setParam(ID::MEMID, id.str());
+		memwr->setParam(ID::MEMID, id);
 		if (timing.kind == ProcessTiming::Implicit) {
 			memwr->setParam(ID::CLK_ENABLE, false);
 			memwr->setParam(ID::CLK_POLARITY, false);

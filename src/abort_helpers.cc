@@ -113,7 +113,7 @@ template <typename T>
 	}
 	log("\twith parameters%s\n", params.c_str());
 	std::string hier2 = symbol.getHierarchicalPath();
-	log("\twire for symbol %s is missing\n\t(id %s)\n", hier2.c_str(), log_id(netlist.id(symbol)));
+	log("\twire for symbol %s is missing\n\t(id %s)\n", hier2.c_str(), netlist.id(symbol).c_str());
 	log("remapped scopes:\n");
 	for (auto pair : netlist.scopes_remap) {
 		std::string hier3 = pair.first->asSymbol().getHierarchicalPath();

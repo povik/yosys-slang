@@ -1212,10 +1212,10 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 
 			if (netlist.is_inferred_memory(elemsel.value())) {
 				int width = elemsel.type->getBitstreamWidth();
-				RTLIL::IdString id = netlist.id(elemsel.value()
+				std::string id = netlist.id(elemsel.value()
 										.as<ast::ValueExpressionBase>().symbol);
 				RTLIL::Cell *memrd = netlist.canvas->addCell(netlist.new_id(), ID($memrd_v2));
-				memrd->setParam(ID::MEMID, id.str());
+				memrd->setParam(ID::MEMID, id);
 				memrd->setParam(ID::CLK_ENABLE, false);
 				memrd->setParam(ID::CLK_POLARITY, false);
 				memrd->setParam(ID::TRANSPARENCY_MASK, RTLIL::Const(0, 0));
@@ -1590,7 +1590,7 @@ public:
 														RTLIL::SigSpec(RTLIL::Sx, named_chunk.bitwidth()),
 														true);
 						} else {
-							netlist.add_dff(netlist.canvas->uniquify(base_name),
+							netlist.add_dff(base_name,
 											timing.triggers[0].signal,
 											assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
 											netlist.convert_static(named_chunk),
@@ -1626,7 +1626,7 @@ public:
 															aloads[0].values.evaluate(netlist, named_chunk),
 															aloads[0].trigger_polarity);
 							} else {
-								netlist.add_aldff(netlist.canvas->uniquify(base_name),
+								netlist.add_aldff(base_name,
 												  timing.triggers[0].signal,
 												  aloads[0].trigger,
 												  assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
@@ -1641,7 +1641,7 @@ public:
 					if (!dffe_q.empty()) {
 						for (auto driven_chunk2 : dffe_q.chunks()) {
 							auto &diag = netlist.add_diag(diag::MissingAload, aloads[0].ast_node->sourceRange);
-							diag << netlist.id(*driven_chunk2.variable.get_symbol()).str() + driven_chunk2.slice_text();
+							diag << netlist.id(*driven_chunk2.variable.get_symbol()) + driven_chunk2.slice_text();
 							diag.addNote(diag::NoteDuplicateEdgeSense, timed.timing.sourceRange);
 						}
 
@@ -1650,7 +1650,7 @@ public:
 							std::string base_name = Yosys::stringf("$driver$%s%s",
 								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
 
-							netlist.add_dffe(netlist.canvas->uniquify(base_name),
+							netlist.add_dffe(base_name,
 											 timing.triggers[0].signal,
 											 aloads[0].trigger,
 											 assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
@@ -2061,7 +2061,7 @@ public:
 							if (!modport.name.compare(ref_modport.name)) {
 								if (inserted) {
 									submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
-															submodule.id(conn->port).str() + hierpath_suffix;
+															submodule.id(conn->port) + hierpath_suffix;
 								}
 								visitor.visitDefault(modport);
 							}
@@ -2199,7 +2199,7 @@ public:
 			}
 
 			std::string kind{ast::toString(sym.kind)};
-			log_debug("Adding %s (%s)\n", log_id(netlist.id(sym)), kind.c_str());
+			log_debug("Adding %s (%s)\n", netlist.id(sym).c_str(), kind.c_str());
 
 			if (netlist.is_inferred_memory(sym)) {
 				RTLIL::Memory *m = new RTLIL::Memory;
@@ -2453,8 +2453,8 @@ public:
 					}
 					auto in = netlist.eval(*ports[1]);
 					if (inv_a) {
-						auto mid_wire = netlist.canvas->addWire(id.str() + "_mid", in.size());
-						auto inv_cell = netlist.canvas->addNot(id.str() + "_ainv", in, mid_wire);
+						auto mid_wire = netlist.canvas->addWire(id + "_mid", in.size());
+						auto inv_cell = netlist.canvas->addNot(id + "_ainv", in, mid_wire);
 						in = mid_wire;
 						transfer_attrs(netlist, sym, inv_cell);
 					}
@@ -2470,8 +2470,8 @@ public:
 					auto a = netlist.eval(*ports[1]);
 					auto n_en = netlist.eval(*ports[2]);
 					auto p_en = netlist.eval(*ports[3]);
-					auto nmos = netlist.canvas->addMux(id.str() + "_n", RTLIL::Sz, a, n_en, y);
-					auto pmos = netlist.canvas->addMux(id.str() + "_p", a, RTLIL::Sz, p_en, y);
+					auto nmos = netlist.canvas->addMux(id + "_n", RTLIL::Sz, a, n_en, y);
+					auto pmos = netlist.canvas->addMux(id + "_p", a, RTLIL::Sz, p_en, y);
 					transfer_attrs(netlist, sym, nmos);
 					cell = pmos; // transfer_attrs to pmos after switch block
 				} else {
@@ -2484,8 +2484,8 @@ public:
 		transfer_attrs(netlist, sym, cell);
 		if (inv_y) {
 			// Invert output signal where needed
-			netlist.canvas->rename(cell->name, id.str() + "_yinv");
-			auto mid_wire = netlist.canvas->addWire(id.str() + "_mid", y.size());
+			netlist.canvas->rename(cell->name, id + "_yinv");
+			auto mid_wire = netlist.canvas->addWire(id + "_mid", y.size());
 			auto inv_cell = netlist.canvas->addNot(id, mid_wire, y);
 			cell->setPort(ID::Y, mid_wire);
 			transfer_attrs(netlist, sym, inv_cell);
@@ -2662,12 +2662,12 @@ std::string build_hiername(NetlistContext &netlist, const ast::Symbol &symbol,
 	return path.str();
 }
 
-RTLIL::IdString NetlistContext::id(const ast::Symbol &symbol)
+std::string NetlistContext::id(const ast::Symbol &symbol)
 {
 	return RTLIL::escape_id(build_hiername(*this, symbol, "."));
 }
 
-RTLIL::IdString NetlistContext::id(const ast::ValueSymbol &symbol)
+std::string NetlistContext::id(const ast::ValueSymbol &symbol)
 {
 	return id(static_cast<const ast::Symbol &>(symbol));
 }

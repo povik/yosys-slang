@@ -362,20 +362,20 @@ struct RTLILBuilder {
 	void add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
 							 RTLIL::SigSpec aload, RTLIL::SigSpec d, RTLIL::SigSpec q,
 							 RTLIL::SigSpec ad, bool aload_polarity);
-	void add_dff(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &d,
+	void add_dff(std::string_view name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &d,
 				 const RTLIL::SigSpec &q, bool clk_polarity=true);
-	void add_dffe(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &en,
+	void add_dffe(std::string_view name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &en,
 				 const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, bool clk_polarity=true,
 				 bool en_polarity=true);
-	void add_aldff(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &aload,
-				   const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, const RTLIL::SigSpec &ad, 
+	void add_aldff(std::string_view name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &aload,
+				   const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, const RTLIL::SigSpec &ad,
 				   bool clk_polarity = true, bool aload_polarity = true);
 
 	void connect(SigSpec target, SigSpec source);
 
 	// Add initialization data on the given memory. The data starts
 	// at bit position `base` which doesn't need to be on a word boundary
-	void add_memory_init(RTLIL::IdString name, uint64_t bit_offset,
+	void add_memory_init(std::string_view name, uint64_t bit_offset,
 						 bool big_endian, RTLIL::Const data);
 
 private:
@@ -492,8 +492,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	EvalContext eval;
 
 	// Returns an ID string to use in the netlist to represent the given symbol.
-	RTLIL::IdString id(const ast::Symbol &sym);
-	RTLIL::IdString id(const ast::ValueSymbol &sym);
+	std::string id(const ast::Symbol &sym);
+	std::string id(const ast::ValueSymbol &sym);
 	std::string hdlname(const ast::Symbol &sym);
 
 	RTLIL::Wire *add_wire(const ast::ValueSymbol &sym);

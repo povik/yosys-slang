@@ -13,6 +13,13 @@ using RTLIL::Cell;
 using RTLIL::IdString;
 using RTLIL::SigSpec;
 
+// A compat util to be removed once we drop 0.59 support
+#if YOSYS_MAJOR == 0 && YOSYS_MINOR < 59
+static IdString id(std::string_view sv) { return std::string(sv); }
+#else
+static IdString id(std::string_view sv) { return sv; }
+#endif
+
 std::string RTLILBuilder::new_id(std::string base)
 {
 	if (base.empty())
@@ -485,26 +492,28 @@ void RTLILBuilder::add_dual_edge_aldff(const std::string &base_name, RTLIL::SigS
 	bless_cell(mux);
 }
 
-void RTLILBuilder::add_dff(RTLIL::IdString name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &d,
-		const RTLIL::SigSpec &q, bool clk_polarity)
+void RTLILBuilder::add_dff(std::string_view name, const RTLIL::SigSpec &clk,
+		const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, bool clk_polarity)
 {
-	RTLIL::Cell *cell = canvas->addDff(name, clk, d, q, clk_polarity);
+	RTLIL::Cell *cell = canvas->addDff(canvas->uniquify(id(name)), clk, d, q, clk_polarity);
 	bless_cell(cell);
 }
 
-void RTLILBuilder::add_dffe(RTLIL::IdString name, const RTLIL::SigSpec &clk,
+void RTLILBuilder::add_dffe(std::string_view name, const RTLIL::SigSpec &clk,
 		const RTLIL::SigSpec &en, const RTLIL::SigSpec &d, const RTLIL::SigSpec &q,
 		bool clk_polarity, bool en_polarity)
 {
-	RTLIL::Cell *cell = canvas->addDffe(name, clk, en, d, q, clk_polarity, en_polarity);
+	RTLIL::Cell *cell =
+			canvas->addDffe(canvas->uniquify(id(name)), clk, en, d, q, clk_polarity, en_polarity);
 	bless_cell(cell);
 }
 
-void RTLILBuilder::add_aldff(RTLIL::IdString name, const RTLIL::SigSpec &clk,
+void RTLILBuilder::add_aldff(std::string_view name, const RTLIL::SigSpec &clk,
 		const RTLIL::SigSpec &aload, const RTLIL::SigSpec &d, const RTLIL::SigSpec &q,
 		const RTLIL::SigSpec &ad, bool clk_polarity, bool aload_polarity)
 {
-	RTLIL::Cell *cell = canvas->addAldff(name, clk, aload, d, q, ad, clk_polarity, aload_polarity);
+	RTLIL::Cell *cell = canvas->addAldff(
+			canvas->uniquify(id(name)), clk, aload, d, q, ad, clk_polarity, aload_polarity);
 	bless_cell(cell);
 }
 
@@ -583,12 +592,12 @@ void RTLILBuilder::emit_meminit_cell(RTLIL::Memory *mem, uint64_t word_offset, b
 }
 
 void RTLILBuilder::add_memory_init(
-		RTLIL::IdString name, uint64_t bit_offset, bool big_endian, RTLIL::Const data)
+		std::string_view name, uint64_t bit_offset, bool big_endian, RTLIL::Const data)
 {
 	if (data.empty())
 		return;
 
-	RTLIL::Memory *mem = canvas->memories.at(name);
+	RTLIL::Memory *mem = canvas->memories.at(id(name));
 	log_assert(mem);
 
 	uint64_t processed = 0;
@@ -635,6 +644,20 @@ void RTLILBuilder::add_memory_init(
 	}
 
 	log_assert(processed == data.size());
+}
+
+SigSpec RTLILBuilder::add_placeholder_signal(
+		int width, std::string_view name_suggestion, bool public_name)
+{
+	RTLIL::IdString name;
+	if (public_name) {
+		name = name_suggestion;
+	} else {
+		name = new_id(std::string(name_suggestion));
+	}
+	RTLIL::Wire *wire = canvas->addWire(name, width);
+	wire->attributes = staged_attributes;
+	return wire;
 }
 
 }; // namespace slang_frontend
