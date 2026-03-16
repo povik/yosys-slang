@@ -1,0 +1,10 @@
+design -reset
+read_slang <<EOF
+module test_streaming_driven(input [15:0] d);
+   reg [7:0] a = 63;
+   reg [7:0] b = 11;
+   assign {>>{a, b}} = d;
+endmodule
+EOF
+# Check no overdriving
+check -assert

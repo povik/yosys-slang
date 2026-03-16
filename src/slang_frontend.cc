@@ -2140,7 +2140,7 @@ public:
 			VariableBits lvalue = netlist.eval.streaming_lhs(stream_lexpr);
 			ast_invariant(expr, rvalue.size() >= lvalue.size());
 
-			netlist.connect(netlist.convert_static(lvalue), rvalue.extract(0, lvalue.size()));
+			netlist.add_continuous_driver(lvalue, rvalue.extract(0, lvalue.size()));
 			return;
 		}
 
