@@ -1,7 +1,7 @@
 //
 // Yosys slang frontend
 //
-// Copyright 2025 Martin Povišer <povik@cutebit.org>
+// Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
 
