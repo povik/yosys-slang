@@ -15,9 +15,15 @@ using RTLIL::SigSpec;
 
 // A compat util to be removed once we drop 0.59 support
 #if YOSYS_MAJOR == 0 && YOSYS_MINOR < 59
-static IdString id(std::string_view sv) { return std::string(sv); }
+static IdString id(std::string_view sv)
+{
+	return std::string(sv);
+}
 #else
-static IdString id(std::string_view sv) { return sv; }
+static IdString id(std::string_view sv)
+{
+	return sv;
+}
 #endif
 
 std::string RTLILBuilder::new_id(std::string base)
