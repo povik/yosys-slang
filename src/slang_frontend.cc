@@ -2286,9 +2286,21 @@ public:
 		ast_invariant(sym, port_names.size() == port_conns.size());
 		for (int i = 0; i < (int) port_names.size(); i++) {
 			auto &expr = port_conns[i]->as<ast::SimpleAssertionExpr>().expr;
-			std::string port_name = std::string{port_names[i]};
-			cell->setPort(port_names[i].empty() ? Yosys::stringf("$%d", i + 1)
-							: RTLIL::escape_id(std::string{port_names[i]}), netlist.eval(expr));
+			RTLIL::IdString port_id = port_names[i].empty()
+				? Yosys::stringf("$%d", i + 1)
+				: RTLIL::escape_id(std::string{port_names[i]});
+
+			VariableBits vbits = netlist.eval.lhs(expr, true);
+			if (!vbits.has_dummy_bits()) {
+				netlist.register_driven(vbits);
+				cell->setPort(port_id, netlist.convert_static(vbits));
+			} else {
+				if (!port_names[i].empty()) {
+					auto &d = netlist.add_diag(diag::GuessingInputPort, expr.sourceRange);
+					d << port_names[i] << sym.definitionName;
+				}
+				cell->setPort(port_id, netlist.eval(expr));
+			}
 		}
 	}
 

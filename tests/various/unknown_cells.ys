@@ -25,6 +25,21 @@ endmodule
 EOF
 
 design -reset
+read_slang --ignore-unknown-modules <<EOF
+module test_undriven(output reg [7:0] q);
+   reg [7:0] a;
+   initial a = 63;
+   initial q = 11;
+   undef_mod u(.in(a + 1), .out(q));
+endmodule
+EOF
+# 'q' is connected to an unknown module port; it should be treated
+# as driven (no $buf from the initializer on 'q')
+dump
+select -assert-none t:$buf w:q %x1 %i
+select -assert-count 1 t:$buf w:a %x1 %i
+
+design -reset
 read_slang --udp-handling=blackboxes <<EOF
 primitive xor_gate (output out, input a, b);
    table

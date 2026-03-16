@@ -121,6 +121,7 @@ DiagCode ReadingNetStateFromInitialBlockUnsupported(DiagSubsystem::Netlist, 1068
 DiagCode NonblockingAssignInInitialUnsupported(DiagSubsystem::Netlist, 1070);
 DiagCode ErrorNonconstantInitialEval(DiagSubsystem::Netlist, 1071);
 DiagCode DeprecatedOption(DiagSubsystem::Netlist, 1072);
+DiagCode GuessingInputPort(DiagSubsystem::Netlist, 1073);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -308,6 +309,9 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(DeprecatedOption, "option '{}' is deprecated and without effect");
 	engine.setSeverity(DeprecatedOption, DiagnosticSeverity::Warning);
+
+	engine.setMessage(GuessingInputPort, "guessing port '{}' on unknown module '{}' for input based on connected expression");
+	engine.setSeverity(GuessingInputPort, DiagnosticSeverity::Note);
 	// clang-format on
 }
 }; // namespace diag
