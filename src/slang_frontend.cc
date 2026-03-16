@@ -1317,10 +1317,13 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					ret = netlist.CountOnes(sig, (int)call.type->getBitstreamWidth());
 				} else if (name == "$past") {
 					ret = handle_past(*this, call);
-				} else {
-					require(expr, call.getSubroutineName() == "$signed" || call.getSubroutineName() == "$unsigned");
+				} else if (name == "$signed" || name == "$unsigned") {
 					require(expr, call.arguments().size() == 1);
 					ret = (*this)(*call.arguments()[0]);
+				} else {
+					auto &d = netlist.add_diag(diag::UnsupportedSystemTask, expr.sourceRange);
+					d << name;
+					goto error;
 				}
 			} else {
 				const auto &subr = *std::get<0>(call.subroutine);

@@ -122,6 +122,7 @@ DiagCode NonblockingAssignInInitialUnsupported(DiagSubsystem::Netlist, 1070);
 DiagCode ErrorNonconstantInitialEval(DiagSubsystem::Netlist, 1071);
 DiagCode DeprecatedOption(DiagSubsystem::Netlist, 1072);
 DiagCode GuessingInputPort(DiagSubsystem::Netlist, 1073);
+DiagCode UnsupportedSystemTask(DiagSubsystem::Netlist, 1074);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -312,6 +313,9 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(GuessingInputPort, "guessing port '{}' on unknown module '{}' for input based on connected expression");
 	engine.setSeverity(GuessingInputPort, DiagnosticSeverity::Note);
+
+	engine.setMessage(UnsupportedSystemTask, "unsupported system task '{}'");
+	engine.setSeverity(UnsupportedSystemTask, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag
