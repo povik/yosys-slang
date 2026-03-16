@@ -15,7 +15,7 @@
 
 namespace slang_frontend {
 
-struct StatementExecutor : public ast::ASTVisitor<StatementExecutor, true, false>
+struct StatementExecutor : public ast::ASTVisitor<StatementExecutor, ast::VisitFlags::Statements>
 {
 public:
 	NetlistContext &netlist;

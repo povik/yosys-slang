@@ -11,7 +11,8 @@ namespace slang_frontend {
 
 class DiagnosticIssuer;
 struct InferredMemoryDetector : public TimingPatternInterpretor,
-								public ast::ASTVisitor<InferredMemoryDetector, true, true>,
+								public ast::ASTVisitor<InferredMemoryDetector,
+										ast::VisitFlags::Statements | ast::VisitFlags::Expressions>,
 								public DiagnosticIssuer
 {
 	Yosys::pool<const ast::Symbol *> memory_candidates;
@@ -54,7 +55,8 @@ struct InferredMemoryDetector : public TimingPatternInterpretor,
 		root.visit(*this);
 	}
 
-	struct LHSVisitor : public ast::ASTVisitor<LHSVisitor, true, true>
+	struct LHSVisitor : public ast::ASTVisitor<LHSVisitor,
+								ast::VisitFlags::Statements | ast::VisitFlags::Expressions>
 	{
 		InferredMemoryDetector &rhs;
 		LHSVisitor(InferredMemoryDetector &rhs) : rhs(rhs) {}

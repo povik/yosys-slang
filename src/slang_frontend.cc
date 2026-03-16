@@ -1410,7 +1410,7 @@ struct HierarchyQueue {
 	std::vector<NetlistContext *> queue;
 };
 
-struct PopulateNetlist : public TimingPatternInterpretor, public ast::ASTVisitor<PopulateNetlist, true, false> {
+struct PopulateNetlist : public TimingPatternInterpretor, public ast::ASTVisitor<PopulateNetlist, ast::VisitFlags::Statements> {
 public:
 	HierarchyQueue &queue;
 	NetlistContext &netlist;
