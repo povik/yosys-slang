@@ -19,11 +19,11 @@ always @(*) begin
 end
 endmodule
 
-module r4;
+module r4(input [1:0] s);
 	logic [1:0] [31:0] data;
-	logic [1:0] s;
 
 	always_comb begin
+		data = 0;
 		for (int i = -10; i < 10; i++)
 			data[s][i+:8] = 0;
 	end
@@ -83,6 +83,7 @@ endmodule
 // issue #129
 module r10n();
 wire n;
+assign n = 0;
 endmodule
 
 module r10a();
@@ -117,6 +118,7 @@ module r14(input x);
 endmodule
 
 module r15sub(input [7:0] allbits, input [1:0] onebit, output bitout);
+	assign bitout = allbits[onebit];
 endmodule
 
 module r15();
@@ -126,10 +128,8 @@ module r15();
 	r15sub sub [7:0] (allbits, onebit, bitout);
 endmodule
 
-module r16();
-	wire [3:0] in;
+module r16(input [3:0] in, input invert);
 	wire [3:0] out;
-	wire invert;
 	xor X[3:0] (out, in, invert);
 endmodule
 
@@ -203,6 +203,7 @@ endmodule
 
 // specify ignored
 module r23(input A, output B);
+assign B = A;
 specparam a = 1;
 
 specify
@@ -231,12 +232,11 @@ endspecify
 endmodule
 
 // test for an edge case from way back
-module r24();
+module r24(input z, input [63:0] x);
 	reg [31:0] y[0:0];
-	wire z;
-	wire [63:0] x;
 
 	always_comb begin
+		y = '{0};
 		for (int i = 0; i < 32; i++) begin
 			if(~z) begin
 			end else begin
