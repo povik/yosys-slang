@@ -218,7 +218,7 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 			} else {
 				if (timing.kind == ProcessTiming::Initial) {
 					auto &diag = netlist.add_diag(diag::NonblockingAssignInInitialUnsupported, loc);
-					diag.addNote(diag::NoteIgnoreInitial, slang::SourceLocation::NoLocation);
+					diag.addNote(diag::NoteIgnoreInitial, loc);
 					// We have issued the diagnostic, handle as blocking from
 					// this point onward.
 					blocking = true;

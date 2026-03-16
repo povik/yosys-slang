@@ -1323,6 +1323,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				} else {
 					auto &d = netlist.add_diag(diag::UnsupportedSystemTask, expr.sourceRange);
 					d << name;
+					if (procedural && procedural->timing.kind == ProcessTiming::Initial)
+						d.addNote(diag::NoteIgnoreInitial, expr.sourceRange.start());
 					goto error;
 				}
 			} else {
