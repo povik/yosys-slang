@@ -120,6 +120,7 @@ DiagCode InputPortCannotBeSpecialNet(DiagSubsystem::Netlist, 1067);
 DiagCode ReadingNetStateFromInitialBlockUnsupported(DiagSubsystem::Netlist, 1068);
 DiagCode NonblockingAssignInInitialUnsupported(DiagSubsystem::Netlist, 1070);
 DiagCode ErrorNonconstantInitialEval(DiagSubsystem::Netlist, 1071);
+DiagCode DeprecatedOption(DiagSubsystem::Netlist, 1072);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -304,6 +305,9 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(ErrorNonconstantInitialEval, "internal error: evaluation does not resolve to a constant in design initialization");
 	engine.setSeverity(ErrorNonconstantInitialEval, DiagnosticSeverity::Error);
+
+	engine.setMessage(DeprecatedOption, "option '{}' is deprecated and without effect");
+	engine.setSeverity(DeprecatedOption, DiagnosticSeverity::Warning);
 	// clang-format on
 }
 }; // namespace diag

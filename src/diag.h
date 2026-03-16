@@ -76,6 +76,7 @@ extern slang::DiagCode InputPortCannotBeSpecialNet;
 extern slang::DiagCode ReadingNetStateFromInitialBlockUnsupported;
 extern slang::DiagCode NonblockingAssignInInitialUnsupported;
 extern slang::DiagCode ErrorNonconstantInitialEval;
+extern slang::DiagCode DeprecatedOption;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag

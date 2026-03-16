@@ -41,9 +41,6 @@ namespace slang_frontend {
 void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 	cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
 	cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
-	// TODO: deprecate; now on by default
-	cmdLine.add("--compat-mode", compat_mode,
-				"Be relaxed about the synthesis semantics of some language constructs");
 	cmdLine.add("--keep-hierarchy", keep_hierarchy,
 				"Keep hierarchy (experimental; may crash)");
 	cmdLine.add("--best-effort-hierarchy", best_effort_hierarchy,
@@ -56,11 +53,6 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 				"Ignore assertions and formal statements in input");
 	cmdLine.add("--unroll-limit", unroll_limit_,
 				"Set unrolling limit (default: 4000)", "<limit>");
-	// TODO: deprecate; now on by default
-	cmdLine.add("--extern-modules", extern_modules,
-				"Import as an instantiable blackbox any module which was previously "
-				"loaded into the current design with a Yosys command; this allows composing "
-				"hierarchy of SystemVerilog and non-SystemVerilog modules");
 	cmdLine.add("--no-implicit-memories", no_implicit_memories,
 				"Disable implicit memory inference. Without this option used, all variables with at least one unpacked dimension "
 				"are candidates for memory inference. With this option used, inference will be restricted to those variables annotated "
@@ -87,6 +79,16 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 			"--udp-handling", udp_handling, "Set the processing mode for user defined primitives."
 			" When set to 'blackboxes' the UDP is treated as a blackboxed instance."
 			" When set to 'error', an error is emitted if a UDP is encountered. By default, the frontend emits an error.");
+
+	// Deprecated section
+	cmdLine.add("--compat-mode", compat_mode,
+				"Deprecated option which is effectively always on. The old help message was "
+				"\"Be relaxed about the synthesis semantics of some language constructs\"");
+	cmdLine.add("--extern-modules", extern_modules,
+				"Deprecated option which is effectively always on. The old help message was "
+				"\"Import as an instantiable blackbox any module which was previously "
+				"loaded into the current design with a Yosys command; this allows composing "
+				"hierarchy of SystemVerilog and non-SystemVerilog modules\"");
 }
 
 namespace ast = slang::ast;
@@ -2993,6 +2995,17 @@ static std::vector<std::vector<std::string>> defaults_stack;
 
 void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 {
+	if (settings.compat_mode.has_value()) {
+		slang::Diagnostic d(diag::DeprecatedOption, slang::SourceLocation::NoLocation);
+		d << std::string_view("--compat-mode");
+		driver.diagEngine.issue(d);
+	}
+	if (settings.extern_modules.has_value()) {
+		slang::Diagnostic d(diag::DeprecatedOption, slang::SourceLocation::NoLocation);
+		d << std::string_view("--extern-modules");
+		driver.diagEngine.issue(d);
+	}
+
 	if (!settings.no_synthesis_define.value_or(false)) {
 		driver.options.defines.push_back("SYNTHESIS=1");
 	}
@@ -3410,6 +3423,7 @@ struct TestSlangExprPass : Pass {
 		driver.addStandardArgs();
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
+		diag::setup_messages(driver.diagEngine);
 
 		{
 			std::vector<char *> c_args;
