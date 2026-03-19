@@ -107,8 +107,10 @@ ProceduralContext::ProceduralContext(NetlistContext &netlist, ProcessTiming &tim
 	: unroll_limit(netlist, netlist.settings.unroll_limit()), netlist(netlist), timing(timing),
 	  eval(netlist, *this)
 {
+#ifndef SLANG_MUX_LOWERING
 	root_case = std::make_unique<Case>();
 	current_case = root_case->add_switch({})->add_case({});
+#endif
 }
 
 ProceduralContext::~ProceduralContext()
@@ -127,14 +129,18 @@ void ProceduralContext::inherit_state(ProceduralContext &other)
 	flag_counter = other.flag_counter;
 }
 
+#ifndef SLANG_MUX_LOWERING
 void ProceduralContext::copy_case_tree_into(RTLIL::CaseRule &rule)
 {
 	root_case->copy_into(netlist, &rule);
 }
+#endif
 
 void ProceduralContext::descend_into_empty_case()
 {
+#ifndef SLANG_MUX_LOWERING
 	current_case = current_case->add_switch({})->add_case({});
+#endif
 }
 
 VariableBits ProceduralContext::all_driven()
@@ -158,12 +164,15 @@ ir::Net ProceduralContext::case_enable()
 {
 	if (timing.kind == ProcessTiming::Initial) {
 		return ir::S1;
-	} else {
-		ir::Value ret = netlist.add_placeholder_signal(1);
-		root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
-		current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
-		return ret.as_net();
 	}
+#ifdef SLANG_MUX_LOWERING
+	return enabled;
+#else
+	ir::Value ret = netlist.add_placeholder_signal(1);
+	root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
+	current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
+	return ret.as_net();
+#endif
 }
 
 void crop_zero_mask(const ir::Value &mask, ir::Value &target)
@@ -289,7 +298,9 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 		return;
 	}
 
+#ifndef SLANG_MUX_LOWERING
 	current_case->actions.push_back(Case::Action{loc, lvalue, mask, unmasked_rvalue});
+#endif
 
 	if (mask.is_fully_ones()) {
 		// shortcut path to support initialization of automatic variables

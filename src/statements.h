@@ -29,6 +29,239 @@ public:
 		  unroll_limit(context.unroll_limit)
 	{}
 
+#ifdef SLANG_MUX_LOWERING
+	struct SwitchHelper
+	{
+		using VariableState = ProceduralContext::VariableState;
+		ProceduralContext &context;
+		VariableState &vstate;
+		VariableState::Snapshot save_snap;
+
+		ir::Value dispatch;
+		struct CaseInfo
+		{
+			std::vector<ValuePattern> compare;
+			ir::Net cond;
+		};
+
+		std::optional<CaseInfo> current_case_info;
+		std::vector<std::tuple<CaseInfo, VariableBits, ir::Value>> branch_updates;
+		bool finished = false;
+
+		// Enable coming from upstream of the current switch
+		ir::Net original_enabled;
+		// `original_enabled` with masking to account for already
+		// processed branches
+		ir::Net masked_enabled;
+
+		SwitchHelper(ProceduralContext &context, ir::Value signal,
+				const ast::Statement *statement = nullptr)
+			: context(context), vstate(context.vstate), dispatch(signal),
+			  original_enabled(context.enabled), masked_enabled(context.enabled)
+		{}
+
+		~SwitchHelper()
+		{
+			log_assert(!current_case_info.has_value());
+			log_assert(branch_updates.empty() || finished);
+		}
+
+		SwitchHelper(const SwitchHelper &) = delete;
+		SwitchHelper &operator=(const SwitchHelper &) = delete;
+		SwitchHelper(SwitchHelper &&other)
+			: context(other.context), vstate(other.vstate), dispatch(std::move(other.dispatch)),
+			  current_case_info(std::move(other.current_case_info)),
+			  original_enabled(other.original_enabled), masked_enabled(other.masked_enabled),
+			  finished(other.finished)
+		{
+			branch_updates.swap(other.branch_updates);
+			std::swap(save_snap, other.save_snap);
+			other.current_case_info = std::nullopt;
+			other.finished = false;
+		}
+
+		ir::Net compute_condition(NetlistContext &netlist, const std::vector<ValuePattern> &compare)
+		{
+			ir::Value cond;
+			for (auto &pat : compare) {
+				ir::Value sig, filtered_pat;
+				for (int i = 0; i < pat.size(); i++) {
+					if (pat.bits[i].is_wildcard())
+						continue;
+					sig.append(dispatch[i]);
+					filtered_pat.append(pat.bits[i].net);
+				}
+				ir::Value match = sig.empty() ? ir::Value(ir::S1) : netlist.Eq(sig, filtered_pat);
+				if (cond.empty())
+					cond = match;
+				else
+					cond = netlist.LogicOr(cond, match);
+			}
+			if (compare.empty())
+				cond = ir::Value(ir::S1);
+			return cond.as_net();
+		}
+
+		void enter_branch(
+				std::vector<ValuePattern> compare, const ast::Statement *case_statement = nullptr)
+		{
+			auto &netlist = context.netlist;
+			save_snap = {};
+			vstate.save(save_snap);
+			log_assert(!current_case_info.has_value());
+			ir::Net cond = compute_condition(netlist, compare);
+			current_case_info = CaseInfo{compare, cond};
+			context.enabled = netlist.LogicAnd(masked_enabled, ir::Value(cond));
+		}
+
+		void exit_branch()
+		{
+			auto &netlist = context.netlist;
+			log_assert(current_case_info.has_value());
+			masked_enabled =
+					netlist.LogicAnd(masked_enabled, netlist.LogicNot(current_case_info->cond));
+			auto updates = vstate.restore(save_snap);
+			std::optional<CaseInfo> info;
+			info.swap(current_case_info);
+			branch_updates.push_back(std::make_tuple(*info, updates.first, updates.second));
+		}
+
+		void branch(std::vector<ValuePattern> compare, std::function<void()> f,
+				const ast::Statement *case_statement = nullptr)
+		{
+			if (compare.size() == 1 && compare[0].is_fully_concrete() && dispatch.is_fully_def() &&
+					dispatch != lower_pattern(compare[0])) {
+				return;
+			}
+
+			enter_branch(compare, case_statement);
+			f();
+			exit_branch();
+		}
+
+		bool detect_full_case()
+		{
+			int full_width = dispatch.size();
+			int width = full_width;
+			while (width > 0 && dispatch[width - 1] == ir::S0)
+				width--;
+			if (width == 0 || width > 16)
+				return false;
+
+			int total = 1 << width;
+			std::vector<bool> covered(total, false);
+			for (auto &[case1, target, updates] : branch_updates) {
+				if (case1.compare.empty()) {
+					std::fill(covered.begin(), covered.end(), true);
+				} else {
+					for (auto &pat : case1.compare) {
+						if (pat.size() < width)
+							continue;
+
+						bool skip_pattern = false;
+						for (int i = width; i < pat.size(); i++) {
+							if (pat.bits[i] != PatternBit(ir::S0)) {
+								skip_pattern = true;
+								break;
+							}
+						}
+						if (skip_pattern)
+							continue;
+
+						uint64_t base = 0;
+						uint64_t dc_mask = 0;
+
+						for (int i = 0; i < width; i++) {
+							auto bit = pat.bits[i];
+							if (bit.is_wildcard()) {
+								dc_mask |= ((uint64_t)1) << i;
+							} else if (pat.bits[i] == PatternBit(ir::S1)) {
+								base |= ((uint64_t)1) << i;
+							} else if (pat.bits[i] == PatternBit(ir::S0)) {
+								// do nothing
+							} else {
+								skip_pattern = true;
+							}
+						}
+						if (skip_pattern)
+							continue;
+
+						for (uint64_t dc_val = 0;; dc_val = (((dc_val | ~dc_mask) + 1) & dc_mask)) {
+							covered[base | dc_val] = true;
+							if (dc_val == dc_mask)
+								break;
+						}
+					}
+				}
+			}
+
+			for (int i = 0; i < total; i++)
+				if (!covered[i])
+					return false;
+
+			return true;
+		}
+
+		void finish(NetlistContext &netlist, bool full_case = false, bool parallel_case = false)
+		{
+			if (!full_case)
+				full_case = detect_full_case();
+
+			VariableBits updated_anybranch;
+			for (auto &branch : branch_updates)
+				updated_anybranch.append(std::get<1>(branch));
+			updated_anybranch.sort_and_unify();
+
+			Yosys::pool<Variable> eos_variables;
+			auto &va = vstate.visible_assignments;
+			for (auto bit : updated_anybranch)
+				if (bit.variable.kind != Variable::Static && !va.count(bit))
+					eos_variables.insert(bit.variable);
+
+			ir::Value background;
+			for (auto chunk : updated_anybranch.chunks()) {
+				if (chunk.variable.kind != Variable::Static &&
+						eos_variables.count(chunk.variable)) {
+					for (int i = 0; i < chunk.bitwidth(); i++)
+						log_assert(!va.count(chunk[i]));
+					background.append(ir::Value(ir::Sx, chunk.bitwidth()));
+					continue;
+				}
+				background.append(vstate.evaluate(netlist, chunk));
+				if (full_case)
+					vstate.set(chunk, ir::Value(ir::Sx, chunk.bitwidth()));
+			}
+
+			for (auto it = branch_updates.rbegin(); it != branch_updates.rend(); it++) {
+				auto &[info, target, updates] = *it;
+
+				int done = 0;
+				for (auto chunk : updated_anybranch.chunks()) {
+					if (eos_variables.count(chunk.variable)) {
+						done += chunk.bitwidth();
+						continue;
+					}
+
+					ir::Value chunk_updated;
+					for (int i = 0; i < chunk.bitwidth(); i++) {
+						auto lb = std::lower_bound(target.begin(), target.end(), chunk[i]);
+						bool exists = (lb != target.end() && *lb == chunk[i]);
+						if (exists)
+							chunk_updated.append(updates[lb - target.begin()]);
+						else
+							chunk_updated.append(background[done + i]);
+					}
+					vstate.set(chunk,
+							netlist.Mux(vstate.evaluate(netlist, chunk), chunk_updated, info.cond));
+					done += chunk.bitwidth();
+				}
+			}
+
+			context.enabled = original_enabled;
+			finished = true;
+		}
+	};
+#else
 	struct SwitchHelper
 	{
 		Case *parent;
@@ -176,6 +409,7 @@ public:
 			finished = true;
 		}
 	};
+#endif
 
 	static const ast::Statement *unwrap_statement(const ast::Statement *statement)
 	{

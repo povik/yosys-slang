@@ -225,8 +225,12 @@ public:
 	EvalContext eval;
 	int effects_priority = 0;
 
+#ifndef SLANG_MUX_LOWERING
 	std::unique_ptr<Case> root_case;
 	Case *current_case;
+#else
+	ir::Net enabled = ir::S1;
+#endif
 
 	// only used when timing.kind==ProcessTiming::Initial
 	Yosys::dict<VariableBit, ir::Trit> initial_locals_state;
@@ -245,7 +249,9 @@ public:
 	// used to inherit the variable state and effect sequencing of another
 	// ProceduralContext without inheriting the ProcessTiming
 	void inherit_state(ProceduralContext &other);
+#ifndef SLANG_MUX_LOWERING
 	void copy_case_tree_into(RTLIL::CaseRule &rule);
+#endif
 	VariableBits all_driven();
 
 	// Return an enable signal for the current case node

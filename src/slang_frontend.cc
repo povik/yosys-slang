@@ -1346,9 +1346,11 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 					visitor.eval.ignore_ast_constants = ignore_ast_constants;
 					ret = visitor.handle_call(call);
 
+#ifndef SLANG_MUX_LOWERING
 					RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 					transfer_attrs(netlist, call, proc);
 					context.copy_case_tree_into(proc->root_case);
+#endif
 				}
 			}
 		}
@@ -1433,13 +1435,26 @@ public:
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
+#ifndef SLANG_MUX_LOWERING
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(netlist, body, proc);
+#endif
 
 		ProceduralContext procedure(netlist, ProcessTiming::implicit);
 		body.visit(StatementExecutor(procedure));
 
 		VariableBits all_driven = procedure.all_driven();
+
+#ifdef SLANG_MUX_LOWERING
+		// With mux lowering we emit feedback muxes for latches for now
+		VariableBits cl;
+		ir::Value cr;
+		for (auto driven_bit : all_driven) {
+			cl.append(driven_bit);
+			cr.append(procedure.vstate.visible_assignments.at(driven_bit));
+		}
+		netlist.add_continuous_driver(cl, cr);
+#else
 		Yosys::pool<VariableBit> dangling;
 		if (symbol.procedureKind != ast::ProceduralBlockKind::AlwaysComb) {
 			Yosys::pool<VariableBit> driven_pool = {all_driven.begin(), all_driven.end()};
@@ -1500,6 +1515,7 @@ public:
 
 		procedure.copy_case_tree_into(proc->root_case);
 		netlist.add_continuous_driver(cl, cr);
+#endif
 	}
 
 	void handle_ff_process(const ast::ProceduralBlockSymbol &symbol,
@@ -1512,8 +1528,10 @@ public:
 		log_assert(symbol.getBody().kind == ast::StatementKind::Timed);
 		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
 
+#ifndef SLANG_MUX_LOWERING
 		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
 		transfer_attrs(netlist, timed.stmt, proc);
+#endif
 
 		ProcessTiming prologue_timing(ProcessTiming::EdgeTriggered);
 		{
@@ -1531,7 +1549,9 @@ public:
 			for (auto stmt : prologue_statements)
 				stmt->visit(visitor);
 		}
+#ifndef SLANG_MUX_LOWERING
 		prologue.copy_case_tree_into(proc->root_case);
+#endif
 
 		struct Aload {
 			ir::Net trigger;
@@ -1556,7 +1576,9 @@ public:
 
 			branch.inherit_state(prologue);
 			async_branch.body.visit(StatementExecutor(branch));
+#ifndef SLANG_MUX_LOWERING
 			branch.copy_case_tree_into(proc->root_case);
+#endif
 			aloads.push_back({
 				sig.as_net(), async_branch.polarity, branch.vstate, &async_branch.body
 			});
@@ -1577,7 +1599,9 @@ public:
 			EnterAutomaticScopeGuard guard(sync_procedure.eval, prologue_block);
 			sync_procedure.inherit_state(prologue);
 			sync_body.visit(StatementExecutor(sync_procedure));
+#ifndef SLANG_MUX_LOWERING
 			sync_procedure.copy_case_tree_into(proc->root_case);
+#endif
 
 			// FIXME: ignores variables not driven from the sync procedure
 			VariableBits driven = sync_procedure.all_driven();
