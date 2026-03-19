@@ -371,7 +371,7 @@ public:
 
 		if (cond.ifFalse) {
 			b.branch({}, [&]() {
-				context.current_case->statement = &cond.ifTrue;
+				context.current_case->statement = cond.ifFalse;
 				cond.ifFalse->visit(*this);
 			});
 		}
