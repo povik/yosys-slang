@@ -132,6 +132,11 @@ void ProceduralContext::copy_case_tree_into(RTLIL::CaseRule &rule)
 	root_case->copy_into(netlist, &rule);
 }
 
+void ProceduralContext::descend_into_empty_case()
+{
+	current_case = current_case->add_switch({})->add_case({});
+}
+
 VariableBits ProceduralContext::all_driven()
 {
 	VariableBits all_driven;

@@ -42,11 +42,13 @@ public:
 		std::vector<std::tuple<Case *, VariableBits, ir::Value>> branch_updates;
 		bool entered = false, finished = false;
 
-		SwitchHelper(ProceduralContext &context, ir::Value signal)
+		SwitchHelper(ProceduralContext &context, ir::Value signal,
+				const ast::Statement *statement = nullptr)
 			: parent(context.current_case), current_case(context.current_case),
 			  vstate(context.vstate)
 		{
 			sw = parent->add_switch(signal);
+			sw->statement = statement;
 		}
 
 		~SwitchHelper()
@@ -67,13 +69,15 @@ public:
 			other.finished = false;
 		}
 
-		void enter_branch(std::vector<ValuePattern> compare)
+		void enter_branch(
+				std::vector<ValuePattern> compare, const ast::Statement *case_statement = nullptr)
 		{
 			save_snap = {};
 			vstate.save(save_snap);
 			log_assert(!entered);
 			log_assert(current_case == parent);
 			current_case = sw->add_case(compare);
+			current_case->statement = case_statement;
 			entered = true;
 		}
 
@@ -88,7 +92,8 @@ public:
 			branch_updates.push_back(std::make_tuple(this_case, updates.first, updates.second));
 		}
 
-		void branch(std::vector<ValuePattern> compare, std::function<void()> f)
+		void branch(std::vector<ValuePattern> compare, std::function<void()> f,
+				const ast::Statement *case_statement = nullptr)
 		{
 			// TODO: extend detection
 			if (compare.size() == 1 && compare[0].is_fully_def() && sw->signal.is_fully_def() &&
@@ -97,13 +102,15 @@ public:
 				return;
 			}
 
-			enter_branch(compare);
+			enter_branch(compare, case_statement);
 			f();
 			exit_branch();
 		}
 
-		void finish(NetlistContext &netlist)
+		void finish(NetlistContext &netlist, bool full_case = false, bool parallel_case = false)
 		{
+			sw->full_case = full_case;
+			sw->parallel_case = parallel_case;
 			VariableBits updated_anybranch;
 			for (auto &branch : branch_updates)
 				updated_anybranch.append(std::get<1>(branch));
@@ -330,10 +337,8 @@ public:
 		for (auto &stmt : list.list) {
 			ir::Value disable_rv = disable ? context.substitute_rvalue(disable) : ir::Value(ir::S0);
 			if (!disable_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context, disable_rv);
-				b.sw->statement = stmt;
-				b.enter_branch({ir::S0});
-				context.current_case->statement = stmt;
+				auto &b = sw_stack.emplace_back(context, disable_rv, stmt);
+				b.enter_branch({ir::S0}, stmt);
 
 				// From a semantical POV the following is a no-op, but it allows us to
 				// do more constant folding.
@@ -373,23 +378,14 @@ public:
 		}
 
 		SwitchHelper b(context, condition);
-		b.sw->statement = &cond;
-
-		b.branch({ir::S1}, [&]() {
-			context.current_case->statement = &cond.ifTrue;
-			cond.ifTrue.visit(*this);
-		});
-
+		b.branch({ir::S1}, [&]() { cond.ifTrue.visit(*this); }, &cond.ifTrue);
 		if (cond.ifFalse) {
-			b.branch({}, [&]() {
-				context.current_case->statement = cond.ifFalse;
-				cond.ifFalse->visit(*this);
-			});
+			b.branch({}, [&]() { cond.ifFalse->visit(*this); }, cond.ifFalse);
 		}
 		b.finish(netlist);
 
 		// descend into an empty switch so we force action priority for follow-up statements
-		context.current_case = context.current_case->add_switch({})->add_case({});
+		context.descend_into_empty_case();
 	}
 
 	void handle(const ast::CaseStatement &stmt)
@@ -406,19 +402,17 @@ public:
 		}
 
 		ir::Value dispatch = eval(stmt.expr);
-		SwitchHelper b(context, stmt.condition == ast::CaseStatementCondition::Inside
-										? ir::Value(ir::S1)
-										: dispatch);
+		SwitchHelper b(context,
+				stmt.condition == ast::CaseStatementCondition::Inside ? ir::Value(ir::S1)
+																	  : dispatch,
+				&stmt);
 
-		b.sw->statement = &stmt;
+		bool full_case = false, parallel_case = false;
 		switch (stmt.check) {
-		case ast::UniquePriorityCheck::Priority: b.sw->full_case = true; break;
-		case ast::UniquePriorityCheck::Unique:
-			b.sw->full_case = true;
-			b.sw->parallel_case = true;
-			break;
-		case ast::UniquePriorityCheck::Unique0: b.sw->parallel_case = true; break;
-		case ast::UniquePriorityCheck::None:    break;
+		case ast::UniquePriorityCheck::Priority: full_case = true; break;
+		case ast::UniquePriorityCheck::Unique:   full_case = parallel_case = true; break;
+		case ast::UniquePriorityCheck::Unique0:  parallel_case = true; break;
+		case ast::UniquePriorityCheck::None:     break;
 		}
 
 		for (auto item : stmt.items) {
@@ -455,22 +449,17 @@ public:
 				compares.push_back(compare);
 			}
 			require(stmt, !compares.empty());
-			b.branch(compares, [&]() {
-				context.current_case->statement = item.stmt;
-				item.stmt->visit(*this);
-			});
+			b.branch(compares, [&]() { item.stmt->visit(*this); }, item.stmt);
 		}
 
 		if (stmt.defaultCase) {
-			b.branch(std::vector<ValuePattern>{}, [&]() {
-				context.current_case->statement = stmt.defaultCase;
-				stmt.defaultCase->visit(*this);
-			});
+			b.branch(
+					std::vector<ValuePattern>{}, [&]() { stmt.defaultCase->visit(*this); },
+					stmt.defaultCase);
 		}
-		b.finish(netlist);
+		b.finish(netlist, full_case, parallel_case);
 
-		// descend into an empty switch so we force action priority for follow-up statements
-		context.current_case = context.current_case->add_switch({})->add_case({});
+		context.descend_into_empty_case();
 	}
 
 	void handle(const ast::WhileLoopStatement &stmt)
@@ -484,10 +473,8 @@ public:
 			ir::Value joint_break = netlist.LogicOr(netlist.LogicNot(cv), break_rv);
 
 			if (!joint_break.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context, joint_break);
-				b.sw->statement = &stmt;
-				b.enter_branch({ir::S0});
-				context.current_case->statement = &stmt.body;
+				auto &b = sw_stack.emplace_back(context, joint_break, &stmt);
+				b.enter_branch({ir::S0}, &stmt.body);
 
 				// From a semantical POV the following is a no-op, but it allows us to
 				// do more constant folding.
@@ -514,7 +501,7 @@ public:
 			it->finish(netlist);
 		}
 
-		context.current_case = context.current_case->add_switch({})->add_case({});
+		context.descend_into_empty_case();
 	}
 
 	void handle(const ast::ForLoopStatement &stmt)
@@ -535,10 +522,8 @@ public:
 			ir::Value cv = netlist.ReduceBool(eval(*stmt.stopExpr));
 
 			if (!cv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context, cv);
-				b.sw->statement = &stmt;
-				b.enter_branch({ir::S1});
-				context.current_case->statement = &stmt.body;
+				auto &b = sw_stack.emplace_back(context, cv, &stmt);
+				b.enter_branch({ir::S1}, &stmt.body);
 			} else if (!cv.as_bool()) {
 				break;
 			} else {
@@ -553,10 +538,8 @@ public:
 			ir::Value break_rv = context.substitute_rvalue(guard1.flag);
 
 			if (!break_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context, break_rv);
-				b.sw->statement = &stmt;
-				b.enter_branch({ir::S0});
-				context.current_case->statement = &stmt.body;
+				auto &b = sw_stack.emplace_back(context, break_rv, &stmt);
+				b.enter_branch({ir::S0}, &stmt.body);
 			} else if (break_rv.as_bool()) {
 				break;
 			} else {
@@ -576,7 +559,7 @@ public:
 			it->finish(netlist);
 		}
 
-		context.current_case = context.current_case->add_switch({})->add_case({});
+		context.descend_into_empty_case();
 	}
 
 	void handle(const ast::ForeachLoopStatement &stmt)
@@ -616,10 +599,8 @@ public:
 			ir::Value break_rv = context.substitute_rvalue(guard1.flag);
 
 			if (!break_rv.is_fully_const()) {
-				auto &b = sw_stack.emplace_back(context, break_rv);
-				b.sw->statement = &stmt;
-				b.enter_branch({ir::S0});
-				context.current_case->statement = &stmt.body;
+				auto &b = sw_stack.emplace_back(context, break_rv, &stmt);
+				b.enter_branch({ir::S0}, &stmt.body);
 			} else if (break_rv.as_bool()) {
 				break;
 			} else {
@@ -679,7 +660,7 @@ public:
 			it->finish(netlist);
 		}
 
-		context.current_case = context.current_case->add_switch({})->add_case({});
+		context.descend_into_empty_case();
 	}
 
 	void handle(const ast::EmptyStatement &) {}

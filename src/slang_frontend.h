@@ -251,6 +251,9 @@ public:
 	// Return an enable signal for the current case node
 	ir::Net case_enable();
 
+	// Action priority barrier: creates a trivial empty switch/case
+	void descend_into_empty_case();
+
 	// For $check, $print cells
 	void set_effects_trigger(RTLIL::Cell *cell);
 	void update_variable_state(slang::SourceLocation loc, VariableBits lvalue, ir::Value unmasked_rvalue, ir::Value mask, bool blocking);
