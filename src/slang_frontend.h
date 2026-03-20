@@ -507,6 +507,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// Returns an ID string to use in the netlist to represent the given symbol.
 	std::string id(const ast::Symbol &sym);
 	std::string id(const ast::ValueSymbol &sym);
+	std::string unescaped_id(const ast::Symbol &sym);
 	std::string hdlname(const ast::Symbol &sym);
 
 	ir::Value add_wire(const ast::ValueSymbol &sym);

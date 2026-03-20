@@ -44,6 +44,8 @@ static ValuePattern svint_to_pattern(
 #include "async_pattern.h"
 #include "variables.h"
 
+using namespace std::string_literals;
+
 namespace slang_frontend {
 
 static ValuePattern svint_to_pattern(
@@ -1589,8 +1591,8 @@ public:
 				if (aloads.empty()) {
 					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
 						log_assert(named_chunk.variable.get_symbol() != nullptr);
-						std::string base_name = Yosys::stringf("$driver$%s%s",
-							RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+						auto symbol = named_chunk.variable.get_symbol();
+						std::string base_name = "$driver$"s + netlist.unescaped_id(*symbol) + name;
 
 						if (clock.edge == ast::EdgeKind::BothEdges) {
 							netlist.add_dual_edge_aldff(base_name,
@@ -1625,8 +1627,8 @@ public:
 						for (auto driven_chunk2 : aldff_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
 							log_assert(named_chunk.variable.get_symbol() != nullptr);
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							auto symbol = named_chunk.variable.get_symbol();
+							std::string base_name = "$driver$"s + netlist.unescaped_id(*symbol) + name;
 
 							if (clock.edge == ast::EdgeKind::BothEdges) {
 								netlist.add_dual_edge_aldff(base_name,
@@ -1658,8 +1660,9 @@ public:
 
 						for (auto driven_chunk2 : dffe_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							log_assert(named_chunk.variable.get_symbol() != nullptr);
+							auto symbol = named_chunk.variable.get_symbol();
+							std::string base_name = "$driver$"s + netlist.unescaped_id(*symbol) + name;
 
 							netlist.add_dffe(base_name,
 											 timing.triggers[0].signal,
@@ -2690,6 +2693,11 @@ std::string build_hiername(NetlistContext &netlist, const ast::Symbol &symbol,
 std::string NetlistContext::id(const ast::Symbol &symbol)
 {
 	return RTLIL::escape_id(build_hiername(*this, symbol, "."));
+}
+
+std::string NetlistContext::unescaped_id(const ast::Symbol &symbol)
+{
+	return build_hiername(*this, symbol, ".");
 }
 
 std::string NetlistContext::id(const ast::ValueSymbol &symbol)
