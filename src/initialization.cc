@@ -141,7 +141,7 @@ void finalize_variable_initialization(NetlistContext &netlist)
 		} else {
 			auto signal = netlist.convert_static(variable);
 			ir::Value cl, cr; // lhs/rhs of a new connection
-			RTLIL::Const attr_value(RTLIL::Sx, signal.size());
+			ir::Const init_value(ir::Sx, signal.size());
 			for (int i = 0; i < signal.size(); i++) {
 				VariableBit vbit(variable, i);
 				bool register_driven = netlist.register_driven_variables.count(vbit);
@@ -150,11 +150,7 @@ void finalize_variable_initialization(NetlistContext &netlist)
 				log_assert(!register_driven || driven);
 				ir::Trit state = netlist.initial_state.at(vbit, ir::Sx);
 				if (register_driven) {
-#if YOSYS_MAJOR == 0 && YOSYS_MINOR < 58
-					attr_value.bits()[i] = state;
-#else
-					attr_value.set(i, state);
-#endif
+					init_value.set(i, state);
 				} else {
 					if (!driven) {
 						cl.append(signal[i]);
@@ -163,11 +159,7 @@ void finalize_variable_initialization(NetlistContext &netlist)
 				}
 			}
 
-			if (!attr_value.is_fully_undef()) {
-				log_assert(signal.is_wire());
-				RTLIL::Wire *wire = signal.chunks().begin()->wire;
-				wire->attributes[ID::init] = attr_value;
-			}
+			netlist.set_initialization(signal, init_value);
 			netlist.connect(cl, cr);
 		}
 	});

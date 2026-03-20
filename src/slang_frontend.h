@@ -392,6 +392,11 @@ struct RTLILBuilder {
     // `target` must be composed solely of signal bits created using add_placeholder_signal
 	void connect(ir::Value target, ir::Value source);
 
+	// Set initialization on the driver of `signal`
+	//
+	// `signal` must have been returned from `add_placeholder_signal`
+	void set_initialization(ir::Value signal, ir::Const init_value);
+
 	// Add initialization data on the given memory. The data starts
 	// at bit position `base` which doesn't need to be on a word boundary
 	void add_memory_init(std::string_view name, uint64_t bit_offset,

@@ -469,6 +469,15 @@ void RTLILBuilder::connect(ir::Value lhs, ir::Value rhs)
 	}
 }
 
+void RTLILBuilder::set_initialization(ir::Value signal, ir::Const init_value)
+{
+	if (init_value.is_fully_undef())
+		return;
+	log_assert(signal.is_wire());
+	RTLIL::Wire *wire = signal.chunks().begin()->wire;
+	wire->attributes[ID::init] = init_value.to_rtlil();
+}
+
 // Synthesizes two single-edge FFs (one posedge, one negedge) with the same D input,
 // then uses a mux controlled by the clock to select the appropriate FF output.
 void RTLILBuilder::add_dual_edge_aldff(const std::string &base_name, ir::Value clk, ir::Value aload,
