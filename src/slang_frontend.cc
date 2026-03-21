@@ -414,7 +414,7 @@ RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left,
 		);
 	} else {
 		RTLIL::SigSpec expr_signal = eval(expr);
-		require(expr, expr_signal.size() == left.size());
+		ast_invariant(expr, expr_signal.size() == left.size());
 
 		if (expr.type->isIntegral()) {
 			require(expr, expr_signal.is_fully_const());
