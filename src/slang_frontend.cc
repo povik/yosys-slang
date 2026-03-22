@@ -127,8 +127,6 @@ std::string format_src(const T &obj)
 
 };
 
-#include "addressing.h"
-
 namespace slang_frontend {
 
 const RTLIL::IdString id(const std::string_view &view)
@@ -620,7 +618,7 @@ VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(netlist.eval, sel);
+			AddressingResolver addr(netlist.eval, sel);
 			VariableBits inner = lhs(sel.value());
 			ret = addr.extract<VariableBits>(inner, sel.type->getBitstreamWidth());
 		}
@@ -636,7 +634,7 @@ VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 			require(expr, elemsel.value().type->isBitstreamType() && elemsel.value().type->hasFixedRange());
-			Addressing addr(*this, elemsel);
+			AddressingResolver addr(*this, elemsel);
 			ret = addr.extract<VariableBits>(lhs(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
@@ -1203,8 +1201,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing addr(*this, sel);
-			ret = addr.shift_down<RTLIL::SigSpec>((*this)(sel.value()), sel.type->getBitstreamWidth());
+			AddressingResolver addr(*this, sel);
+			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
@@ -1240,8 +1238,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				break;
 			}
 
-			Addressing addr(*this, elemsel);
-			ret = addr.mux<RTLIL::SigSpec>((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
+			AddressingResolver addr(*this, elemsel);
+			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:

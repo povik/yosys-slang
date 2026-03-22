@@ -40,6 +40,8 @@ namespace slang {
 		class AssignmentExpression;
 		class FieldSymbol;
 		class NetSymbol;
+		class ElementSelectExpression;
+		class RangeSelectExpression;
 	};
 };
 
@@ -601,5 +603,38 @@ std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::
 // initialization.cc
 void evaluate_decl_initializers(NetlistContext &netlist);
 void finalize_variable_initialization(NetlistContext &netlist);
+
+// addressing.cc
+class AddressingResolver {
+public:
+	AddressingResolver(EvalContext &eval, const ast::ElementSelectExpression &sel);
+	AddressingResolver(EvalContext &eval, const ast::RangeSelectExpression &sel);
+
+	RTLIL::SigSpec shift_up(RTLIL::SigSpec val, bool oor_undef, int output_len);
+	RTLIL::SigSpec demux(RTLIL::SigSpec val, int output_len);
+	RTLIL::SigSpec mux(RTLIL::SigSpec val, int output_len);
+	RTLIL::SigSpec shift_down(RTLIL::SigSpec val, int output_len);
+	template <typename Bundle> Bundle extract(Bundle val, int width);
+
+	slang::ConstantRange range;
+private:
+	void interpret_index(RTLIL::SigSpec signal, int width_down = 1, int width_up = 1);
+
+	RTLIL::SigSpec shift_up_bitwise(RTLIL::SigSpec val, bool oor_undef, int output_len);
+	RTLIL::SigSpec shift_down_bitwise(RTLIL::SigSpec val, int output_len);
+	RTLIL::SigSpec raw_demux(RTLIL::SigSpec val, int from, int to);
+	RTLIL::SigSpec raw_mux(RTLIL::SigSpec val, int from, int to, int stride);
+	RTLIL::SigSpec embed(RTLIL::SigSpec val, int output_len, int stride, RTLIL::State padding);
+
+	// these summed together are the zero-based index of the bottom item
+	// of the selection
+	RTLIL::SigSpec raw_signal;
+	int base_offset;
+	int stride = 1;
+
+	const ast::Expression &expr;
+	EvalContext &eval;
+	NetlistContext &netlist;
+};
 
 };
