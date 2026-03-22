@@ -405,10 +405,10 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 		switch (raw_lexpr->kind) {
 		case ast::ExpressionKind::RangeSelect: {
 			auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
-			Addressing<RTLIL::SigSpec> addr(eval, sel);
+			Addressing addr(eval, sel);
 			int wider_size = sel.value().type->getBitstreamWidth();
-			raw_mask = addr.shift_up(raw_mask, false, wider_size);
-			raw_rvalue = addr.shift_up(raw_rvalue, true, wider_size);
+			raw_mask = addr.shift_up<RTLIL::SigSpec>(raw_mask, false, wider_size);
+			raw_rvalue = addr.shift_up<RTLIL::SigSpec>(raw_rvalue, true, wider_size);
 			raw_lexpr = &sel.value();
 		} break;
 		case ast::ExpressionKind::ElementSelect: {
@@ -420,8 +420,8 @@ void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &ass
 				break;
 			}
 
-			Addressing<RTLIL::SigSpec> addr(eval, sel);
-			raw_mask = addr.demux(raw_mask, sel.value().type->getBitstreamWidth());
+			Addressing addr(eval, sel);
+			raw_mask = addr.demux<RTLIL::SigSpec>(raw_mask, sel.value().type->getBitstreamWidth());
 			raw_rvalue = raw_rvalue.repeat(addr.range.width());
 			raw_lexpr = &sel.value();
 		} break;

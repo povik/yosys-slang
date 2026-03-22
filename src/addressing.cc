@@ -13,7 +13,7 @@
 
 namespace slang_frontend {
 
-template <> RTLIL::SigSpec Addressing<RTLIL::SigSpec>::extract(RTLIL::SigSpec val, int width)
+template <> RTLIL::SigSpec Addressing::extract<RTLIL::SigSpec>(RTLIL::SigSpec val, int width)
 {
 	using Signal = RTLIL::SigSpec;
 
@@ -31,7 +31,7 @@ template <> RTLIL::SigSpec Addressing<RTLIL::SigSpec>::extract(RTLIL::SigSpec va
 	return ret;
 }
 
-template <> VariableBits Addressing<VariableBits>::extract(VariableBits val, int width)
+template <> VariableBits Addressing::extract<VariableBits>(VariableBits val, int width)
 {
 	using Signal = VariableBits;
 

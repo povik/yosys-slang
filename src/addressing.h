@@ -12,7 +12,7 @@
 namespace slang_frontend {
 
 // TODO: audit for overflows
-template <typename Signal> struct Addressing
+struct Addressing
 {
 	const ast::Expression &expr;
 
@@ -94,7 +94,7 @@ template <typename Signal> struct Addressing
 			stride = 1;
 	}
 
-	Signal shift_up_bitwise(Signal val, bool oor_undef, int output_len)
+	template <typename Signal> Signal shift_up_bitwise(Signal val, bool oor_undef, int output_len)
 	{
 		int shifted_len = output_len;
 		Signal val2 = val, shifted;
@@ -117,7 +117,7 @@ template <typename Signal> struct Addressing
 			return shifted;
 	}
 
-	Signal shift_up(Signal val, bool oor_undef, int output_len)
+	template <typename Signal> Signal shift_up(Signal val, bool oor_undef, int output_len)
 	{
 		if (raw_signal.is_fully_def()) {
 			return embed(val, output_len, stride, oor_undef ? RTLIL::Sx : RTLIL::S0);
@@ -144,7 +144,7 @@ template <typename Signal> struct Addressing
 		}
 	}
 
-	Signal raw_demux(Signal val, int from, int to)
+	template <typename Signal> Signal raw_demux(Signal val, int from, int to)
 	{
 		log_assert(val.size() == stride);
 		Signal negative, positive;
@@ -194,7 +194,7 @@ template <typename Signal> struct Addressing
 		return {positive, negative};
 	}
 
-	Signal demux(Signal val, int output_len)
+	template <typename Signal> Signal demux(Signal val, int output_len)
 	{
 		log_assert(val.size() == stride);
 		log_assert(output_len % stride == 0);
@@ -204,7 +204,7 @@ template <typename Signal> struct Addressing
 		return demuxed.extract(std::max(0, -stride * base_offset), output_len);
 	}
 
-	Signal raw_mux(Signal val, int from, int to, int stride)
+	template <typename Signal> Signal raw_mux(Signal val, int from, int to, int stride)
 	{
 		log_assert(stride * (to - from) == val.size());
 		Signal negative(Sx, stride), positive(Sx, stride);
@@ -241,17 +241,17 @@ template <typename Signal> struct Addressing
 		return netlist.Mux(positive, negative, raw_signal.msb());
 	}
 
-	Signal mux(Signal val, int output_len)
+	template <typename Signal> Signal mux(Signal val, int output_len)
 	{
 		log_assert(output_len == stride);
 		log_assert(val.size() % stride == 0);
-		return raw_mux({Signal(Sx, std::max(0, base_offset * stride - val.size())), val,
-							   Signal(Sx, std::max(0, stride * -base_offset))},
+		return raw_mux<Signal>({Signal(Sx, std::max(0, base_offset * stride - val.size())), val,
+									   Signal(Sx, std::max(0, stride * -base_offset))},
 				-std::max(0, base_offset), std::max(0, -base_offset + val.size() / stride),
 				output_len);
 	}
 
-	Signal shift_down_bitwise(Signal val, int output_len)
+	template <typename Signal> Signal shift_down_bitwise(Signal val, int output_len)
 	{
 		int shifted_len = output_len;
 		Signal val2 = val, shifted;
@@ -269,7 +269,7 @@ template <typename Signal> struct Addressing
 			return shifted;
 	}
 
-	Signal shift_down(Signal val, int output_len)
+	template <typename Signal> Signal shift_down(Signal val, int output_len)
 	{
 		if (raw_signal.is_fully_def()) {
 			return extract(val, output_len);
@@ -296,8 +296,9 @@ template <typename Signal> struct Addressing
 		}
 	}
 
-	Signal extract(Signal val, int width);
+	template <typename Signal> Signal extract(Signal val, int width);
 
+	template <typename Signal>
 	Signal embed(Signal val, int output_len, int stride, RTLIL::State padding)
 	{
 		ast_invariant(expr, raw_signal.is_fully_def());

@@ -620,9 +620,9 @@ VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing<VariableBits> addr(netlist.eval, sel);
+			Addressing addr(netlist.eval, sel);
 			VariableBits inner = lhs(sel.value());
-			ret = addr.extract(inner, sel.type->getBitstreamWidth());
+			ret = addr.extract<VariableBits>(inner, sel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
@@ -636,8 +636,8 @@ VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 			require(expr, elemsel.value().type->isBitstreamType() && elemsel.value().type->hasFixedRange());
-			Addressing<VariableBits> addr(*this, elemsel);
-			ret = addr.extract(lhs(elemsel.value()), elemsel.type->getBitstreamWidth());
+			Addressing addr(*this, elemsel);
+			ret = addr.extract<VariableBits>(lhs(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::MemberAccess:
@@ -1203,8 +1203,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::RangeSelect:
 		{
 			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			Addressing<RTLIL::SigSpec> addr(*this, sel);
-			ret = addr.shift_down((*this)(sel.value()), sel.type->getBitstreamWidth());
+			Addressing addr(*this, sel);
+			ret = addr.shift_down<RTLIL::SigSpec>((*this)(sel.value()), sel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::ElementSelect:
@@ -1240,8 +1240,8 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				break;
 			}
 
-			Addressing<RTLIL::SigSpec> addr(*this, elemsel);
-			ret = addr.mux((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
+			Addressing addr(*this, elemsel);
+			ret = addr.mux<RTLIL::SigSpec>((*this)(elemsel.value()), elemsel.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::Concatenation:
