@@ -71,6 +71,7 @@ class VariableBit;
 class VariableChunk;
 struct ProcessTiming;
 class Case;
+class LValue;
 
 class Variable {
 public:
@@ -230,11 +231,12 @@ public:
 	// only used when timing.kind==ProcessTiming::Initial
 	Yosys::dict<VariableBit, RTLIL::State> initial_locals_state;
 
+	std::vector<RTLIL::Cell *> preceding_memwr;
+
 private:
 	int flag_counter = 0;
 	Yosys::dict<Variable, slang::SourceLocation> seen_blocking_assignment;
 	Yosys::dict<Variable, slang::SourceLocation> seen_nonblocking_assignment;
-	std::vector<RTLIL::Cell *> preceding_memwr;
 
 public:
 	ProceduralContext(NetlistContext &netlist, ProcessTiming &timing);
@@ -255,10 +257,6 @@ public:
 	void do_simple_assign(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec rvalue, bool blocking);
 	RTLIL::SigSpec substitute_rvalue(VariableBits bits);
 	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue);
-
-private:
-	void assign_rvalue_inner(const ast::AssignmentExpression &assign, const ast::Expression *raw_lexpr,
-							 RTLIL::SigSpec raw_rvalue, RTLIL::SigSpec raw_mask, bool blocking);
 
 public:
 	struct EscapeFrame {
@@ -619,6 +617,7 @@ public:
 	bool is_static();
 
 	slang::ConstantRange range;
+	int stride = 1;
 private:
 	void interpret_index(RTLIL::SigSpec signal, int width_down = 1, int width_up = 1);
 
@@ -632,12 +631,16 @@ private:
 	// of the selection
 	RTLIL::SigSpec raw_signal;
 	int base_offset;
-	int stride = 1;
 
 	const ast::Expression &expr;
 	EvalContext &eval;
 	NetlistContext &netlist;
 };
+
+// procedural.cc
+void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
+								   ProceduralContext &context, LValue &lvalue,
+								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
 
 // lvalue.cc
 class LValue {
@@ -652,6 +655,7 @@ public:
 	static LValue concatenation(std::vector<LValue> elements);
 	static LValue rangeSelect(LValue inner, AddressingResolver resolver, uint64_t bitsize);
 	static LValue memberAccess(LValue inner, uint64_t base_offset, uint64_t bitsize);
+	static LValue memoryWrite(Variable variable, RTLIL::SigSpec address, uint64_t bitsize);
 
 	bool is_static();
 	bool is_contiguous_slice();
@@ -674,13 +678,22 @@ private:
 		std::unique_ptr<LValue> inner;
 	};
 
-	std::variant<Variable, Concatenation, RangeSelect, MemberAccess> descriptor;
+	struct MemoryWrite {
+		Variable target;
+		RTLIL::SigSpec address;
+	};
+
+	std::variant<Variable, Concatenation, RangeSelect, MemberAccess, MemoryWrite> descriptor;
 	bool contiguous_slice_;
 	bool static_;
 	uint64_t bitsize;
 
 	LValue(decltype(descriptor) descriptor, uint64_t bitsize, bool static_, bool contiguous_slice_)
 		: descriptor(std::move(descriptor)), bitsize(bitsize), static_(static_), contiguous_slice_(contiguous_slice_) {}
+
+	friend void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
+								   ProceduralContext &context, LValue &lvalue,
+								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
 };
 
 };

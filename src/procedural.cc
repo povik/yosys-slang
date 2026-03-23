@@ -345,6 +345,91 @@ RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 	return subed;
 }
 
+void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
+		ProceduralContext &context, LValue &lvalue, RTLIL::SigSpec rvalue, RTLIL::SigSpec mask,
+		bool blocking)
+{
+	if (lvalue.is_static()) {
+		context.update_variable_state(
+				assign.sourceRange.start(), lvalue.evaluate_vbits(), rvalue, mask, blocking);
+		return;
+	}
+
+	if (auto concat = std::get_if<LValue::Concatenation>(&lvalue.descriptor)) {
+		uint64_t base = lvalue.bitsize;
+		for (auto &el : concat->elements) {
+			base -= el.bitsize;
+			assign_to_lvalue_with_masking(assign, context, el, rvalue.extract(base, el.bitsize),
+					mask.extract(base, el.bitsize), blocking);
+		}
+		log_assert(base == 0);
+	} else if (auto range_sel = std::get_if<LValue::RangeSelect>(&lvalue.descriptor)) {
+		if (range_sel->resolver->stride == lvalue.bitsize) {
+			// Effectively an element select
+			assign_to_lvalue_with_masking(assign, context, *range_sel->inner,
+					rvalue.repeat(range_sel->resolver->range.width()),
+					range_sel->resolver->demux(mask, range_sel->inner->bitsize), blocking);
+		} else {
+			assign_to_lvalue_with_masking(assign, context, *range_sel->inner,
+					range_sel->resolver->shift_up(rvalue, true, range_sel->inner->bitsize),
+					range_sel->resolver->shift_up(mask, false, range_sel->inner->bitsize),
+					blocking);
+		}
+	} else if (auto member_acc = std::get_if<LValue::MemberAccess>(&lvalue.descriptor)) {
+		uint64_t parent_width = member_acc->inner->bitsize;
+		uint64_t pad = parent_width - lvalue.bitsize - member_acc->base_offset;
+		assign_to_lvalue_with_masking(assign, context, *member_acc->inner,
+				{RTLIL::SigSpec(RTLIL::Sx, pad), rvalue,
+						RTLIL::SigSpec(RTLIL::Sx, member_acc->base_offset)},
+				{RTLIL::SigSpec(RTLIL::S0, pad), mask,
+						RTLIL::SigSpec(RTLIL::S0, member_acc->base_offset)},
+				blocking);
+	} else if (auto mem_write = std::get_if<LValue::MemoryWrite>(&lvalue.descriptor)) {
+		auto &netlist = context.netlist;
+		RTLIL::Cell *cell = netlist.canvas->addCell(netlist.new_id(), ID($memwr_v2));
+		std::string id = netlist.id(*mem_write->target.get_symbol());
+		cell->setParam(ID::MEMID, id);
+		auto &timing = context.timing;
+		if (timing.kind == ProcessTiming::Implicit) {
+			cell->setParam(ID::CLK_ENABLE, false);
+			cell->setParam(ID::CLK_POLARITY, false);
+			cell->setPort(ID::CLK, RTLIL::Sx);
+		} else if (timing.kind == ProcessTiming::EdgeTriggered) {
+			require(assign, timing.triggers.size() == 1);
+			auto &trigger = timing.triggers[0];
+			cell->setParam(ID::CLK_ENABLE, true);
+			cell->setParam(ID::CLK_POLARITY, trigger.edge_polarity);
+			cell->setPort(ID::CLK, trigger.signal);
+		} else {
+			ast_unreachable(assign);
+		}
+
+		int portid = context.netlist.emitted_mems[id].num_wr_ports++;
+		cell->setParam(ID::PORTID, portid);
+		std::vector<RTLIL::State> prio_mask(portid, RTLIL::S0);
+		auto &preceding_memwr = context.preceding_memwr;
+		for (auto prev : preceding_memwr) {
+			log_assert(prev->type == ID($memwr_v2));
+			if (prev->getParam(ID::MEMID) == cell->getParam(ID::MEMID)) {
+				prio_mask[prev->getParam(ID::PORTID).as_int()] = RTLIL::S1;
+			}
+		}
+		preceding_memwr.push_back(cell);
+
+		cell->setParam(ID::PRIORITY_MASK, prio_mask);
+		cell->setPort(
+				ID::EN, netlist.Mux(RTLIL::SigSpec(RTLIL::S0, mask.size()), mask,
+								netlist.LogicAnd(context.case_enable(), timing.background_enable)));
+		cell->setParam(ID::ABITS, mem_write->address.size());
+		cell->setPort(ID::ADDR, mem_write->address);
+		cell->setParam(ID::WIDTH, rvalue.size());
+		cell->setPort(ID::DATA, rvalue);
+	} else {
+		// unreachable
+		log_abort();
+	}
+}
+
 void ProceduralContext::assign_rvalue(
 		const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
 {
@@ -353,7 +438,6 @@ void ProceduralContext::assign_rvalue(
 
 	bool blocking = !assign.isNonBlocking();
 	const ast::Expression *raw_lexpr = &assign.left();
-	RTLIL::SigSpec raw_mask = RTLIL::SigSpec(RTLIL::S1, rvalue.size()), raw_rvalue = rvalue;
 
 	if (raw_lexpr->kind == ast::ExpressionKind::Streaming) {
 		auto &stream_lexpr = raw_lexpr->as<ast::StreamingConcatenationExpression>();
@@ -388,127 +472,10 @@ void ProceduralContext::assign_rvalue(
 		log_assert(nbits_remaining == 0);
 		return;
 	}
-	assign_rvalue_inner(assign, raw_lexpr, raw_rvalue, raw_mask, blocking);
-}
-
-void ProceduralContext::assign_rvalue_inner(const ast::AssignmentExpression &assign,
-		const ast::Expression *raw_lexpr, RTLIL::SigSpec raw_rvalue, RTLIL::SigSpec raw_mask,
-		bool blocking)
-{
-	ast_invariant(assign, raw_mask.size() == (int)raw_lexpr->type->getBitstreamWidth());
-	ast_invariant(assign, raw_rvalue.size() == (int)raw_lexpr->type->getBitstreamWidth());
-
-	bool finished_etching = false;
-	bool memory_write = false;
-	while (!finished_etching) {
-		switch (raw_lexpr->kind) {
-		case ast::ExpressionKind::RangeSelect: {
-			auto &sel = raw_lexpr->as<ast::RangeSelectExpression>();
-			AddressingResolver addr(eval, sel);
-			int wider_size = sel.value().type->getBitstreamWidth();
-			raw_mask = addr.shift_up(raw_mask, false, wider_size);
-			raw_rvalue = addr.shift_up(raw_rvalue, true, wider_size);
-			raw_lexpr = &sel.value();
-		} break;
-		case ast::ExpressionKind::ElementSelect: {
-			auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
-
-			if (netlist.is_inferred_memory(sel.value()) && timing.kind != ProcessTiming::Initial) {
-				finished_etching = true;
-				memory_write = true;
-				break;
-			}
-
-			AddressingResolver addr(eval, sel);
-			raw_mask = addr.demux(raw_mask, sel.value().type->getBitstreamWidth());
-			raw_rvalue = raw_rvalue.repeat(addr.range.width());
-			raw_lexpr = &sel.value();
-		} break;
-		case ast::ExpressionKind::MemberAccess: {
-			const auto &acc = raw_lexpr->as<ast::MemberAccessExpression>();
-			if (acc.member.kind != ast::SymbolKind::Field) {
-				finished_etching = true;
-				break;
-			}
-			const auto &member = acc.member.as<ast::FieldSymbol>();
-			if (member.randMode != ast::RandMode::None) {
-				finished_etching = true;
-				break;
-			}
-
-			int bit_offset = bitstream_member_offset(member);
-			int parent_width = acc.value().type->getBitstreamWidth();
-			int pad = parent_width - acc.type->getBitstreamWidth() - bit_offset;
-			raw_mask = {RTLIL::SigSpec(RTLIL::S0, pad), raw_mask,
-					RTLIL::SigSpec(RTLIL::S0, bit_offset)};
-			raw_rvalue = {RTLIL::SigSpec(RTLIL::Sx, pad), raw_rvalue,
-					RTLIL::SigSpec(RTLIL::Sx, bit_offset)};
-			raw_lexpr = &acc.value();
-		} break;
-		case ast::ExpressionKind::Concatenation: {
-			const auto &concat = raw_lexpr->as<ast::ConcatenationExpression>();
-			int base = raw_mask.size(), len;
-			for (auto op : concat.operands()) {
-				require(concat, op->type->isBitstreamType());
-				base -= (len = op->type->getBitstreamWidth());
-				log_assert(base >= 0);
-				assign_rvalue_inner(assign, op, raw_rvalue.extract(base, len),
-						raw_mask.extract(base, len), blocking);
-			}
-			log_assert(base == 0);
-			return;
-		} break;
-		default: finished_etching = true; break;
-		}
-		log_assert(raw_mask.size() == (int)raw_lexpr->type->getBitstreamWidth());
-		log_assert(raw_rvalue.size() == (int)raw_lexpr->type->getBitstreamWidth());
-	}
-
-	if (memory_write) {
-		log_assert(raw_lexpr->kind == ast::ExpressionKind::ElementSelect);
-		auto &sel = raw_lexpr->as<ast::ElementSelectExpression>();
-		log_assert(netlist.is_inferred_memory(sel.value()));
-		require(assign, !blocking);
-
-		std::string id = netlist.id(sel.value().as<ast::ValueExpressionBase>().symbol);
-		RTLIL::Cell *memwr = netlist.canvas->addCell(netlist.new_id(), ID($memwr_v2));
-		memwr->setParam(ID::MEMID, id);
-		if (timing.kind == ProcessTiming::Implicit) {
-			memwr->setParam(ID::CLK_ENABLE, false);
-			memwr->setParam(ID::CLK_POLARITY, false);
-			memwr->setPort(ID::CLK, RTLIL::Sx);
-		} else if (timing.kind == ProcessTiming::EdgeTriggered) {
-			require(assign, timing.triggers.size() == 1);
-			auto &trigger = timing.triggers[0];
-			memwr->setParam(ID::CLK_ENABLE, true);
-			memwr->setParam(ID::CLK_POLARITY, trigger.edge_polarity);
-			memwr->setPort(ID::CLK, trigger.signal);
-		} else {
-			ast_unreachable(assign);
-		}
-		int portid = netlist.emitted_mems[id].num_wr_ports++;
-		memwr->setParam(ID::PORTID, portid);
-		std::vector<RTLIL::State> mask(portid, RTLIL::S0);
-		for (auto prev : preceding_memwr) {
-			log_assert(prev->type == ID($memwr_v2));
-			if (prev->getParam(ID::MEMID) == memwr->getParam(ID::MEMID)) {
-				mask[prev->getParam(ID::PORTID).as_int()] = RTLIL::S1;
-			}
-		}
-		memwr->setParam(ID::PRIORITY_MASK, mask);
-		memwr->setPort(ID::EN, netlist.Mux(RTLIL::SigSpec(RTLIL::S0, raw_mask.size()), raw_mask,
-									   netlist.LogicAnd(case_enable(), timing.background_enable)));
-
-		RTLIL::SigSpec addr = eval(sel.selector());
-
-		memwr->setParam(ID::ABITS, addr.size());
-		memwr->setPort(ID::ADDR, addr);
-		memwr->setParam(ID::WIDTH, raw_rvalue.size());
-		memwr->setPort(ID::DATA, raw_rvalue);
-		preceding_memwr.push_back(memwr);
-	} else {
-		VariableBits lvalue = eval.lhs(*raw_lexpr);
-		update_variable_state(assign.sourceRange.start(), lvalue, raw_rvalue, raw_mask, blocking);
+	auto analyzed_lvalue = LValue::analyze(this->eval, *raw_lexpr, false);
+	if (analyzed_lvalue) {
+		assign_to_lvalue_with_masking(assign, *this, *analyzed_lvalue, rvalue,
+				RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
 	}
 }
 

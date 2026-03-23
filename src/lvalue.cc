@@ -83,6 +83,15 @@ std::optional<LValue> LValue::analyze(
 		const ast::ElementSelectExpression &ese = expr.as<ast::ElementSelectExpression>();
 		ast_invariant(
 				expr, ese.value().type->isBitstreamType() && ese.value().type->hasFixedRange());
+
+		if (context.netlist.is_inferred_memory(ese.value()) &&
+				context.procedural->timing.kind != ProcessTiming::Initial) {
+			RTLIL::SigSpec address = context(ese.selector());
+			auto variable =
+					Variable::from_symbol(&ese.value().as<ast::ValueExpressionBase>().symbol);
+			return LValue::memoryWrite(variable, address, ese.type->getBitstreamWidth());
+		}
+
 		AddressingResolver addr(context, ese);
 
 		std::optional<LValue> inner = analyze(context, ese.value());
@@ -170,6 +179,11 @@ LValue LValue::memberAccess(LValue inner, uint64_t base_offset, uint64_t bitsize
 	bool contiguous_slice_ = inner.contiguous_slice_;
 	return LValue(MemberAccess{base_offset, std::make_unique<LValue>(std::move(inner))}, bitsize,
 			static_, contiguous_slice_);
+}
+
+LValue LValue::memoryWrite(Variable variable, RTLIL::SigSpec address, uint64_t bitsize)
+{
+	return LValue(MemoryWrite{variable, address}, bitsize, false, false);
 }
 
 bool LValue::is_static()
