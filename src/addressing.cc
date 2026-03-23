@@ -340,4 +340,9 @@ RTLIL::SigSpec AddressingResolver::embed(
 	return ret;
 }
 
+bool AddressingResolver::is_static()
+{
+	return raw_signal.is_fully_def();
+}
+
 }; // namespace slang_frontend

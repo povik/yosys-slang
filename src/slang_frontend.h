@@ -558,7 +558,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// this will be the top module.
 	const ast::InstanceBodySymbol &find_symbol_realm(const ast::Symbol &symbol);
 	const ast::InstanceBodySymbol &find_common_ancestor(const ast::InstanceBodySymbol &a, const ast::InstanceBodySymbol &b);
-	bool check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range);
+	bool check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range, bool silent=false);
 
 	void register_driven(const VariableBits &vbits);
 	void register_driven(const ast::Symbol &symbol);
@@ -616,6 +616,8 @@ public:
 	RTLIL::SigSpec shift_down(RTLIL::SigSpec val, int output_len);
 	template <typename Bundle> Bundle extract(Bundle val, int width);
 
+	bool is_static();
+
 	slang::ConstantRange range;
 private:
 	void interpret_index(RTLIL::SigSpec signal, int width_down = 1, int width_up = 1);
@@ -635,6 +637,50 @@ private:
 	const ast::Expression &expr;
 	EvalContext &eval;
 	NetlistContext &netlist;
+};
+
+// lvalue.cc
+class LValue {
+public:
+	~LValue() = default;
+	LValue(LValue &&) = default;
+	LValue &operator=(LValue &&) = default;
+
+	static std::optional<LValue> analyze(EvalContext &context, const ast::Expression &expr, bool silent=false);
+
+	static LValue variable(Variable variable);
+	static LValue concatenation(std::vector<LValue> elements);
+	static LValue rangeSelect(LValue inner, AddressingResolver resolver, uint64_t bitsize);
+	static LValue memberAccess(LValue inner, uint64_t base_offset, uint64_t bitsize);
+
+	bool is_static();
+	bool is_contiguous_slice();
+
+	// Only available if is_static() true
+	VariableBits evaluate_vbits();
+
+private:
+	struct Concatenation {
+		std::vector<LValue> elements;
+	};
+
+	struct RangeSelect {
+		std::unique_ptr<AddressingResolver> resolver;
+		std::unique_ptr<LValue> inner;
+	};
+
+	struct MemberAccess {
+		uint64_t base_offset;
+		std::unique_ptr<LValue> inner;
+	};
+
+	std::variant<Variable, Concatenation, RangeSelect, MemberAccess> descriptor;
+	bool contiguous_slice_;
+	bool static_;
+	uint64_t bitsize;
+
+	LValue(decltype(descriptor) descriptor, uint64_t bitsize, bool static_, bool contiguous_slice_)
+		: descriptor(std::move(descriptor)), bitsize(bitsize), static_(static_), contiguous_slice_(contiguous_slice_) {}
 };
 
 };

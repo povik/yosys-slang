@@ -570,106 +570,22 @@ Vector extract_struct_field(Vector value, const ast::MemberAccessExpression &exp
 VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 {
 	ast_invariant(expr, expr.kind != ast::ExpressionKind::Streaming);
-	VariableBits ret;
 
-	if (!expr.type->isFixedSize()) {
-		if (!silent) {
-			auto &diag = netlist.add_diag(diag::FixedSizeRequired, expr.sourceRange);
-			diag << expr.type->toString();
-		}
-		goto error;
+	auto analyzed_lvalue = LValue::analyze(*this, expr, silent);
+	if (!analyzed_lvalue) {
+		// Return dummy, diagnostic has been issued in analyze
+		// if `silent` is not true
+		return Variable::dummy(expr.type->getBitstreamWidth());
 	}
 
-	switch (expr.kind) {
-	case ast::ExpressionKind::HierarchicalValue:
-		{
-			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
-			if (!netlist.scopes_remap.count(symbol.getParentScope())
-					&& !netlist.check_hier_ref(symbol, expr.sourceRange)) {
-				goto error;
-			}
-		}
-		[[fallthrough]];
-	case ast::ExpressionKind::NamedValue:
-		{
-			const ast::ValueSymbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
-			if (netlist.is_inferred_memory(symbol)) {
-				// Unless we are evaluating initial procedures, directly evaluating
-				// the memory as an assignment target is disallowed. Memory writes should
-				// be handled in `ProceduralContext::assign_rvalue_inner` before they
-				// would get here.
-				if (!(procedural && procedural->timing.kind == ProcessTiming::Initial)) {
-					if (!silent) {
-						netlist.add_diag(diag::BadMemoryExpr, expr.sourceRange);
-					}
-					goto error;
-				}
-			}
-
-			if (symbol.kind == ast::SymbolKind::ModportPort \
-					&& !netlist.scopes_remap.count(symbol.getParentScope())) {
-				ret = lhs(*symbol.as<ast::ModportPortSymbol>().getConnectionExpr());
-				break;
-			}
-
-			ret = variable(symbol);
-		}
-		break;
-	case ast::ExpressionKind::RangeSelect:
-		{
-			const ast::RangeSelectExpression &sel = expr.as<ast::RangeSelectExpression>();
-			AddressingResolver addr(netlist.eval, sel);
-			VariableBits inner = lhs(sel.value());
-			ret = addr.extract<VariableBits>(inner, sel.type->getBitstreamWidth());
-		}
-		break;
-	case ast::ExpressionKind::Concatenation:
-		{
-			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
-			for (auto op : concat.operands())
-				ret = {ret, lhs(*op)};
-		}
-		break;
-	case ast::ExpressionKind::ElementSelect:
-		{
-			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
-			require(expr, elemsel.value().type->isBitstreamType() && elemsel.value().type->hasFixedRange());
-			AddressingResolver addr(*this, elemsel);
-			ret = addr.extract<VariableBits>(lhs(elemsel.value()), elemsel.type->getBitstreamWidth());
-		}
-		break;
-	case ast::ExpressionKind::MemberAccess:
-		{
-			const auto &acc = expr.as<ast::MemberAccessExpression>();
-			ret = extract_struct_field(lhs(acc.value()), acc);
-		}
-		break;
-	case ast::ExpressionKind::Conversion:
-		{
-			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
-			if (conv.operand().kind != ast::ExpressionKind::Streaming) {
-				const ast::Type &from = conv.operand().type->getCanonicalType();
-				const ast::Type &to = conv.type->getCanonicalType();
-				if (to.isBitstreamType() && from.isBitstreamType() &&
-						from.getBitstreamWidth() == to.getBitstreamWidth()) {
-					ret = lhs(conv.operand());
-					break;
-				}
-			}
-		}
-		[[fallthrough]];
-	default:
+	if (!analyzed_lvalue->is_static()) {
 		if (!silent) {
 			netlist.add_diag(diag::UnsupportedLhs, expr.sourceRange);
 		}
-		goto error;
+		return Variable::dummy(expr.type->getBitstreamWidth());
 	}
 
-	if (0) {
-	error:
-		ret = Variable::dummy(expr.type->getBitstreamWidth());
-	}
-
+	VariableBits ret = analyzed_lvalue->evaluate_vbits();
 	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
 	return ret;
 }
@@ -2905,19 +2821,21 @@ const ast::InstanceBodySymbol &NetlistContext::find_common_ancestor(const ast::I
 	return *pa[i - 1];
 }
 
-bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range)
+bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range, bool silent)
 {
 	const ast::InstanceBodySymbol &symbol_realm = find_symbol_realm(symbol);
 
 	if (&symbol_realm != &realm) {
 		auto &diag = add_diag(diag::ReferenceAcrossKeptHierBoundary, range);
 		auto &common = find_common_ancestor(symbol_realm, realm);
-		if (&symbol_realm != &common) {
-			// emit diagnostic for boundary on the hierarchical path to the symbol
-			(void) should_dissolve(*symbol_realm.parentInstance, &diag);
-		} else {
-			// emit diagnostic for boundary on the hierarchical path to the expression
-			(void) should_dissolve(*realm.parentInstance, &diag);
+		if (!silent) {
+			if (&symbol_realm != &common) {
+				// emit diagnostic for boundary on the hierarchical path to the symbol
+				(void) should_dissolve(*symbol_realm.parentInstance, &diag);
+			} else {
+				// emit diagnostic for boundary on the hierarchical path to the expression
+				(void) should_dissolve(*realm.parentInstance, &diag);
+			}			
 		}
 		return false;
 	}
