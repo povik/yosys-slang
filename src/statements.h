@@ -120,7 +120,7 @@ public:
 			for (auto chunk : updated_anybranch.chunks()) {
 				if (chunk.variable.kind != Variable::Static &&
 						eos_variables.count(chunk.variable)) {
-					for (int i = 0; i < chunk.bitwidth(); i++)
+					for (uint64_t i = 0; i < chunk.bitwidth(); i++)
 						log_assert(!va.count(chunk[i]));
 
 					continue;
@@ -150,20 +150,20 @@ public:
 				int done = 0;
 				for (auto chunk : target.chunks()) {
 					if (eos_variables.count(chunk.variable)) {
-						done += chunk.bitwidth();
+						done += (int)chunk.bitwidth();
 						continue;
 					}
 
 					// get the wire (or some part of it) which we created up above
 					RTLIL::SigSpec target_w;
-					for (int i = 0; i < chunk.bitwidth(); i++) {
+					for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
 						log_assert(va.count(chunk[i]));
 						target_w.append(va.at(chunk[i]));
 					}
 
 					rule->aux_actions.push_back(
-							RTLIL::SigSig(target_w, source.extract(done, chunk.bitwidth())));
-					done += chunk.bitwidth();
+							RTLIL::SigSig(target_w, source.extract(done, (int)chunk.bitwidth())));
+					done += (int)chunk.bitwidth();
 				}
 			}
 
@@ -679,7 +679,7 @@ public:
 			if (converted) {
 				initval = *converted;
 			} else {
-				initval = {RTLIL::Sx, target.bitwidth()};
+				initval = {RTLIL::Sx, (int)target.bitwidth()};
 			}
 		}
 		context.do_simple_assign(symbol.location, target, initval, true);

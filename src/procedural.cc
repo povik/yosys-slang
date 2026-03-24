@@ -260,13 +260,13 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 
 			case Variable::Local:
 			case Variable::EscapeFlag:
-				for (int i = 0; i < size; i++) {
-					initial_locals_state[chunk[i]] = rvalue[base + i].data;
+				for (uint64_t i = 0; i < size; i++) {
+					initial_locals_state[chunk[i]] = rvalue[(int)(base + i)].data;
 				}
 				break;
 			case Variable::Static: {
-				for (int i = 0; i < size; i++) {
-					netlist.initial_state[chunk[i]] = rvalue[base + i].data;
+				for (uint64_t i = 0; i < size; i++) {
+					netlist.initial_state[chunk[i]] = rvalue[(int)(base + i)].data;
 				}
 				const ast::Symbol &symbol = *chunk.variable.get_symbol();
 				if (netlist.is_inferred_memory(symbol)) {
@@ -275,7 +275,7 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 											   .getFixedRange()
 											   .isLittleEndian();
 					netlist.add_memory_init(netlist.id(symbol), chunk.base, big_endian,
-							rvalue.extract(base, size).as_const());
+							rvalue.extract((int)base, (int)size).as_const());
 				}
 			} break;
 			default: log_abort();
@@ -317,12 +317,12 @@ RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 
 			case Variable::Local:
 			case Variable::EscapeFlag:
-				for (int i = 0; i < size; i++) {
+				for (uint64_t i = 0; i < size; i++) {
 					subed.append(initial_locals_state.at(chunk[i], RTLIL::Sx));
 				}
 				break;
 			case Variable::Static:
-				for (int i = 0; i < size; i++) {
+				for (uint64_t i = 0; i < size; i++) {
 					subed.append(netlist.initial_state.at(chunk[i], RTLIL::Sx));
 				}
 				break;

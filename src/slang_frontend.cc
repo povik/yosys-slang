@@ -486,7 +486,7 @@ RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableBits vbi
 			ret.append(visible_assignments.at(vbit));
 		} else {
 			log_assert(vbit.variable.kind == Variable::Static);
-			ret.append(netlist.wire(*vbit.variable.get_symbol())[vbit.offset]);
+			ret.append(netlist.wire(*vbit.variable.get_symbol())[(int)vbit.offset]);
 		}
 	}
 	return ret;
@@ -495,12 +495,12 @@ RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableBits vbi
 RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableChunk vchunk)
 {
 	RTLIL::SigSpec ret;
-	for (int i = 0; i < vchunk.bitwidth(); i++) {
+	for (uint64_t i = 0; i < vchunk.bitwidth(); i++) {
 		if (visible_assignments.count(vchunk[i])) {
 			ret.append(visible_assignments.at(vchunk[i]));
 		} else {
 			log_assert(vchunk.variable.kind == Variable::Static);
-			ret.append(netlist.wire(*vchunk.variable.get_symbol())[vchunk.base + i]);
+			ret.append(netlist.wire(*vchunk.variable.get_symbol())[(int)(vchunk.base + i)]);
 		}
 	}
 	return ret;
@@ -586,7 +586,7 @@ VariableBits EvalContext::lhs(const ast::Expression &expr, bool silent)
 	}
 
 	VariableBits ret = analyzed_lvalue->evaluate_vbits();
-	log_assert(ret.size() == (int) expr.type->getBitstreamWidth());
+	log_assert(ret.bitwidth() == expr.type->getBitstreamWidth());
 	return ret;
 }
 
@@ -608,12 +608,12 @@ void NetlistContext::add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs)
 
 	for (auto [base, size, chunk] : lhs.chunk_spans()) {
 		if (chunk.variable.is_special_net()) {
-			for (int i = 0; i < size; i++) {
-				special_net_drivers[chunk[i]].append(rhs[base + i]);
+			for (uint64_t i = 0; i < size; i++) {
+				special_net_drivers[chunk[i]].append(rhs[(int)(base + i)]);
 			}
 		} else {
 			cl.append(chunk);
-			cr.append(rhs.extract(base, size));
+			cr.append(rhs.extract((int)base, (int)size));
 		}
 	}
 
@@ -670,8 +670,8 @@ VariableBits EvalContext::streaming_lhs(ast::StreamingConcatenationExpression co
 		return cat;
 	} else {
 		VariableBits reorder;
-		for (int i = 0; i < cat.size(); i += slice)
-			reorder = {reorder, cat.extract(i, std::min(slice, cat.bitwidth() - i))};
+		for (uint64_t i = 0; i < cat.bitwidth(); i += slice)
+			reorder = {reorder, cat.extract(i, std::min((uint64_t)slice, cat.bitwidth() - i))};
 		return reorder;
 	}
 }
@@ -1385,7 +1385,7 @@ public:
 				RTLIL::SigSpec en = netlist.add_placeholder_signal(chunk.bitwidth());
 				RTLIL::SigSpec staging = netlist.add_placeholder_signal(chunk.bitwidth());
 
-				for (int i = 0; i < chunk.bitwidth(); i++) {
+				for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
 					RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en[i],
 											staging[i], netlist.convert_static(chunk[i]), true);
 					netlist.driven_variables.insert(chunk[i]);
@@ -1505,14 +1505,14 @@ public:
 							netlist.add_dual_edge_aldff(base_name,
 														timing.triggers[0].signal,
 														RTLIL::S0,
-														assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+														assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 														netlist.convert_static(named_chunk),
-														RTLIL::SigSpec(RTLIL::Sx, named_chunk.bitwidth()),
+														RTLIL::SigSpec(RTLIL::Sx, (int)named_chunk.bitwidth()),
 														true);
 						} else {
 							netlist.add_dff(base_name,
 											timing.triggers[0].signal,
-											assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+											assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 											netlist.convert_static(named_chunk),
 											timing.triggers[0].edge_polarity);
 						}
@@ -1521,7 +1521,7 @@ public:
 					VariableBits aldff_q;
 					VariableBits dffe_q; // fallback
 
-					for (int i = 0; i < driven_chunk.bitwidth(); i++) {
+					for (uint64_t i = 0; i < driven_chunk.bitwidth(); i++) {
 						// Is this variable bit assigned to from the async branch?
 						// Depending on this we either use $aldff or $dffe to drive it
 						if (aloads[0].values.visible_assignments.count(driven_chunk[i]))
@@ -1541,7 +1541,7 @@ public:
 								netlist.add_dual_edge_aldff(base_name,
 															timing.triggers[0].signal,
 															aloads[0].trigger,
-															assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+															assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 															netlist.convert_static(named_chunk),
 															aloads[0].values.evaluate(netlist, named_chunk),
 															aloads[0].trigger_polarity);
@@ -1549,7 +1549,7 @@ public:
 								netlist.add_aldff(base_name,
 												  timing.triggers[0].signal,
 												  aloads[0].trigger,
-												  assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+												  assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 												  netlist.convert_static(named_chunk),
 												  aloads[0].values.evaluate(netlist, named_chunk),
 												  timing.triggers[0].edge_polarity,
@@ -1573,7 +1573,7 @@ public:
 							netlist.add_dffe(base_name,
 											 timing.triggers[0].signal,
 											 aloads[0].trigger,
-											 assigned.extract(named_chunk.base - driven_chunk.base, named_chunk.bitwidth()),
+											 assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 											 netlist.convert_static(named_chunk),
 											 timing.triggers[0].edge_polarity,
 											 !aloads[0].trigger_polarity);
@@ -1674,7 +1674,7 @@ public:
 			ast_invariant(port, ast::ValueSymbol::isKind(port.internalSymbol->kind));
 			internal_signal = Variable::from_symbol(&port.internalSymbol->as<ast::ValueSymbol>());
 		}
-		ast_invariant(port, internal_signal.bitwidth() == connection.size());
+		ast_invariant(port, internal_signal.bitwidth() == (uint64_t)connection.size());
 		ast_invariant(port, port.direction == ast::ArgumentDirection::In);
 		netlist.add_continuous_driver(internal_signal, connection);
 	}
@@ -1691,7 +1691,7 @@ public:
 			ast_invariant(port, ast::ValueSymbol::isKind(port.internalSymbol->kind));
 			internal_signal = Variable::from_symbol(&port.internalSymbol->as<ast::ValueSymbol>());
 		}
-		log_assert(internal_signal.bitwidth() == connection.size());
+		log_assert(internal_signal.bitwidth() == (uint64_t)connection.size());
 
 		switch (port.direction) {
 		case ast::ArgumentDirection::Out:
@@ -1718,7 +1718,7 @@ public:
 			ast_invariant(port, ast::ValueSymbol::isKind(port.internalSymbol->kind));
 			internal_signal = Variable::from_symbol(&port.internalSymbol->as<ast::ValueSymbol>());
 		}
-		ast_invariant(port, internal_signal.bitwidth() == connection.size());
+		ast_invariant(port, internal_signal.bitwidth() == (uint64_t)connection.size());
 		ast_invariant(port, port.direction == ast::ArgumentDirection::Out);
 		netlist.connect(connection, netlist.convert_static(internal_signal));
 	}
@@ -2858,7 +2858,7 @@ RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 		switch (vchunk.variable.kind) {
 		case Variable::Static:
 			ret.append(wire(*vchunk.variable.get_symbol())
-					.extract(vchunk.base, vchunk.length));
+					.extract((int)vchunk.base, (int)vchunk.length));
 			break;
 		case Variable::Dummy:
 			ret.append(add_placeholder_signal(vchunk.length, "dummy"));

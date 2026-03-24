@@ -12,7 +12,7 @@
 
 namespace slang_frontend {
 
-static void subfield_names(VariableChunk chunk, int type_offset, const ast::Type *type,
+static void subfield_names(VariableChunk chunk, uint64_t type_offset, const ast::Type *type,
 		std::string prefix, std::vector<NamedChunk> &ret)
 {
 	type = &type->getCanonicalType();
@@ -30,7 +30,7 @@ static void subfield_names(VariableChunk chunk, int type_offset, const ast::Type
 		const ast::Scope *scope = &type->as<ast::Scope>();
 
 		for (auto &field : scope->template membersOfType<ast::FieldSymbol>()) {
-			int field_offset = int(bitstream_member_offset(field));
+			uint64_t field_offset = bitstream_member_offset(field);
 			subfield_names(chunk, type_offset + field_offset, &field.getType(),
 					prefix + "." + std::string(field.name), ret);
 		}
@@ -38,17 +38,19 @@ static void subfield_names(VariableChunk chunk, int type_offset, const ast::Type
 		log_assert(type->hasFixedRange());
 		auto range = type->getFixedRange();
 		const ast::Type *el_type = type->getArrayElementType();
-		int stride = el_type->getBitstreamWidth();
+		uint64_t stride = el_type->getBitstreamWidth();
 
 		for (int i = range.lower(); i <= range.upper(); i++) {
-			int elem_offset = range.translateIndex(i) * stride;
+			uint64_t elem_offset = range.translateIndex(i) * stride;
 			subfield_names(chunk, type_offset + elem_offset, el_type,
 					prefix + "[" + std::to_string(i) + "]", ret);
 		}
 	} else {
-		int width = type->getBitstreamWidth();
-		int lo = std::clamp(chunk.base - type_offset, 0, width);
-		int hi = std::clamp(chunk.base + chunk.bitwidth() - type_offset, 0, width);
+		uint64_t width = type->getBitstreamWidth();
+		uint64_t lo = chunk.base > type_offset ? std::min(chunk.base - type_offset, width) : 0;
+		uint64_t hi = chunk.base + chunk.bitwidth() > type_offset
+							  ? std::min(chunk.base + chunk.bitwidth() - type_offset, width)
+							  : 0;
 
 		log_assert(hi > lo);
 		if (lo == 0 && hi == width)
@@ -69,7 +71,7 @@ std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::
 	std::vector<NamedChunk> ret;
 	subfield_names(chunk, 0, type, "", ret);
 
-	int sum = 0;
+	uint64_t sum = 0;
 	for (auto pair : ret)
 		sum += pair.first.bitwidth();
 	log_assert(sum == chunk.bitwidth());

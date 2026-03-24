@@ -85,11 +85,11 @@ public:
 
 	static Variable from_symbol(const ast::ValueSymbol *symbol, int depth=-1);
 	static Variable escape_flag(int id);
-	static Variable dummy(int width);
+	static Variable dummy(uint64_t width);
 
 	Variable();
 	const ast::ValueSymbol *get_symbol() const;
-	int bitwidth() const;
+	uint64_t bitwidth() const;
 	explicit operator bool() const;
 
 	bool operator==(const Variable &other) const { return hash_label() == other.hash_label(); }
@@ -105,16 +105,16 @@ public:
 private:
 	union {
 		const ast::ValueSymbol *symbol;
-		int width;
+		uint64_t width;
 		int id;
 	};
 	int depth = 0;
 
 	Variable(enum Kind kind, const ast::ValueSymbol *symbol, int depth);
 	Variable(enum Kind kind, const ast::Statement *statement, int depth);
-	Variable(enum Kind kind, int width);
+	Variable(enum Kind kind, uint64_t width);
 
-	typedef std::tuple<int, void *, int> HashLabel;
+	typedef std::tuple<int, void *, uint64_t> HashLabel;
 	HashLabel hash_label() const;
 
 public:
@@ -372,7 +372,7 @@ struct RTLILBuilder {
 				   bool clk_polarity = true, bool aload_polarity = true);
 
     // Create a placeholder signal which will be connected to a driver using `connect` later
-	SigSpec add_placeholder_signal(int width, std::string_view name_suggestion=""sv, bool public_name=false);
+	SigSpec add_placeholder_signal(uint64_t width, std::string_view name_suggestion=""sv, bool public_name=false);
 
     // `target` must be composed solely of signal bits created using add_placeholder_signal
 	void connect(SigSpec target, SigSpec source);
@@ -612,7 +612,7 @@ public:
 	RTLIL::SigSpec demux(RTLIL::SigSpec val, int output_len);
 	RTLIL::SigSpec mux(RTLIL::SigSpec val, int output_len);
 	RTLIL::SigSpec shift_down(RTLIL::SigSpec val, int output_len);
-	template <typename Bundle> Bundle extract(Bundle val, int width);
+	template <typename Bundle> Bundle extract(Bundle val, uint64_t width);
 
 	bool is_static();
 

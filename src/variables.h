@@ -6,15 +6,16 @@
 //
 #pragma once
 #include "slang_frontend.h"
+#include <cinttypes>
 
 namespace slang_frontend {
 
 struct VariableBit
 {
 	Variable variable;
-	int offset;
+	uint64_t offset;
 
-	typedef std::tuple<Variable, int> Label;
+	typedef std::tuple<Variable, uint64_t> Label;
 	Label label() const { return std::make_tuple(variable, offset); }
 
 	bool operator==(const VariableBit &other) const { return label() == other.label(); }
@@ -34,7 +35,7 @@ struct VariableBit
 		if (variable.bitwidth() == 1)
 			return "";
 		else
-			return Yosys::stringf("[%d]", offset);
+			return Yosys::stringf("[%" PRIu64 "]", offset);
 	}
 
 	std::string text() const { return variable.text() + index_text(); }
@@ -45,14 +46,14 @@ struct VariableBit
 struct VariableChunk
 {
 	Variable variable;
-	int base;
-	int length;
+	uint64_t base;
+	uint64_t length;
 
-	int bitwidth() const { return length; }
+	uint64_t bitwidth() const { return length; }
 
-	VariableBit operator[](int key) const
+	VariableBit operator[](uint64_t key) const
 	{
-		log_assert(key >= 0 && key < length);
+		log_assert(key < length);
 		return VariableBit{variable, base + key};
 	}
 
@@ -62,9 +63,9 @@ struct VariableChunk
 			return "";
 		else if (length > 1)
 			// TODO: hdl indices
-			return Yosys::stringf("[%d:%d]", base + length - 1, base);
+			return Yosys::stringf("[%" PRIu64 ":%" PRIu64 "]", base + length - 1, base);
 		else
-			return Yosys::stringf("[%d]", base);
+			return Yosys::stringf("[%" PRIu64 "]", base);
 	}
 
 	std::string text() const { return variable.text() + slice_text(); }
@@ -79,13 +80,13 @@ public:
 
 	VariableBits(const VariableChunk &chunk)
 	{
-		for (auto i = 0; i < chunk.bitwidth(); i++)
+		for (uint64_t i = 0; i < chunk.bitwidth(); i++)
 			append(chunk[i]);
 	}
 
 	VariableBits(const Variable &variable)
 	{
-		for (auto i = 0; i < variable.bitwidth(); i++)
+		for (uint64_t i = 0; i < variable.bitwidth(); i++)
 			append(VariableBit{variable, i});
 	}
 
@@ -116,10 +117,10 @@ public:
 		return false;
 	}
 
-	VariableBits extract(int base, int width)
+	VariableBits extract(uint64_t base, uint64_t width)
 	{
 		VariableBits ret;
-		for (int i = base, j = 0; j < width; i++, j++)
+		for (uint64_t i = base, j = 0; j < width; i++, j++)
 			ret.push_back((*this)[i]);
 		return ret;
 	}
@@ -128,7 +129,7 @@ public:
 	{
 	protected:
 		const VariableBits &bits;
-		int offset;
+		uint64_t offset;
 		VariableChunk chunk;
 
 		void incr()
@@ -143,7 +144,7 @@ public:
 	public:
 		using iterator_category = std::input_iterator_tag;
 
-		iterator_base(const VariableBits &bits, int offset) : bits(bits), offset(offset)
+		iterator_base(const VariableBits &bits, uint64_t offset) : bits(bits), offset(offset)
 		{
 			if (offset < bits.size()) {
 				chunk = {bits[offset].variable, bits[offset].offset, 1};
@@ -168,7 +169,7 @@ public:
 	{
 	public:
 		using value_type = VariableChunk;
-		chunk_iterator(const VariableBits &bits, int offset) : iterator_base(bits, offset) {}
+		chunk_iterator(const VariableBits &bits, uint64_t offset) : iterator_base(bits, offset) {}
 		VariableChunk operator*() const { return chunk; }
 		chunk_iterator &operator++()
 		{
@@ -197,7 +198,8 @@ public:
 	{
 	public:
 		using value_type = std::tuple<size_t, size_t, VariableChunk>;
-		chunk_span_iterator(const VariableBits &bits, int offset) : iterator_base(bits, offset) {}
+		chunk_span_iterator(const VariableBits &bits, uint64_t offset) : iterator_base(bits, offset)
+		{}
 		std::tuple<size_t, size_t, VariableChunk> operator*() const
 		{
 			return std::make_tuple(offset, chunk.length, chunk);
@@ -225,7 +227,7 @@ public:
 
 	chunk_span_list chunk_spans() const { return chunk_span_list(*this); }
 
-	int bitwidth() { return (int)size(); }
+	uint64_t bitwidth() const { return size(); }
 
 	bool has_special_nets();
 };

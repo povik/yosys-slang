@@ -4,6 +4,8 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include <limits>
+
 #include "slang_frontend.h"
 #include "variables.h"
 
@@ -653,15 +655,16 @@ void RTLILBuilder::add_memory_init(
 }
 
 SigSpec RTLILBuilder::add_placeholder_signal(
-		int width, std::string_view name_suggestion, bool public_name)
+		uint64_t width, std::string_view name_suggestion, bool public_name)
 {
+	log_assert(width <= (uint64_t)std::numeric_limits<int>::max());
 	RTLIL::IdString name;
 	if (public_name) {
 		name = id(name_suggestion);
 	} else {
 		name = new_id(std::string(name_suggestion));
 	}
-	RTLIL::Wire *wire = canvas->addWire(name, width);
+	RTLIL::Wire *wire = canvas->addWire(name, (int)width);
 	wire->attributes = staged_attributes;
 	return wire;
 }

@@ -131,36 +131,40 @@ RTLIL::SigSpec AddressingResolver::shift_up(RTLIL::SigSpec val, bool oor_undef, 
 	}
 }
 
-template <> VariableBits AddressingResolver::extract<VariableBits>(VariableBits val, int width)
+template <> VariableBits AddressingResolver::extract<VariableBits>(VariableBits val, uint64_t width)
 {
 	ast_invariant(expr, raw_signal.is_fully_def());
-	int offset = raw_signal.as_const().as_int(true) + base_offset;
+	int64_t iwidth = (int64_t)width;
+	int64_t offset = raw_signal.as_const().as_int(true) + base_offset;
+	int64_t valsize = (int64_t)val.size();
 
 	VariableBits ret;
-	ret.append(Variable::dummy(std::clamp(-offset * stride, 0, width)));
-	int start = std::clamp(offset * stride, 0, (int)val.size());
-	int end = std::clamp(offset * stride + width, 0, (int)val.size());
+	ret.append(Variable::dummy(std::clamp<int64_t>(-offset * stride, 0, iwidth)));
+	int64_t start = std::clamp<int64_t>(offset * stride, 0, valsize);
+	int64_t end = std::clamp<int64_t>(offset * stride + iwidth, 0, valsize);
 	ret.append(val.extract(start, end - start));
-	ret.append(Variable::dummy(std::clamp(width - (-offset * stride + (int)val.size()), 0, width)));
-	log_assert(ret.size() == width);
+	ret.append(Variable::dummy(std::clamp<int64_t>(iwidth - (-offset * stride + valsize), 0, iwidth)));
+	log_assert(ret.bitwidth() == width);
 
 	return ret;
 }
 
 template <>
-RTLIL::SigSpec AddressingResolver::extract<RTLIL::SigSpec>(RTLIL::SigSpec val, int width)
+RTLIL::SigSpec AddressingResolver::extract<RTLIL::SigSpec>(RTLIL::SigSpec val, uint64_t width)
 {
 	ast_invariant(expr, raw_signal.is_fully_def());
-	int offset = raw_signal.as_const().as_int(true) + base_offset;
+	int64_t iwidth = (int64_t)width;
+	int64_t offset = raw_signal.as_const().as_int(true) + base_offset;
+	int64_t valsize = (int64_t)val.size();
 
 	RTLIL::SigSpec ret;
-	ret.append(RTLIL::SigSpec(RTLIL::Sx, std::clamp(-offset * stride, 0, width)));
-	int start = std::clamp(offset * stride, 0, val.size());
-	int end = std::clamp(offset * stride + width, 0, val.size());
-	ret.append(val.extract(start, end - start));
+	ret.append(RTLIL::SigSpec(RTLIL::Sx, (int)std::clamp<int64_t>(-offset * stride, 0, iwidth)));
+	int64_t start = std::clamp<int64_t>(offset * stride, 0, valsize);
+	int64_t end = std::clamp<int64_t>(offset * stride + iwidth, 0, valsize);
+	ret.append(val.extract((int)start, (int)(end - start)));
 	ret.append(RTLIL::SigSpec(
-			RTLIL::Sx, std::clamp(width - (-offset * stride + val.size()), 0, width)));
-	log_assert(ret.size() == width);
+			RTLIL::Sx, (int)std::clamp<int64_t>(iwidth - (-offset * stride + valsize), 0, iwidth)));
+	log_assert((int64_t)ret.size() == iwidth);
 
 	return ret;
 }

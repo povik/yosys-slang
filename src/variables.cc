@@ -37,7 +37,7 @@ Variable Variable::escape_flag(int id)
 	return var;
 }
 
-Variable Variable::dummy(int width)
+Variable Variable::dummy(uint64_t width)
 {
 	Variable var;
 	var.kind = Dummy;
@@ -174,7 +174,7 @@ bool Variable::operator<(const Variable &other) const
 Variable::HashLabel Variable::hash_label() const
 {
 	void *ptr = 0;
-	int num = depth;
+	uint64_t num = depth;
 	switch (kind) {
 	case Static:
 	case Local:      ptr = (void *)symbol; break;
@@ -195,11 +195,11 @@ const ast::ValueSymbol *Variable::get_symbol() const
 	}
 }
 
-int Variable::bitwidth() const
+uint64_t Variable::bitwidth() const
 {
 	switch (kind) {
 	case Static:
-	case Local:      return (int)symbol->getType().getBitstreamWidth();
+	case Local:      return symbol->getType().getBitstreamWidth();
 	case EscapeFlag: return 1;
 	case Dummy:      return width;
 	default:         log_abort();
