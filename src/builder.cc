@@ -181,12 +181,11 @@ ir::Value RTLILBuilder::Bwmux(ir::Value a, ir::Value b, ir::Value s)
 	return y;
 }
 
-ir::Value RTLILBuilder::Shift(
-		ir::Value a, bool a_signed, ir::Value b, bool b_signed, int result_width)
+ir::Value RTLILBuilder::Shift(ir::Value a, ir::Value b, bool b_signed, uint64_t result_width)
 {
 	if (a.is_fully_const() && b.is_fully_const())
 		return RTLIL::const_shift(
-				a.as_const().to_rtlil(), b.as_const().to_rtlil(), a_signed, b_signed, result_width);
+				a.as_const().to_rtlil(), b.as_const().to_rtlil(), false, b_signed, result_width);
 
 	if (b.is_fully_const() && b.size() < 24) {
 		log_assert(!a.empty());
@@ -194,9 +193,7 @@ ir::Value RTLILBuilder::Shift(
 		ir::Value ret;
 		int i, j;
 		for (i = shift_amount, j = 0; j < result_width; i++, j++) {
-			if (a_signed && i >= a.size())
-				ret.append(a.msb());
-			else if (i >= a.size() || i < 0)
+			if (i >= a.size() || i < 0)
 				ret.append(ir::S0);
 			else
 				ret.append(a[i]);
@@ -206,7 +203,7 @@ ir::Value RTLILBuilder::Shift(
 
 	auto [id, y] = add_y_wire(result_width);
 	Cell *cell = canvas->addCell(id, ID($shift));
-	cell->parameters[Yosys::ID::A_SIGNED] = a_signed;
+	cell->parameters[Yosys::ID::A_SIGNED] = false;
 	cell->parameters[Yosys::ID::B_SIGNED] = b_signed;
 	cell->parameters[Yosys::ID::A_WIDTH] = a.size();
 	cell->parameters[Yosys::ID::B_WIDTH] = b.size();
@@ -218,7 +215,7 @@ ir::Value RTLILBuilder::Shift(
 	return y;
 }
 
-ir::Value RTLILBuilder::Shiftx(ir::Value a, ir::Value s, bool s_signed, int result_width)
+ir::Value RTLILBuilder::Shiftx(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width)
 {
 	if (a.is_fully_const() && s.is_fully_const())
 		return RTLIL::const_shiftx(

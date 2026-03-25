@@ -95,7 +95,7 @@ ir::Value AddressingResolver::shift_up_bitwise(ir::Value val, bool oor_undef, ui
 	if (oor_undef)
 		shifted = netlist.Shiftx(val2, netlist.Neg(raw_signal, true), true, shifted_len);
 	else
-		shifted = netlist.Shift(val2, false, netlist.Neg(raw_signal, true), true, shifted_len);
+		shifted = netlist.Shift(val2, netlist.Neg(raw_signal, true), true, shifted_len);
 
 	if (base_offset < 0)
 		return shifted.extract_end(-base_offset);

@@ -367,8 +367,8 @@ struct RTLILBuilder {
 	ir::Value Bwmux(ir::Value a, ir::Value b, ir::Value s);
 	ir::Value Bmux(ir::Value a, ir::Value s);
 
-	ir::Value Shift(ir::Value a, bool a_signed, ir::Value s, bool s_signed, int result_width);
-	ir::Value Shiftx(ir::Value a, ir::Value s, bool s_signed, int result_width);
+	ir::Value Shift(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width);
+	ir::Value Shiftx(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width);
 	ir::Value Neg(ir::Value a, bool signed_);
 	ir::Value Not(ir::Value a);
 
