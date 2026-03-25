@@ -72,14 +72,15 @@ ir::Value RTLILBuilder::Demux(ir::Value a, ir::Value s)
 	return y;
 }
 
-ir::Value RTLILBuilder::Le(ir::Value a, ir::Value b, bool is_signed)
+ir::Net RTLILBuilder::Le(ir::Value a, ir::Value b, bool is_signed)
 {
 	if (a.is_fully_const() && b.is_fully_const())
-		return RTLIL::const_le(
-				a.as_const().to_rtlil(), b.as_const().to_rtlil(), is_signed, is_signed, 1);
+		return ir::Value(RTLIL::const_le(a.as_const().to_rtlil(), b.as_const().to_rtlil(),
+								 is_signed, is_signed, 1))
+				.as_net();
 	auto [id, y] = add_y_wire(1);
 	bless_cell(canvas->addLe(id, a, b, y, is_signed));
-	return y;
+	return ir::Value(y).as_net();
 }
 
 ir::Net RTLILBuilder::Ge(ir::Value a, ir::Value b, bool is_signed)

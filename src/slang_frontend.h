@@ -356,7 +356,7 @@ struct RTLILBuilder {
 	ir::Net ReduceBool(ir::Value a);
 
 	ir::Value Demux(ir::Value a, ir::Value s);
-	ir::Value Le(ir::Value a, ir::Value b, bool is_signed);
+	ir::Net Le(ir::Value a, ir::Value b, bool is_signed);
 	ir::Net Ge(ir::Value a, ir::Value b, bool is_signed);
 	ir::Net Lt(ir::Value a, ir::Value b, bool is_signed);
 	ir::Net Eq(ir::Value a, ir::Value b);
