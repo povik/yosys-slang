@@ -948,7 +948,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			if (procedural) {
 				if (procedural->timing.kind == ProcessTiming::Initial && ast::NetSymbol::isKind(symbol.kind)) {
 					netlist.add_diag(diag::ReadingNetStateFromInitialBlockUnsupported, expr.sourceRange);
-					ret = RTLIL::SigSpec(RTLIL::Sx, ret.size());
+					ret = RTLIL::SigSpec(RTLIL::Sx, (int) expr.type->getBitstreamWidth());
 					break;
 				}
 				ret = procedural->substitute_rvalue(variable1);
