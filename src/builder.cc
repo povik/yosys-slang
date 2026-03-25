@@ -62,8 +62,8 @@ ir::Net RTLILBuilder::ReduceBool(ir::Value a)
 ir::Value RTLILBuilder::Demux(ir::Value a, ir::Value s)
 {
 	log_assert(s.size() < 24);
-	ir::Value zeropad(ir::S0, a.size());
 	if (s.is_fully_const()) {
+		ir::Value zeropad(ir::S0, a.size());
 		int idx_const = s.as_const().as_int();
 		return {zeropad.repeat((1 << s.size()) - 1 - idx_const), a, zeropad.repeat(idx_const)};
 	}
@@ -120,9 +120,9 @@ ir::Net RTLILBuilder::LogicAnd(ir::Value a, ir::Value b)
 {
 	if (a.is_fully_zero() || b.is_fully_zero())
 		return ir::S0;
-	if (a.is_fully_def() && b.size() == 1)
+	if (a.is_fully_ones() && b.size() == 1)
 		return b.as_net();
-	if (b.is_fully_def() && a.size() == 1)
+	if (b.is_fully_ones() && a.size() == 1)
 		return a.as_net();
 	auto [id, y] = add_y_wire(1);
 	bless_cell(canvas->addLogicAnd(id, a, b, y));
@@ -150,16 +150,15 @@ ir::Net RTLILBuilder::LogicNot(ir::Value a)
 	return y.as_net();
 }
 
-ir::Value RTLILBuilder::Mux(ir::Value a, ir::Value b, ir::Value s)
+ir::Value RTLILBuilder::Mux(ir::Value a, ir::Value b, ir::Net s)
 {
 	log_assert(a.size() == b.size());
-	log_assert(s.size() == 1);
-	if (s[0] == RTLIL::S0)
+	if (s == ir::S0)
 		return a;
-	if (s[0] == RTLIL::S1)
+	if (s == ir::S1)
 		return b;
 	auto [id, y] = add_y_wire(a.size());
-	bless_cell(canvas->addMux(id, a, b, s, y));
+	bless_cell(canvas->addMux(id, a, b, {s}, y));
 	return y;
 }
 

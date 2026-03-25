@@ -363,7 +363,7 @@ struct RTLILBuilder {
 	ir::Net LogicAnd(ir::Value a, ir::Value b);
 	ir::Net LogicOr(ir::Value a, ir::Value b);
 	ir::Net LogicNot(ir::Value a);
-	ir::Value Mux(ir::Value a, ir::Value b, ir::Value s);
+	ir::Value Mux(ir::Value a, ir::Value b, ir::Net s);
 	ir::Value Bwmux(ir::Value a, ir::Value b, ir::Value s);
 	ir::Value Bmux(ir::Value a, ir::Value s);
 
