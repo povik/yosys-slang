@@ -361,6 +361,19 @@ public:
 		require(cond, cond.conditions[0].pattern == NULL);
 
 		RTLIL::SigSpec condition = netlist.ReduceBool(eval(*cond.conditions[0].expr));
+
+		if (condition.is_fully_def()) {
+			if (condition[0] == RTLIL::S1) {
+				cond.ifTrue.visit(*this);
+				return;
+			} else if (condition[0] == RTLIL::S0) {
+				if (cond.ifFalse)
+					cond.ifFalse->visit(*this);
+				return;
+			}
+			// fall through on Sx
+		}
+
 		SwitchHelper b(context, condition);
 		b.sw->statement = &cond;
 
