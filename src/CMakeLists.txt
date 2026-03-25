@@ -12,19 +12,20 @@ else()
 endif()
 
 add_library(yosys-slang ${LIBRARY_TYPE}
-    abort_helpers.cc
+    backends/yosys/abort_helpers.cc
+    backends/yosys/blackboxes.cc
+    backends/yosys/cases.cc
+    backends/yosys/cases.h
+    backends/yosys/driver.cc
+    backends/yosys/ir.cc
+    backends/yosys/ir.h
     addressing.cc
     async_pattern.cc
     async_pattern.h
-    blackboxes.cc
     builder.cc
-    cases.cc
-    cases.h
     diag.cc
     diag.h
-    driver.cc
     initialization.cc
-    ir.cc
     lvalue.cc
     memory.h
     naming.cc
@@ -36,7 +37,11 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     variables.h
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
-target_include_directories(yosys-slang PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(yosys-slang PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/backends/yosys
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
 target_link_libraries(yosys-slang PRIVATE yosys::yosys slang::slang)
 
 if (BUILD_AS_PLUGIN)
