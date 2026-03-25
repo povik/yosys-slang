@@ -1230,7 +1230,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					auto sig = (*this)(*arg);
 					ret = netlist.CountOnes(sig, (int)call.type->getBitstreamWidth());
 				} else if (name == "$clog2") {
-					require(expr, call.arguments().size() == 1);
+					ast_invariant(expr, call.arguments().size() == 1);
 					auto arg = call.arguments()[0];
 					auto sig = (*this)(*arg);
 					ret = netlist.Clog2(sig, (int)call.type->getBitstreamWidth());
