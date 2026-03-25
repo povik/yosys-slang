@@ -115,25 +115,6 @@ ir::Net RTLILBuilder::Eq(ir::Value a, ir::Value b)
 	return ir::Value(y).as_net();
 }
 
-ir::Value RTLILBuilder::EqWildcard(ir::Value a, ir::Value b)
-{
-	log_assert(a.size() == b.size());
-	log_assert(b.is_fully_const());
-
-	for (int i = a.size() - 1; i >= 0; i--) {
-		if (b[i] == RTLIL::Sx || b[i] == RTLIL::Sz) {
-			a.remove(i);
-			b.remove(i);
-		}
-	}
-	log_assert(a.size() == b.size());
-	if (a.is_fully_const() && b.is_fully_const())
-		return RTLIL::const_eq(a.as_const().to_rtlil(), b.as_const().to_rtlil(), false, false, 1);
-	auto [id, y] = add_y_wire(1);
-	bless_cell(canvas->addEq(id, a, b, y, false));
-	return y;
-}
-
 ir::Net RTLILBuilder::LogicAnd(ir::Value a, ir::Value b)
 {
 	if (a.is_fully_zero() || b.is_fully_zero())

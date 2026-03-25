@@ -506,6 +506,21 @@ void ProceduralContext::set_effects_trigger(RTLIL::Cell *cell)
 	timing.extract_trigger(netlist, cell, en);
 }
 
+ir::Net matches_pattern(RTLILBuilder &builder, const ValuePattern &pattern, ir::Value &value)
+{
+	ir::Value sig, filtered_pat;
+	sig.reserve(value.width());
+	filtered_pat.reserve(value.width());
+	for (int i = 0; i < pattern.size(); i++) {
+		if (pattern.bits[i].is_wildcard())
+			continue;
+		sig.append(value[i]);
+		filtered_pat.append(pattern.bits[i].net);
+	}
+	return sig.empty() ? ir::S1 : builder.Eq(sig, filtered_pat);	
+}
+
+// TODO: revisit against the spec
 ir::Value inside_comparison(EvalContext &eval, ir::Value left,
 								const ast::Expression &expr)
 {
@@ -520,13 +535,17 @@ ir::Value inside_comparison(EvalContext &eval, ir::Value left,
 			eval.netlist.Le(left, eval(vexpr.right()), vexpr.right().type->isSigned())
 		);
 	} else {
-		ir::Value expr_signal = eval(expr);
-		ast_invariant(expr, expr_signal.size() == left.size());
-
 		if (expr.type->isIntegral()) {
-			require(expr, expr_signal.is_fully_const());
-			return eval.netlist.EqWildcard(left, expr_signal);
+			auto const_result = expr.eval(eval.const_);
+			require(expr, (bool) const_result);
+			ast_invariant(expr, const_result.isInteger());
+			auto pat = svint_to_pattern(eval.netlist, const_result.integer(), /* match_x= */ true,
+								/* match_z= */ true, expr.sourceRange.start());
+			log_assert(pat.size() == left.size());
+			return matches_pattern(eval.netlist, pat, left);
 		} else {
+			ir::Value expr_signal = eval(expr);
+			ast_invariant(expr, expr_signal.size() == left.size());
 			return eval.netlist.Eq(left, expr_signal);
 		}
 	}
@@ -1112,7 +1131,6 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::BinaryExpression &biop = expr.as<ast::BinaryExpression>();
 			ir::Value left = (*this)(biop.left());
-			ir::Value right = (*this)(biop.right());
 
 			bool invert;
 			switch (biop.op) {
@@ -1122,20 +1140,26 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 			case ast::BinaryOperator::WildcardInequality:
 				invert = true;
 				}
-				if (!right.is_fully_const()) {
-					netlist.add_diag(diag::NonconstWildcardEq, expr.sourceRange);
-					ret = netlist.add_placeholder_signal(expr.type->getBitstreamWidth());
-					return ret;
+
+				{
+					auto const_result = biop.right().eval(this->const_);
+					if (!const_result || !const_result.isInteger()) {
+						netlist.add_diag(diag::NonconstWildcardEq, expr.sourceRange);
+						return ir::Value(ir::Sx, expr.type->getBitstreamWidth());
+					}
+					auto pat = svint_to_pattern(netlist, const_result.integer(), true,
+												true, biop.right().sourceRange.start());
+					return netlist.Unop(
+						invert ? ID($logic_not) : ID($reduce_bool),
+						matches_pattern(netlist, pat, left),
+						false, expr.type->getBitstreamWidth()
+					);
 				}
-				return netlist.Unop(
-					invert ? ID($logic_not) : ID($reduce_bool),
-					netlist.EqWildcard(left, right),
-					false, expr.type->getBitstreamWidth()
-				);
 			default:
 				break;
 			}
 
+			ir::Value right = (*this)(biop.right());
 			bool a_signed = biop.left().type->isSigned();
 			bool b_signed = biop.right().type->isSigned();
 

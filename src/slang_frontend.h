@@ -354,7 +354,6 @@ struct RTLILBuilder {
 	ir::Value Le(ir::Value a, ir::Value b, bool is_signed);
 	ir::Net Ge(ir::Value a, ir::Value b, bool is_signed);
 	ir::Net Lt(ir::Value a, ir::Value b, bool is_signed);
-	ir::Value EqWildcard(ir::Value a, ir::Value b);
 	ir::Net Eq(ir::Value a, ir::Value b);
 	ir::Net LogicAnd(ir::Value a, ir::Value b);
 	ir::Net LogicOr(ir::Value a, ir::Value b);
@@ -587,7 +586,64 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	const std::optional<ir::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc);
 };
 
+// A single bit position in a match pattern: either a concrete net or a wildcard
+struct PatternBit
+{
+	enum Kind { Concrete, Wildcard } kind;
+	ir::Net net; // meaningful only when kind == Concrete
+
+	PatternBit() : kind(Wildcard) {}
+	PatternBit(ir::Net n) : kind(Concrete), net(n) {}
+	static PatternBit wildcard() { return {}; }
+	bool is_wildcard() const { return kind == Wildcard; }
+	bool operator==(const PatternBit &o) const
+	{
+		if (kind != o.kind)
+			return false;
+		return kind == Wildcard || net == o.net;
+	}
+	bool operator!=(const PatternBit &o) const { return !(*this == o); }
+};
+
+// A match pattern: sequence of PatternBit, used in case compare expressions and `inside` operators
+struct ValuePattern
+{
+	std::vector<PatternBit> bits;
+
+	ValuePattern() {}
+	ValuePattern(ir::Net n) : bits{PatternBit(n)} {}
+	ValuePattern(ir::Trit t) : bits{PatternBit(ir::Net(t))} {}
+
+	// All-concrete pattern from an ir::Value (no wildcards)
+	ValuePattern(ir::Value v)
+	{
+		bits.reserve(v.size());
+		for (int i = 0; i < v.size(); i++)
+			bits.push_back(PatternBit(v[i]));
+	}
+
+	int size() const { return (int)bits.size(); }
+	bool empty() const { return bits.empty(); }
+
+	bool is_fully_concrete() const
+	{
+		for (auto &b : bits)
+			if (b.is_wildcard())
+				return false;
+		return true;
+	}
+
+	bool is_fully_def() const
+	{
+		for (auto &b : bits)
+			if (b.is_wildcard() || !b.net.is_def())
+				return false;
+		return true;
+	}
+};
+
 // slang_frontend.cc
+ir::Net matches_pattern(RTLILBuilder &builder, const ValuePattern &pattern, ir::Value &value);
 ir::Value inside_comparison(EvalContext &eval, ir::Value left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);

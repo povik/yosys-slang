@@ -82,24 +82,13 @@ public:
 
 		ir::Net compute_condition(NetlistContext &netlist, const std::vector<ValuePattern> &compare)
 		{
-			ir::Value cond;
-			for (auto &pat : compare) {
-				ir::Value sig, filtered_pat;
-				for (int i = 0; i < pat.size(); i++) {
-					if (pat.bits[i].is_wildcard())
-						continue;
-					sig.append(dispatch[i]);
-					filtered_pat.append(pat.bits[i].net);
-				}
-				ir::Value match = sig.empty() ? ir::Value(ir::S1) : netlist.Eq(sig, filtered_pat);
-				if (cond.empty())
-					cond = match;
-				else
-					cond = netlist.LogicOr(cond, match);
-			}
 			if (compare.empty())
-				cond = ir::Value(ir::S1);
-			return cond.as_net();
+				return ir::S1;
+
+			ir::Net cond = ir::S0;
+			for (auto &pat : compare)
+				cond = netlist.LogicOr(cond, matches_pattern(netlist, pat, dispatch));
+			return cond;
 		}
 
 		void enter_branch(

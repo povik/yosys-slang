@@ -14,62 +14,6 @@
 
 namespace slang_frontend {
 
-// A single bit position in a match pattern: either a concrete net or a wildcard
-struct PatternBit
-{
-	enum Kind { Concrete, Wildcard } kind;
-	ir::Net net; // meaningful only when kind == Concrete
-
-	PatternBit() : kind(Wildcard) {}
-	PatternBit(ir::Net n) : kind(Concrete), net(n) {}
-	static PatternBit wildcard() { return {}; }
-	bool is_wildcard() const { return kind == Wildcard; }
-	bool operator==(const PatternBit &o) const
-	{
-		if (kind != o.kind)
-			return false;
-		return kind == Wildcard || net == o.net;
-	}
-	bool operator!=(const PatternBit &o) const { return !(*this == o); }
-};
-
-// A match pattern: sequence of PatternBit, used in case compare expressions
-struct ValuePattern
-{
-	std::vector<PatternBit> bits;
-
-	ValuePattern() {}
-	ValuePattern(ir::Net n) : bits{PatternBit(n)} {}
-	ValuePattern(ir::Trit t) : bits{PatternBit(ir::Net(t))} {}
-
-	// All-concrete pattern from an ir::Value (no wildcards)
-	ValuePattern(ir::Value v)
-	{
-		bits.reserve(v.size());
-		for (int i = 0; i < v.size(); i++)
-			bits.push_back(PatternBit(v[i]));
-	}
-
-	int size() const { return (int)bits.size(); }
-	bool empty() const { return bits.empty(); }
-
-	bool is_fully_concrete() const
-	{
-		for (auto &b : bits)
-			if (b.is_wildcard())
-				return false;
-		return true;
-	}
-
-	bool is_fully_def() const
-	{
-		for (auto &b : bits)
-			if (b.is_wildcard() || !b.net.is_def())
-				return false;
-		return true;
-	}
-};
-
 // Lower a ValuePattern to an RTLIL::SigSpec (wildcards become RTLIL::Sa)
 RTLIL::SigSpec lower_pattern(const ValuePattern &pat);
 
