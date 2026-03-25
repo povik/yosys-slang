@@ -12,6 +12,7 @@
 #include "slang/ast/ASTVisitor.h"
 #include "slang_frontend.h"
 #include "variables.h"
+#include "backend_builder.h"
 
 namespace slang_frontend {
 
@@ -438,10 +439,10 @@ public:
 			// If we are the sole statement in a block, use the block's label
 			cell_name = netlist.id(*containing_block);
 		} else {
-			cell_name = netlist.new_id();
+			cell_name = netlist.backend->new_id();
 		}
 
-		auto cell = netlist.canvas->addCell(cell_name, ID($check));
+		auto cell = netlist.backend->canvas->addCell(cell_name, ID($check));
 
 		context.set_effects_trigger(cell);
 		cell->setParam(ID::FLAVOR, flavor);

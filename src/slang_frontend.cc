@@ -42,6 +42,7 @@ static ValuePattern svint_to_pattern(
 #include "diag.h"
 #include "async_pattern.h"
 #include "variables.h"
+#include "backend_builder.h"
 
 using namespace std::string_literals;
 
@@ -156,14 +157,14 @@ uint64_t bitstream_member_offset(const ast::FieldSymbol &member)
 	return bit_offset;
 }
 
-static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
+const std::string module_type_id(const ast::InstanceBodySymbol &sym)
 {
 	ast_invariant(sym, sym.parentInstance && sym.parentInstance->isModule());
 	std::string instance = sym.getHierarchicalPath();
 	if (instance == sym.name)
-		return RTLIL::escape_id(std::string(sym.name));
+		return std::string(sym.name);
 	else
-		return RTLIL::escape_id(std::string(sym.name) + "$" + instance);
+		return std::string(sym.name) + "$" + instance;
 }
 
 ir::Const NetlistContext::convert_svint(const slang::SVInt &svint,
@@ -358,7 +359,7 @@ void ProceduralContext::set_effects_trigger(RTLIL::Cell *cell)
 	timing.extract_trigger(netlist, cell, en);
 }
 
-ir::Net matches_pattern(RTLILBuilder &builder, const ValuePattern &pattern, ir::Value &value)
+ir::Net matches_pattern(NetlistContext &netlist, const ValuePattern &pattern, ir::Value &value)
 {
 	ir::Value sig, filtered_pat;
 	sig.reserve(value.width());
@@ -369,7 +370,7 @@ ir::Net matches_pattern(RTLILBuilder &builder, const ValuePattern &pattern, ir::
 		sig.append(value[i]);
 		filtered_pat.append(pattern.bits[i].net);
 	}
-	return sig.empty() ? ir::S1 : builder.Eq(sig, filtered_pat);	
+	return sig.empty() ? ir::S1 : netlist.Eq(sig, filtered_pat);	
 }
 
 // TODO: revisit against the spec
@@ -744,7 +745,7 @@ ir::Value handle_past(EvalContext &eval, const ast::CallExpression &call)
 
 	for (int i = 0; i < num_cycles; i++) {
 		past_wire = netlist.add_placeholder_signal(width, "$past");
-		netlist.add_dff(netlist.new_id("past"),
+		netlist.add_dff(netlist.backend->new_id("past"),
 			trigger.signal,
 			prev_val,
 			past_wire,
@@ -758,7 +759,7 @@ ir::Value handle_past(EvalContext &eval, const ast::CallExpression &call)
 void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 {
 	NetlistContext &netlist = context.netlist;
-	auto cell = netlist.canvas->addCell(netlist.new_id(), ID($print));
+	auto cell = netlist.backend->canvas->addCell(netlist.backend->new_id(), ID($print));
 	transfer_attrs(context.netlist, call, cell);
 	context.set_effects_trigger(cell);
 	cell->parameters[ID::PRIORITY] = --context.effects_priority;
@@ -796,7 +797,7 @@ void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 	Yosys::Fmt fmt = {};
 	// TODO: insert the actual module name
 	fmt.parse_verilog(fmt_args, /* sformat_like */ false, /* default_base */ 10,
-					  std::string{call.getSubroutineName()}, netlist.canvas->name);
+					  std::string{call.getSubroutineName()}, netlist.backend->canvas->name);
 	if (call.getSubroutineName() == "$display")
 		fmt.append_literal("\n");
 	fmt.emit_rtlil(cell);
@@ -1055,7 +1056,7 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 				int width = elemsel.type->getBitstreamWidth();
 				std::string id = netlist.id(elemsel.value()
 										.as<ast::ValueExpressionBase>().symbol);
-				RTLIL::Cell *memrd = netlist.canvas->addCell(netlist.new_id(), ID($memrd_v2));
+				RTLIL::Cell *memrd = netlist.backend->canvas->addCell(netlist.backend->new_id(), ID($memrd_v2));
 				memrd->setParam(ID::MEMID, id);
 				memrd->setParam(ID::CLK_ENABLE, false);
 				memrd->setParam(ID::CLK_POLARITY, false);
@@ -1179,7 +1180,7 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 					ret = visitor.handle_call(call);
 
 #ifndef SLANG_MUX_LOWERING
-					RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
+					RTLIL::Process *proc = netlist.backend->canvas->addProcess(netlist.new_id());
 					transfer_attrs(netlist, call, proc);
 					context.copy_case_tree_into(proc->root_case);
 #endif
@@ -1244,7 +1245,7 @@ public:
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
 #ifndef SLANG_MUX_LOWERING
-		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
+		RTLIL::Process *proc = netlist.backend->canvas->addProcess(netlist.new_id());
 		transfer_attrs(netlist, body, proc);
 #endif
 
@@ -1303,7 +1304,7 @@ public:
 				RTLIL::SigSpec staging = netlist.add_placeholder_signal(chunk.bitwidth());
 
 				for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
-					RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en[i],
+					RTLIL::Cell *cell = netlist.backend->canvas->addDlatch(netlist.new_id(), en[i],
 											staging[i], netlist.convert_static(chunk[i]), true);
 					netlist.driven_variables.insert(chunk[i]);
 					netlist.register_driven_variables.insert(chunk[i]);
@@ -1337,7 +1338,7 @@ public:
 		const auto &timed = symbol.getBody().as<ast::TimedStatement>();
 
 #ifndef SLANG_MUX_LOWERING
-		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
+		RTLIL::Process *proc = netlist.backend->canvas->addProcess(netlist.new_id());
 		transfer_attrs(netlist, timed.stmt, proc);
 #endif
 
@@ -1658,7 +1659,7 @@ public:
 
 		// blackboxes get special handling no matter the hierarchy mode
 		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
-			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
+			RTLIL::Cell *cell = netlist.backend->canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
 			cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 
 			for (auto *conn : sym.getPortConnections()) {
@@ -1719,7 +1720,7 @@ public:
 				// no-op
 			}));
 			transfer_attrs(netlist, sym, cell);
-			export_blackbox_to_rtlil(netlist, sym, netlist.canvas->design);
+			export_blackbox_to_rtlil(netlist, sym, netlist.backend->canvas->design);
 			return;
 		}
 
@@ -1825,7 +1826,7 @@ public:
 			ast_invariant(sym, ref_body->parentInstance != nullptr);
 			auto [submodule, inserted] = queue.get_or_emplace(ref_body, netlist, *ref_body->parentInstance);
 
-			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(*ref_body));
+			RTLIL::Cell *cell = netlist.backend->canvas->addCell(netlist.id(sym), RTLIL::escape_id(module_type_id(*ref_body)));
 			cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 			for (auto *conn : sym.getPortConnections()) {
 				slang::SourceLocation loc;
@@ -2058,7 +2059,7 @@ public:
 				auto range = sym.getType().getFixedRange();
 				m->start_offset = range.lower();
 				m->size = range.width();
-				netlist.canvas->memories[m->name] = m;
+				netlist.backend->canvas->memories[m->name] = m;
 				netlist.emitted_mems[m->name] = {};
 
 				log_debug("Memory inferred for variable %s (size: %d, width: %d)\n",
@@ -2121,7 +2122,7 @@ public:
 			return;
 		}
 
-		RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym),
+		RTLIL::Cell *cell = netlist.backend->canvas->addCell(netlist.id(sym),
 													rtlil_id(sym.definitionName));
 		cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 		transfer_attrs(netlist, sym, cell);
@@ -2188,7 +2189,7 @@ public:
 	{
 		auto ports = sym.getPortConnections();
 		auto type = sym.primitiveType.name;
-		auto id = (!sym.name.compare("")) ? netlist.new_id() : netlist.id(sym);
+		auto id = (!sym.name.compare("")) ? netlist.backend->new_id() : netlist.id(sym);
 		RTLIL::IdString op;
 		bool inv_y = false;
 		RTLIL::Cell *cell;
@@ -2216,7 +2217,7 @@ public:
 				} else {
 					ast_unreachable(sym);
 				}
-				cell = netlist.canvas->addCell(id, op);
+				cell = netlist.backend->canvas->addCell(id, op);
 				if (ports.size() == 3) {
 					// word-level primitive cell for 2 input ports
 					cell->setPort(ID::A, netlist.eval(*ports[1]));
@@ -2243,13 +2244,13 @@ public:
 				} else {
 					ast_unreachable(sym);
 				}
-				cell = netlist.canvas->addCell(id, op);
+				cell = netlist.backend->canvas->addCell(id, op);
 				cell->setPort(ID::A, netlist.eval(*(ports.back())));
 				cell->setPort(ID::Y, y);
 				for (auto port : ports) {
 					if (port != ports.front() && port != ports.back()) {
 						auto &assign = port->as<ast::AssignmentExpression>();
-						netlist.canvas->connect(cell->getPort(ID::Y), netlist.eval.connection_lhs(assign));
+						netlist.backend->canvas->connect(cell->getPort(ID::Y), netlist.eval.connection_lhs(assign));
 					}
 				}
 				break;
@@ -2257,7 +2258,7 @@ public:
 		case ast::PrimitiveSymbol::PrimitiveKind::UserDefined:
 			{
 				if (settings.udp_handling.has_value() && *settings.udp_handling == UdpHandleMode::blackboxes) {
-					RTLIL::Cell *cell = netlist.canvas->addCell(id, RTLIL::escape_id(std::string(sym.primitiveType.name)));
+					RTLIL::Cell *cell = netlist.backend->canvas->addCell(id, RTLIL::escape_id(std::string(sym.primitiveType.name)));
 					cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 					transfer_attrs(netlist, sym, cell);
 					const auto& ports = sym.primitiveType.ports;
@@ -2284,12 +2285,12 @@ public:
 			{
 				if (!type.compare("pulldown")) {
 					// pulldown is equivalent to: buffer with constant 0 input
-					cell = netlist.canvas->addCell(id, ID($buf));
+					cell = netlist.backend->canvas->addCell(id, ID($buf));
 					cell->setPort(ID::A, RTLIL::S0);
 					cell->setPort(ID::Y, y);
 				} else if (!type.compare("pullup")) {
 					// pullup is equivalent to: buffer with constant 1 input
-					cell = netlist.canvas->addCell(id, ID($buf));
+					cell = netlist.backend->canvas->addCell(id, ID($buf));
 					cell->setPort(ID::A, RTLIL::S1);
 					cell->setPort(ID::Y, y);
 				} else if (!type.compare("bufif0") || !type.compare("bufif1") ||
@@ -2314,14 +2315,14 @@ public:
 					auto in = netlist.eval(*ports[1]);
 					if (inv_a) {
 						auto mid_wire = netlist.add_placeholder_signal(in.size(), id + "_mid", true);
-						auto inv_cell = netlist.canvas->addNot(id + "_ainv", in, mid_wire);
+						auto inv_cell = netlist.backend->canvas->addNot(id + "_ainv", in, mid_wire);
 						in = mid_wire;
 						transfer_attrs(netlist, sym, inv_cell);
 					}
 					ir::Value a = inv_en ? in : ir::Value(RTLIL::SigSpec(RTLIL::Sz));
 					ir::Value b = inv_en ? ir::Value(RTLIL::SigSpec(RTLIL::Sz)) : in;
 					auto en = netlist.eval(*ports[2]);
-					cell = netlist.canvas->addMux(id, a, b, en, y);
+					cell = netlist.backend->canvas->addMux(id, a, b, en, y);
 				} else if (!type.compare("cmos") || !type.compare("rcmos")) {
 					// cmos (w, datain, ncontrol, pcontrol);
 					// is equivalent to:
@@ -2330,8 +2331,8 @@ public:
 					auto a = netlist.eval(*ports[1]);
 					auto n_en = netlist.eval(*ports[2]);
 					auto p_en = netlist.eval(*ports[3]);
-					auto nmos = netlist.canvas->addMux(id + "_n", RTLIL::Sz, a, n_en, y);
-					auto pmos = netlist.canvas->addMux(id + "_p", a, RTLIL::Sz, p_en, y);
+					auto nmos = netlist.backend->canvas->addMux(id + "_n", RTLIL::Sz, a, n_en, y);
+					auto pmos = netlist.backend->canvas->addMux(id + "_p", a, RTLIL::Sz, p_en, y);
 					transfer_attrs(netlist, sym, nmos);
 					cell = pmos; // transfer_attrs to pmos after switch block
 				} else {
@@ -2344,9 +2345,9 @@ public:
 		transfer_attrs(netlist, sym, cell);
 		if (inv_y) {
 			// Invert output signal where needed
-			netlist.canvas->rename(cell->name, id + "_yinv");
+			netlist.backend->canvas->rename(cell->name, id + "_yinv");
 			auto mid_wire = netlist.add_placeholder_signal(y.size(), id + "_mid", true);
-			auto inv_cell = netlist.canvas->addNot(id, mid_wire, y);
+			auto inv_cell = netlist.backend->canvas->addNot(id, mid_wire, y);
 			cell->setPort(ID::Y, mid_wire);
 			transfer_attrs(netlist, sym, inv_cell);
 		}
@@ -2601,14 +2602,14 @@ void finalize_special_nets(NetlistContext &netlist)
 			switch (symbol->netType.netKind) {
 			case ast::NetType::WAnd:
 			case ast::NetType::TriAnd: {
-				netlist.canvas->addReduceAnd(netlist.new_id("wand"),
+				netlist.backend->canvas->addReduceAnd(netlist.backend->new_id("wand"),
 					netlist.special_net_drivers[bit],
 					netlist.convert_static(bit));
 				break;
 			}
 			case ast::NetType::WOr:
 			case ast::NetType::TriOr: {
-				netlist.canvas->addReduceOr(netlist.new_id("wor"),
+				netlist.backend->canvas->addReduceOr(netlist.backend->new_id("wor"),
 					netlist.special_net_drivers[bit],
 					netlist.convert_static(bit));
 				break;
@@ -2803,30 +2804,27 @@ ir::Value NetlistContext::convert_static(VariableBits bits)
 }
 
 NetlistContext::NetlistContext(
-		RTLIL::Design *design,
+		std::unique_ptr<BackendGraphBuilder> backend,
 		SynthesisSettings &settings,
 		ast::Compilation &compilation,
 		const ast::InstanceSymbol &instance)
 	: settings(settings), compilation(compilation), realm(instance.body), eval(*this)
 {
-	canvas = design->addModule(module_type_id(instance.body));
-	transfer_attrs(*this, instance.body.getDefinition(), canvas);
+	GraphBuilder::backend = std::move(backend);
+	transfer_attrs(*this, instance.body.getDefinition(), GraphBuilder::backend->canvas);
 }
 
 NetlistContext::NetlistContext(
 		NetlistContext &other,
 		const ast::InstanceSymbol &instance)
-	: NetlistContext(other.canvas->design, other.settings, other.compilation, instance)
+	: NetlistContext(other.backend->start_new_graph(module_type_id(instance.body)), other.settings, other.compilation, instance)
 {
+	//canvas = design->addModule(module_type_id(instance.body));
 }
 
 NetlistContext::~NetlistContext()
 {
-	// move constructor could have cleared our canvas pointer
-	if (canvas) {
-		canvas->fixup_ports();
-		canvas->check();
-	}
+	backend->finalize();
 }
 
 std::vector<slang::DiagCode> forbidden_diag_demotions = {

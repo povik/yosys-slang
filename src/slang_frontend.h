@@ -77,6 +77,7 @@ struct ProcessTiming;
 class Case;
 class LValue;
 struct HierarchyQueue;
+class AttributeGuard;
 
 class Variable {
 public:
@@ -346,16 +347,74 @@ private:
 	const ast::Scope *scope;
 };
 
-struct RTLILBuilder {
-	RTLIL::Module *canvas;
-	Yosys::dict<RTLIL::IdString, RTLIL::Const> staged_attributes;
+struct BackendGraphBuilderBase {
+	// Emits a node for SystemVerilog unary operator
+	virtual ir::Value Unop(ast::UnaryOperator op, ir::Value a, bool a_signed, uint64_t y_width) = 0;
 
-	unsigned next_id = 0;
-	std::string new_id(std::string base = std::string());
+	// Emits a node for SystemVerilog binary operator
+	virtual ir::Value Biop(ast::BinaryOperator op, ir::Value a, ir::Value b,
+				   bool a_signed, bool b_signed, uint64_t y_width) = 0;
 
-	ir::Net ReduceBool(ir::Value a);
+	// Demux the operand `a`, i.e. return a value of width `a.width() << s.width()`
+	// where each `a`-sized slot is either zeroed out when inactive, or fed through
+	// the value of `a` when active, and where the operand `s` selects the active slot.
+	virtual ir::Value Demux(ir::Value a, ir::Value s) = 0;
+
+	// Bitwise mux between `a` and `b` controlled by `s`. All operands and the return value
+	// have the same width.
+	virtual ir::Value Bwmux(ir::Value a, ir::Value b, ir::Value s) = 0;
+
+	// Mux with addressing input `s`. Width of `a` must be a multiple of `1 << s.width()`
+	// and the return value has width `a.width() / (1 << s.width())`
+	virtual ir::Value Bmux(ir::Value a, ir::Value s) = 0;
+
+	// Return value `a` shifted to the right by amount `s`. Shiftx pads the output with X
+	// while Shift pads with zeroes.
+	virtual ir::Value Shift(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width) = 0;
+	virtual ir::Value Shiftx(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width) = 0;
+
+	virtual ir::Value Mux(ir::Value a, ir::Value b, ir::Net s) = 0;
+
+    // Create a placeholder signal which will be connected to a driver using `connect` later
+	virtual ir::Value add_placeholder_signal(uint64_t width, std::string_view name_suggestion=""sv, bool public_name=false) = 0;
+
+    // `target` must be composed solely of signal bits created using add_placeholder_signal
+	virtual void connect(ir::Value target, ir::Value source) = 0;
+
+	// Set initialization on the driver of `signal`
+	//
+	// `signal` is exactly as returned from an earlier call to `add_placeholder_signal`
+	virtual void set_initialization(ir::Value signal, ir::Const init_value) = 0;
+
+	// Add initialization data on the given memory. The data starts
+	// at bit position `base` which does not need be a word boundary
+	virtual void add_memory_init(std::string_view name, uint64_t bit_offset,
+						 		 bool big_endian, ir::Const data) = 0;
+
+	virtual void add_dual_edge_aldff(const std::string &base_name, ir::Value clk,
+							 		 ir::Value aload, ir::Value d, ir::Value q,
+							 		 ir::Value ad, bool aload_polarity) = 0;
+	virtual void add_dff(std::string_view name, const ir::Value &clk, const ir::Value &d,
+		 		 const ir::Value &q, bool clk_polarity=true) = 0;
+	virtual void add_dffe(std::string_view name, const ir::Value &clk, const ir::Value &en,
+		 		  const ir::Value &d, const ir::Value &q, bool clk_polarity=true,
+				  bool en_polarity=true) = 0;
+	virtual void add_aldff(std::string_view name, const ir::Value &clk, const ir::Value &aload,
+		   		   const ir::Value &d, const ir::Value &q, const ir::Value &ad,
+				   bool clk_polarity = true, bool aload_polarity = true) = 0;
+};
+
+class BackendGraphBuilder;
+
+struct GraphBuilder {
+	std::unique_ptr<BackendGraphBuilder> backend;
 
 	ir::Value Demux(ir::Value a, ir::Value s);
+	ir::Value Bwmux(ir::Value a, ir::Value b, ir::Value s);
+	ir::Value Bmux(ir::Value a, ir::Value s);
+	ir::Value Shift(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width);
+	ir::Value Shiftx(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width);
+	ir::Net ReduceBool(ir::Value a);
 	ir::Net Le(ir::Value a, ir::Value b, bool is_signed);
 	ir::Net Ge(ir::Value a, ir::Value b, bool is_signed);
 	ir::Net Lt(ir::Value a, ir::Value b, bool is_signed);
@@ -364,23 +423,18 @@ struct RTLILBuilder {
 	ir::Net LogicOr(ir::Value a, ir::Value b);
 	ir::Net LogicNot(ir::Value a);
 	ir::Value Mux(ir::Value a, ir::Value b, ir::Net s);
-	ir::Value Bwmux(ir::Value a, ir::Value b, ir::Value s);
-	ir::Value Bmux(ir::Value a, ir::Value s);
-
-	ir::Value Shift(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width);
-	ir::Value Shiftx(ir::Value a, ir::Value s, bool s_signed, uint64_t result_width);
 	ir::Value Neg(ir::Value a, bool signed_);
 	ir::Value Not(ir::Value a);
-
 	ir::Value Unop(ast::UnaryOperator op, ir::Value a, bool a_signed, uint64_t y_width);
-	ir::Value UnopInternal(RTLIL::IdString op, ir::Value a, bool a_signed, uint64_t y_width);
 	ir::Value Biop(ast::BinaryOperator op, ir::Value a, ir::Value b,
 				 bool a_signed, bool b_signed, uint64_t y_width);
-	ir::Value BiopInternal(
-				RTLIL::IdString op, ir::Value a, ir::Value b, bool a_signed, bool b_signed, uint64_t y_width);
-
 	ir::Value CountOnes(ir::Value sig, int result_width);
 
+	ir::Value add_placeholder_signal(uint64_t width, std::string_view name_suggestion=""sv, bool public_name=false);
+	void connect(ir::Value target, ir::Value source);
+	void set_initialization(ir::Value signal, ir::Const init_value);
+	void add_memory_init(std::string_view name, uint64_t bit_offset,
+						 bool big_endian, ir::Const data);
 	void add_dual_edge_aldff(const std::string &base_name, ir::Value clk,
 							 ir::Value aload, ir::Value d, ir::Value q,
 							 ir::Value ad, bool aload_polarity);
@@ -392,55 +446,6 @@ struct RTLILBuilder {
 	void add_aldff(std::string_view name, const ir::Value &clk, const ir::Value &aload,
 				   const ir::Value &d, const ir::Value &q, const ir::Value &ad,
 				   bool clk_polarity = true, bool aload_polarity = true);
-
-    // Create a placeholder signal which will be connected to a driver using `connect` later
-	ir::Value add_placeholder_signal(uint64_t width, std::string_view name_suggestion=""sv, bool public_name=false);
-
-    // `target` must be composed solely of signal bits created using add_placeholder_signal
-	void connect(ir::Value target, ir::Value source);
-
-	// Set initialization on the driver of `signal`
-	//
-	// `signal` must have been returned from `add_placeholder_signal`
-	void set_initialization(ir::Value signal, ir::Const init_value);
-
-	// Add initialization data on the given memory. The data starts
-	// at bit position `base` which doesn't need to be on a word boundary
-	void add_memory_init(std::string_view name, uint64_t bit_offset,
-						 bool big_endian, ir::Const data);
-
-private:
-	int meminit_prio_counter = 0;
-	void emit_meminit_cell(RTLIL::Memory *mem, uint64_t word_offset,
-						   bool big_endian, ir::Const data,
-						   ir::Const mask);
-
-	std::pair<std::string, ir::Value> add_y_wire(int width);
-	// apply attributes to newly created cell
-	void bless_cell(RTLIL::Cell *cell);
-};
-
-class AttributeGuard {
-public:
-	AttributeGuard(RTLILBuilder &builder)
-		: builder(builder)
-	{
-		save.swap(builder.staged_attributes);
-	}
-
-	~AttributeGuard()
-	{
-		save.swap(builder.staged_attributes);
-	}
-
-	void set(RTLIL::IdString id, RTLIL::Const value)
-	{
-		builder.staged_attributes[id] = value;
-	}
-
-private:
-	RTLILBuilder &builder;
-	Yosys::dict<RTLIL::IdString, RTLIL::Const> save;
 };
 
 class DiagnosticIssuer {
@@ -507,7 +512,7 @@ struct SynthesisSettings {
 };
 
 struct SynthesisSettings;
-struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
+struct NetlistContext : GraphBuilder, public DiagnosticIssuer {
 	SynthesisSettings &settings;
 	ast::Compilation &compilation;
 	const slang::SourceManager &source_mgr();
@@ -559,7 +564,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// incomplete due to prior errors
 	bool disabled = false;
 
-	NetlistContext(RTLIL::Design *design,
+	NetlistContext(std::unique_ptr<BackendGraphBuilder> backend,
 		SynthesisSettings &settings,
 		ast::Compilation &compilation,
 		const ast::InstanceSymbol &instance);
@@ -651,7 +656,7 @@ struct ValuePattern
 };
 
 // slang_frontend.cc
-ir::Net matches_pattern(RTLILBuilder &builder, const ValuePattern &pattern, ir::Value &value);
+ir::Net matches_pattern(NetlistContext &builder, const ValuePattern &pattern, ir::Value &value);
 ir::Value inside_comparison(EvalContext &eval, ir::Value left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 void transfer_attrs(NetlistContext &netlist, const ast::Symbol &from, RTLIL::AttrObject *to);
@@ -786,6 +791,7 @@ private:
 };
 
 // slang_frontend.cc
+const std::string module_type_id(const ast::InstanceBodySymbol &sym);
 void catch_forbidden_options(slang::driver::Driver &driver);
 void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver);
 const ast::InstanceBodySymbol &get_instance_body(SynthesisSettings &settings, const ast::InstanceSymbol &instance);
@@ -799,7 +805,7 @@ struct HierarchyQueue {
 		if (netlists.count(symbol)) {
 			return {*netlists.at(symbol), false};
 		} else {
-			NetlistContext *ref = new NetlistContext(args...);
+			NetlistContext *ref = new NetlistContext(std::forward<Args>(args)...);
 			netlists[symbol] = ref;
 			queue.push_back(ref);
 			return {*ref, true};

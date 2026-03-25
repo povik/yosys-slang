@@ -13,6 +13,8 @@ endif()
 
 add_library(yosys-slang ${LIBRARY_TYPE}
     backends/yosys/abort_helpers.cc
+    backends/yosys/backend_builder.cc
+    backends/yosys/backend_builder.h
     backends/yosys/blackboxes.cc
     backends/yosys/cases.cc
     backends/yosys/cases.h
