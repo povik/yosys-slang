@@ -932,7 +932,7 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 			if (unop.op == UnOp::Postincrement || unop.op == UnOp::Preincrement) {
 				require(expr, procedural != nullptr);
 				ir::Value add1 = netlist.Biop(
-						ID($add), left, {ir::S0, ir::S1},
+						ast::BinaryOperator::Add, left, {ir::S0, ir::S1},
 						unop.operand().type->isSigned(), unop.operand().type->isSigned(),
 						left.size());
 				procedural->do_simple_assign(expr.sourceRange.start(),
@@ -944,7 +944,7 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 			if (unop.op == UnOp::Postdecrement || unop.op == UnOp::Predecrement) {
 				require(expr, procedural != nullptr);
 				ir::Value sub1 = netlist.Biop(
-						ID($sub), left, {ir::S0, ir::S1},
+						ast::BinaryOperator::Subtract, left, {ir::S0, ir::S1},
 						unop.operand().type->isSigned(), unop.operand().type->isSigned(),
 						left.size());
 				procedural->do_simple_assign(expr.sourceRange.start(),
@@ -953,30 +953,8 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 				break;
 			}
 
-			bool invert = false;
-
-			RTLIL::IdString type;
-			switch (unop.op) {
-			case UnOp::Minus: type = ID($neg); break;
-			case UnOp::Plus: type = ID($pos); break;
-			case UnOp::LogicalNot: type = ID($logic_not); break;
-			case UnOp::BitwiseNot: type = ID($not); break;
-			case UnOp::BitwiseOr: type = ID($reduce_or); break;
-			case UnOp::BitwiseAnd: type = ID($reduce_and); break;
-			case UnOp::BitwiseNand: type = ID($reduce_and); invert = true; break;
-			case UnOp::BitwiseNor: type = ID($reduce_or); invert = true; break;
-			case UnOp::BitwiseXor: type = ID($reduce_xor); break;
-			case UnOp::BitwiseXnor: type = ID($reduce_xnor); break;
-			default:
-				ast_unreachable(unop);
-			}
-
-			ret = netlist.Unop(
-				type, left, unop.operand().type->isSigned(), expr.type->getBitstreamWidth()
-			);
-
-			if (invert)
-				ret = netlist.LogicNot(ret);
+			ret = netlist.Unop(unop.op, left, unop.operand().type->isSigned(),
+							   expr.type->getBitstreamWidth());
 		}
 		break;
 	case ast::ExpressionKind::BinaryOp:
@@ -1002,7 +980,7 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 					auto pat = svint_to_pattern(netlist, const_result.integer(), true,
 												true, biop.right().sourceRange.start());
 					return netlist.Unop(
-						invert ? ID($logic_not) : ID($reduce_bool),
+						invert ? ast::UnaryOperator::LogicalNot : ast::UnaryOperator::BitwiseOr,
 						matches_pattern(netlist, pat, left),
 						false, expr.type->getBitstreamWidth()
 					);
@@ -1015,46 +993,24 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 			bool a_signed = biop.left().type->isSigned();
 			bool b_signed = biop.right().type->isSigned();
 
-			RTLIL::IdString type;
+			// apply signedness fixups for shift operators
 			switch (biop.op) {
-			case ast::BinaryOperator::Add:      type = ID($add); break;
-			case ast::BinaryOperator::Subtract: type = ID($sub); break;
-			case ast::BinaryOperator::Multiply:	type = ID($mul); break;
-			case ast::BinaryOperator::Divide:	type = ID($div); break;
-			case ast::BinaryOperator::Mod:		type = ID($mod); break;
-			case ast::BinaryOperator::BinaryAnd: type = ID($and); break;
-			case ast::BinaryOperator::BinaryOr:	type = ID($or); break;
-			case ast::BinaryOperator::BinaryXor:	type = ID($xor); break;
-			case ast::BinaryOperator::BinaryXnor:	type = ID($xnor); break;
-			case ast::BinaryOperator::Equality:		type = ID($eq); break;
-			case ast::BinaryOperator::Inequality:	type = ID($ne); break;
-			case ast::BinaryOperator::CaseInequality: type = ID($nex); break;
-			case ast::BinaryOperator::CaseEquality: type = ID($eqx); break;
-			case ast::BinaryOperator::GreaterThanEqual:	type = ID($ge); break;
-			case ast::BinaryOperator::GreaterThan:		type = ID($gt); break;
-			case ast::BinaryOperator::LessThanEqual:	type = ID($le); break;
-			case ast::BinaryOperator::LessThan:			type = ID($lt); break;
-			case ast::BinaryOperator::LogicalAnd:	type = ID($logic_and); break;
-			case ast::BinaryOperator::LogicalOr:	type = ID($logic_or); break;
-			case ast::BinaryOperator::LogicalImplication: type = ID($logic_or); left = {netlist.LogicNot(left)}; a_signed = false; break;
-			case ast::BinaryOperator::LogicalEquivalence: type = ID($eq); left = {netlist.ReduceBool(left)}; right = {netlist.ReduceBool(right)}; a_signed = b_signed = false; break;
-			case ast::BinaryOperator::LogicalShiftLeft:	type = ID($shl); break;
-			case ast::BinaryOperator::LogicalShiftRight:	type = ID($shr); break;
-			case ast::BinaryOperator::ArithmeticShiftLeft:	type = ID($sshl); break;
-			case ast::BinaryOperator::ArithmeticShiftRight:	type = ID($sshr); break;
-			case ast::BinaryOperator::Power:	type = ID($pow); break;
+			case ast::BinaryOperator::LogicalShiftLeft:
+			case ast::BinaryOperator::LogicalShiftRight:
+				a_signed = false;
+				b_signed = false;
+				break;
+
+			case ast::BinaryOperator::ArithmeticShiftLeft:
+			case ast::BinaryOperator::ArithmeticShiftRight:
+				b_signed = false;
+				break;
 			default:
-				ast_unreachable(biop);
+				break;
 			}
 
-			// fixups
-			if (type.in(ID($shr), ID($shl)))
-				a_signed = false;
-			if (type.in(ID($shr), ID($shl), ID($sshr), ID($sshl)))
-				b_signed = false;
-
 			ret = netlist.Biop(
-				type, left, right,
+				biop.op, left, right,
 				a_signed, b_signed, expr.type->getBitstreamWidth()
 			);
 		}
@@ -2145,7 +2101,7 @@ public:
 			// Visit the body for the bulk of processing
 			visitDefault(body);
 			// Now transfer initializers (possibly updated from initial statements)
-			// onto RTLIL wires
+			// onto the netlist
 			finalize_variable_initialization(netlist);
 			finalize_special_nets(netlist);
 		} else {

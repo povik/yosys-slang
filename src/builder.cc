@@ -311,8 +311,8 @@ int convert(RTLIL::SigBit bit)
 }
 }; // namespace ThreeValued
 
-ir::Value RTLILBuilder::Biop(
-		IdString op, ir::Value a, ir::Value b, bool a_signed, bool b_signed, int y_width)
+ir::Value RTLILBuilder::BiopInternal(RTLIL::IdString op, ir::Value a, ir::Value b, bool a_signed,
+		bool b_signed, uint64_t y_width)
 {
 	if (a.is_fully_const() && b.is_fully_const()) {
 #define OP(type)                                                                                   \
@@ -395,7 +395,7 @@ ir::Value RTLILBuilder::Biop(
 			as--;
 		while (bs > 0 && b[bs - 1] == RTLIL::S0)
 			bs--;
-		msb_zeroes = std::max(0, y_width - (as + bs));
+		msb_zeroes = std::max<int>(0, ((int)y_width) - (as + bs));
 	}
 
 	auto [id, y] = add_y_wire(y_width - msb_zeroes);
@@ -412,7 +412,53 @@ ir::Value RTLILBuilder::Biop(
 	return {ir::Value(RTLIL::S0, msb_zeroes), y};
 }
 
-ir::Value RTLILBuilder::Unop(IdString op, ir::Value a, bool a_signed, int y_width)
+ir::Value RTLILBuilder::Biop(ast::BinaryOperator op, ir::Value left, ir::Value right, bool a_signed,
+		bool b_signed, uint64_t y_width)
+{
+	RTLIL::IdString rtlil_op;
+	switch (op) {
+	case ast::BinaryOperator::Add:              rtlil_op = ID($add); break;
+	case ast::BinaryOperator::Subtract:         rtlil_op = ID($sub); break;
+	case ast::BinaryOperator::Multiply:         rtlil_op = ID($mul); break;
+	case ast::BinaryOperator::Divide:           rtlil_op = ID($div); break;
+	case ast::BinaryOperator::Mod:              rtlil_op = ID($mod); break;
+	case ast::BinaryOperator::BinaryAnd:        rtlil_op = ID($and); break;
+	case ast::BinaryOperator::BinaryOr:         rtlil_op = ID($or); break;
+	case ast::BinaryOperator::BinaryXor:        rtlil_op = ID($xor); break;
+	case ast::BinaryOperator::BinaryXnor:       rtlil_op = ID($xnor); break;
+	case ast::BinaryOperator::Equality:         rtlil_op = ID($eq); break;
+	case ast::BinaryOperator::Inequality:       rtlil_op = ID($ne); break;
+	case ast::BinaryOperator::CaseInequality:   rtlil_op = ID($nex); break;
+	case ast::BinaryOperator::CaseEquality:     rtlil_op = ID($eqx); break;
+	case ast::BinaryOperator::GreaterThanEqual: rtlil_op = ID($ge); break;
+	case ast::BinaryOperator::GreaterThan:      rtlil_op = ID($gt); break;
+	case ast::BinaryOperator::LessThanEqual:    rtlil_op = ID($le); break;
+	case ast::BinaryOperator::LessThan:         rtlil_op = ID($lt); break;
+	case ast::BinaryOperator::LogicalAnd:       rtlil_op = ID($logic_and); break;
+	case ast::BinaryOperator::LogicalOr:        rtlil_op = ID($logic_or); break;
+	case ast::BinaryOperator::LogicalImplication:
+		rtlil_op = ID($logic_or);
+		left = {LogicNot(left)};
+		a_signed = false;
+		break;
+	case ast::BinaryOperator::LogicalEquivalence:
+		rtlil_op = ID($eq);
+		left = {ReduceBool(left)};
+		right = {ReduceBool(right)};
+		a_signed = b_signed = false;
+		break;
+	case ast::BinaryOperator::LogicalShiftLeft:     rtlil_op = ID($shl); break;
+	case ast::BinaryOperator::LogicalShiftRight:    rtlil_op = ID($shr); break;
+	case ast::BinaryOperator::ArithmeticShiftLeft:  rtlil_op = ID($sshl); break;
+	case ast::BinaryOperator::ArithmeticShiftRight: rtlil_op = ID($sshr); break;
+	case ast::BinaryOperator::Power:                rtlil_op = ID($pow); break;
+	default:                                        log_abort();
+	}
+
+	return BiopInternal(rtlil_op, left, right, a_signed, b_signed, y_width);
+}
+
+ir::Value RTLILBuilder::UnopInternal(IdString op, ir::Value a, bool a_signed, uint64_t y_width)
 {
 	if (a.is_fully_const()) {
 #define OP(type)                                                                                   \
@@ -439,6 +485,41 @@ ir::Value RTLILBuilder::Unop(IdString op, ir::Value a, bool a_signed, int y_widt
 	cell->setPort(RTLIL::ID::Y, y);
 	bless_cell(cell);
 	return y;
+}
+
+ir::Value RTLILBuilder::Unop(ast::UnaryOperator op, ir::Value a, bool a_signed, uint64_t y_width)
+{
+	bool invert = false;
+	RTLIL::IdString rtlil_op;
+	using UnOp = ast::UnaryOperator;
+	switch (op) {
+	case UnOp::Minus:      rtlil_op = ID($neg); break;
+	case UnOp::Plus:       rtlil_op = ID($pos); break;
+	case UnOp::LogicalNot: rtlil_op = ID($logic_not); break;
+	case UnOp::BitwiseNot: rtlil_op = ID($not); break;
+	case UnOp::BitwiseOr:  rtlil_op = ID($reduce_or); break;
+	case UnOp::BitwiseAnd: rtlil_op = ID($reduce_and); break;
+	case UnOp::BitwiseNand:
+		rtlil_op = ID($reduce_and);
+		invert = true;
+		break;
+	case UnOp::BitwiseNor:
+		rtlil_op = ID($reduce_or);
+		invert = true;
+		break;
+	case UnOp::BitwiseXor:  rtlil_op = ID($reduce_xor); break;
+	case UnOp::BitwiseXnor: rtlil_op = ID($reduce_xnor); break;
+	default:                log_abort();
+	}
+
+	ir::Value ret = UnopInternal(rtlil_op, a, a_signed, y_width);
+
+	if (invert) {
+		ret = LogicNot(ret);
+		ret.extend_u0(y_width);
+	}
+
+	return ret;
 }
 
 void RTLILBuilder::connect(ir::Value lhs, ir::Value rhs)
@@ -548,8 +629,8 @@ ir::Value RTLILBuilder::CountOnes(ir::Value sig, int result_width)
 		while (curr_level.size() > 1) {
 			std::vector<ir::Value> nxt_level;
 			for (size_t i = 0; i + 1 < curr_level.size(); i += 2) {
-				auto sum = Biop(
-						ID($add), curr_level[i], curr_level[i + 1], false, false, result_width);
+				auto sum = Biop(ast::BinaryOperator::Add, curr_level[i], curr_level[i + 1], false,
+						false, result_width);
 				if (sum.size() < result_width)
 					sum.extend_u0(result_width);
 				nxt_level.push_back(sum);
