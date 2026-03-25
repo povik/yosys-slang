@@ -301,7 +301,15 @@ function automatic int f9();
 	{j[j++], j[j++], j[j++]} = 3'b111;
 	f9 = j;
 endfunction
-// disabled -- pending issue 293
-//initial $t(f9());
+initial $t(f9());
+function automatic int f10();
+	automatic int a = 1;
+	automatic int foo[4][4];
+	foo = '{default: 0};
+	foo[2][1] = 77;
+	foo[a++][a++] = 99;
+	f10 = foo[2][1];
+endfunction
+initial $t(f10());
 
 endmodule

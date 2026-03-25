@@ -92,11 +92,11 @@ std::optional<LValue> LValue::analyze(
 			return LValue::memoryWrite(variable, address, ese.type->getBitstreamWidth());
 		}
 
-		AddressingResolver addr(context, ese);
-
 		std::optional<LValue> inner = analyze(context, ese.value());
 		if (!inner)
 			return std::nullopt;
+
+		AddressingResolver addr(context, ese);
 
 		return LValue::rangeSelect(
 				std::move(*inner), std::move(addr), expr.type->getBitstreamWidth());
