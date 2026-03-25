@@ -226,7 +226,7 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 
 		VariableBits condition1 = eval.lhs(*condition, /* silent= */ true);
 
-		if (condition1.size() == 1 && !condition1.has_dummy_bits()) {
+		if (condition1.bitwidth() == 1 && !condition1.has_dummy_bits()) {
 			auto found = std::find_if(
 					triggers.begin(), triggers.end(), [&](const ast::SignalEventControl *trigger) {
 						return eval.lhs(trigger->expr, /* silent= */ true) == condition1;

@@ -460,9 +460,9 @@ using VariableState = ProceduralContext::VariableState;
 
 void VariableState::set(VariableBits lhs, RTLIL::SigSpec value)
 {
-	log_assert((int) lhs.size() == value.size());
+	log_assert(lhs.bitwidth() == (uint64_t)value.size());
 
-	for (int i = 0; i < (int) lhs.size(); i++) {
+	for (uint64_t i = 0; i < lhs.bitwidth(); i++) {
 		VariableBit bit = lhs[i];
 
 		if (!revert.count(bit)) {
@@ -517,10 +517,10 @@ std::pair<VariableBits, RTLIL::SigSpec> VariableState::restore(Map &save)
 	RTLIL::SigSpec rreverted;
 
 	for (auto pair : revert)
-		lreverted.push_back(pair.first);
-	std::sort(lreverted.begin(), lreverted.end());
+		lreverted.append(pair.first);
+	lreverted.sort();
 
-	//rreverted.reserve(lreverted.size());
+	//rreverted.reserve(lreverted.bitwidth());
 	for (auto bit : lreverted)
 		rreverted.append(visible_assignments.at(bit));
 
@@ -1691,7 +1691,7 @@ public:
 			ast_invariant(port, ast::ValueSymbol::isKind(port.internalSymbol->kind));
 			internal_signal = Variable::from_symbol(&port.internalSymbol->as<ast::ValueSymbol>());
 		}
-		log_assert(internal_signal.bitwidth() == (uint64_t)connection.size());
+		log_assert(internal_signal.bitwidth() == connection.bitwidth());
 
 		switch (port.direction) {
 		case ast::ArgumentDirection::Out:
@@ -1841,7 +1841,7 @@ public:
 						}
 
 						VariableBits connection = netlist.eval.lhs(assign.left());
-						ast_invariant(expr, connection.size() == multiport.getType().getBitstreamWidth());
+						ast_invariant(expr, connection.bitwidth() == multiport.getType().getBitstreamWidth());
 						int offset = 0;
 						for (auto component : multiport.ports) {
 							int width = component->getType().getBitstreamWidth();
@@ -2057,9 +2057,9 @@ public:
 		if (expr.left().kind == ast::ExpressionKind::Streaming) {
 			auto& stream_lexpr = expr.left().as<ast::StreamingConcatenationExpression>();
 			VariableBits lvalue = netlist.eval.streaming_lhs(stream_lexpr);
-			ast_invariant(expr, rvalue.size() >= lvalue.size());
+			ast_invariant(expr, (uint64_t)rvalue.size() >= lvalue.bitwidth());
 
-			netlist.add_continuous_driver(lvalue, rvalue.extract(0, lvalue.size()));
+			netlist.add_continuous_driver(lvalue, rvalue.extract(0, lvalue.bitwidth()));
 			return;
 		}
 

@@ -136,7 +136,7 @@ template <> VariableBits AddressingResolver::extract<VariableBits>(VariableBits 
 	ast_invariant(expr, raw_signal.is_fully_def());
 	int64_t iwidth = (int64_t)width;
 	int64_t offset = raw_signal.as_const().as_int(true) + base_offset;
-	int64_t valsize = (int64_t)val.size();
+	int64_t valsize = (int64_t)val.bitwidth();
 
 	VariableBits ret;
 	ret.append(Variable::dummy(std::clamp<int64_t>(-offset * stride, 0, iwidth)));

@@ -236,8 +236,8 @@ bool Variable::is_special_net()
 
 bool VariableBits::has_special_nets()
 {
-	for (auto &bit : *this) {
-		if (bit.variable.is_special_net())
+	for (auto chunk : chunks()) {
+		if (chunk.variable.is_special_net())
 			return true;
 	}
 	return false;

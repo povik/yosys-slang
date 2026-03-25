@@ -128,7 +128,7 @@ struct Case
 			VariableBits lvalue;
 			RTLIL::SigSpec enables, lstaging, rvalue;
 
-			for (int i = 0; i < (int)action.lvalue.size(); i++) {
+			for (uint64_t i = 0; i < action.lvalue.bitwidth(); i++) {
 				VariableBit lbit = action.lvalue[i];
 
 				if (map.count(lbit)) {

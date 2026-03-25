@@ -136,15 +136,15 @@ VariableBits ProceduralContext::all_driven()
 {
 	VariableBits all_driven;
 	for (auto pair : vstate.visible_assignments) {
-		all_driven.push_back(pair.first);
+		all_driven.append(pair.first);
 	}
 
 	all_driven.sort_and_unify();
 
 	VariableBits all_driven_filtered;
-	for (auto bit : all_driven)
-		if (bit.variable.kind == Variable::Static)
-			all_driven_filtered.push_back(bit);
+	for (auto chunk : all_driven.chunks())
+		if (chunk.variable.kind == Variable::Static)
+			all_driven_filtered.append(VariableBits(chunk));
 
 	return all_driven_filtered;
 }
@@ -173,7 +173,7 @@ void crop_zero_mask(const RTLIL::SigSpec &mask, VariableBits &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
 		if (mask[i] == RTLIL::S0)
-			target.erase(target.begin() + i);
+			target.remove(i);
 	}
 }
 
@@ -189,15 +189,15 @@ void crop_undef_mask(const RTLIL::SigSpec &mask, VariableBits &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
 		if (mask[i] == RTLIL::Sx)
-			target.erase(target.begin() + i);
+			target.remove(i);
 	}
 }
 
 void ProceduralContext::update_variable_state(slang::SourceLocation loc, VariableBits lvalue,
 		RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking)
 {
-	log_assert((int)lvalue.size() == unmasked_rvalue.size());
-	log_assert((int)lvalue.size() == mask.size());
+	log_assert(lvalue.bitwidth() == (uint64_t)unmasked_rvalue.size());
+	log_assert(lvalue.bitwidth() == (uint64_t)mask.size());
 
 	crop_zero_mask(mask, lvalue);
 	crop_zero_mask(mask, unmasked_rvalue);
@@ -442,9 +442,9 @@ void ProceduralContext::assign_rvalue(
 	if (raw_lexpr->kind == ast::ExpressionKind::Streaming) {
 		auto &stream_lexpr = raw_lexpr->as<ast::StreamingConcatenationExpression>();
 		VariableBits lvalue = eval.streaming_lhs(stream_lexpr);
-		ast_invariant(assign, rvalue.size() >= lvalue.size());
+		ast_invariant(assign, (uint64_t)rvalue.size() >= lvalue.bitwidth());
 		do_simple_assign(assign.sourceRange.start(), lvalue,
-				rvalue.extract_end(rvalue.size() - lvalue.size()), blocking);
+				rvalue.extract_end(rvalue.size() - lvalue.bitwidth()), blocking);
 		return;
 	} else if (raw_lexpr->kind == ast::ExpressionKind::SimpleAssignmentPattern) {
 		// break down into individual assignments
