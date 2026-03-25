@@ -9,21 +9,20 @@
 
 namespace slang_frontend {
 
-class DiagnosticIssuer;
 struct InferredMemoryDetector : public TimingPatternInterpretor,
 								public ast::ASTVisitor<InferredMemoryDetector,
-										ast::VisitFlags::Statements | ast::VisitFlags::Expressions>,
-								public DiagnosticIssuer
+										ast::VisitFlags::Statements | ast::VisitFlags::Expressions>
 {
+	NetlistContext &netlist;
 	Yosys::pool<const ast::Symbol *> memory_candidates;
 	std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve;
 	bool disallow_implicit = false;
 
-	InferredMemoryDetector(SynthesisSettings &settings,
+	InferredMemoryDetector(NetlistContext &netlist, SynthesisSettings &settings,
 			std::function<bool(const ast::InstanceSymbol &sym)> should_dissolve,
 			EvalContext &evalCtx)
-		: TimingPatternInterpretor(settings, (DiagnosticIssuer &)*this, evalCtx),
-		  should_dissolve(should_dissolve),
+		: TimingPatternInterpretor(settings, (DiagnosticIssuer &)netlist, evalCtx),
+		  netlist(netlist), should_dissolve(should_dissolve),
 		  disallow_implicit(settings.no_implicit_memories.value_or(false))
 	{}
 
@@ -85,7 +84,7 @@ struct InferredMemoryDetector : public TimingPatternInterpretor,
 		const static std::set<std::string> recognized = {"ram_block", "rom_block", "ram_style",
 				"rom_style", "ramstyle", "romstyle", "syn_ramstyle", "syn_romstyle"};
 
-		for (auto attr : global_compilation->getAttributes(symbol)) {
+		for (auto attr : netlist.compilation.getAttributes(symbol)) {
 			if (recognized.count(std::string{attr->name}) && !attr->getValue().isFalse())
 				return attr->name;
 		}
@@ -96,7 +95,7 @@ struct InferredMemoryDetector : public TimingPatternInterpretor,
 	{
 		std::optional<std::string_view> found_attr;
 		if (memory_candidates.count(&symbol) && (found_attr = find_user_hint(symbol))) {
-			auto &diag = add_diag(diag::MemoryNotInferred, symbol.location);
+			auto &diag = netlist.add_diag(diag::MemoryNotInferred, symbol.location);
 			diag << found_attr.value();
 			diag.addNote(diag::NoteUsageBlame, loc);
 		}

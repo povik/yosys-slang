@@ -22,6 +22,7 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     cases.h
     diag.cc
     diag.h
+    driver.cc
     initialization.cc
     ir.cc
     lvalue.cc
