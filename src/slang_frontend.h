@@ -7,7 +7,7 @@
 // clang-format off
 #pragma once
 #include "slang/ast/EvalContext.h"
-#include "kernel/rtlil.h"
+#include "ir.h"
 
 // work around yosys PR #4524 changing the way you ask for pointer hashing
 #if YS_HASHING_VERSION <= 0
@@ -135,17 +135,17 @@ struct EvalContext {
 	int find_nest_level(const ast::Scope *scope);
 	Variable variable(const ast::ValueSymbol &symbol);
 
-	RTLIL::SigSpec apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op);
-	RTLIL::SigSpec apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec val);
+	ir::Value apply_conversion(const ast::ConversionExpression &conv, ir::Value op);
+	ir::Value apply_nested_conversion(const ast::Expression &expr, ir::Value val);
 	VariableBits streaming_lhs(ast::StreamingConcatenationExpression const &expr);
-	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr);
+	ir::Value streaming(ast::StreamingConcatenationExpression const &expr);
 
 	// Evaluates the given symbols/expressions to their value in this context
-	RTLIL::SigSpec operator()(ast::Expression const &expr);
+	ir::Value operator()(ast::Expression const &expr);
 
 	// Evaluates the given expression, inserts an extra sign bit if need
 	// be so that the result can always be interpreted as a signed value
-	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
+	ir::Value eval_signed(ast::Expression const &expr);
 
 	// Describes the given LHS expression in terms of `VariableBits`, if possible.
 	//
@@ -156,7 +156,7 @@ struct EvalContext {
 	// Helper for cases where the AST uses `EmptyArgument` on the RHS of
 	// an assignment as a stand-in for a value implied by the context
 	// (instance output connection or inside pattern assignments)
-	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
+	ir::Value connection_lhs(ast::AssignmentExpression const &assign);
 
 	EvalContext(NetlistContext &netlist);
 	EvalContext(NetlistContext &netlist, ProceduralContext &procedural);
@@ -201,15 +201,15 @@ struct ProcessTiming {
 		EdgeTriggered
 	} kind = Implicit;
 
-	RTLIL::SigBit background_enable = RTLIL::S1;
+	ir::Net background_enable = ir::S1;
 	struct Sensitivity {
-		RTLIL::SigBit signal;
+		ir::Net signal;
 		bool edge_polarity;
 		const ast::TimingControl *ast_node;
 	};
 	std::vector<Sensitivity> triggers;
 
-	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable);
+	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, ir::Net enable);
 
 	static ProcessTiming implicit;
 	static ProcessTiming initial;
@@ -229,7 +229,7 @@ public:
 	Case *current_case;
 
 	// only used when timing.kind==ProcessTiming::Initial
-	Yosys::dict<VariableBit, RTLIL::State> initial_locals_state;
+	Yosys::dict<VariableBit, ir::Trit> initial_locals_state;
 
 	std::vector<RTLIL::Cell *> preceding_memwr;
 
@@ -249,14 +249,14 @@ public:
 	VariableBits all_driven();
 
 	// Return an enable signal for the current case node
-	RTLIL::SigBit case_enable();
+	ir::Net case_enable();
 
 	// For $check, $print cells
 	void set_effects_trigger(RTLIL::Cell *cell);
-	void update_variable_state(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking);
-	void do_simple_assign(slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec rvalue, bool blocking);
-	RTLIL::SigSpec substitute_rvalue(VariableBits bits);
-	void assign_rvalue(const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue);
+	void update_variable_state(slang::SourceLocation loc, VariableBits lvalue, ir::Value unmasked_rvalue, ir::Value mask, bool blocking);
+	void do_simple_assign(slang::SourceLocation loc, VariableBits lvalue, ir::Value rvalue, bool blocking);
+	ir::Value substitute_rvalue(VariableBits bits);
+	void assign_rvalue(const ast::AssignmentExpression &assign, ir::Value rvalue);
 
 public:
 	struct EscapeFrame {
@@ -285,16 +285,24 @@ private:
 
 public:
 	struct VariableState {
-		using Map = Yosys::dict<VariableBit, RTLIL::SigBit>;
+		using Map = Yosys::dict<VariableBit, ir::Net>;
 
 		Map visible_assignments;
-		Map revert;
 
-		void set(VariableBits lhs, RTLIL::SigSpec value);
-		RTLIL::SigSpec evaluate(NetlistContext &netlist, VariableBits vbits);
-		RTLIL::SigSpec evaluate(NetlistContext &netlist, VariableChunk vchunk);
-		void save(Map &save);
-		std::pair<VariableBits, RTLIL::SigSpec> restore(Map &save);
+		void set(VariableBits lhs, ir::Value value);
+		ir::Value evaluate(NetlistContext &netlist, VariableBits vbits);
+		ir::Value evaluate(NetlistContext &netlist, VariableChunk vchunk);
+
+		struct Snapshot {
+			Map revert;
+			Yosys::pool<VariableBit> revert_erase;
+		};
+
+		void save(Snapshot &snap);
+		std::pair<VariableBits, ir::Value> restore(Snapshot &snap);
+
+	private:
+		Snapshot pending;
 	};
 
 	VariableState vstate;
@@ -325,70 +333,68 @@ private:
 };
 
 struct RTLILBuilder {
-	using SigSpec = RTLIL::SigSpec;
-
 	RTLIL::Module *canvas;
 	Yosys::dict<RTLIL::IdString, RTLIL::Const> staged_attributes;
 
 	unsigned next_id = 0;
 	std::string new_id(std::string base = std::string());
 
-	SigSpec ReduceBool(SigSpec a);
+	ir::Net ReduceBool(ir::Value a);
 
-	SigSpec Demux(SigSpec a, SigSpec s);
-	SigSpec Le(SigSpec a, SigSpec b, bool is_signed);
-	SigSpec Ge(SigSpec a, SigSpec b, bool is_signed);
-	SigSpec Lt(SigSpec a, SigSpec b, bool is_signed);
-	SigSpec EqWildcard(SigSpec a, SigSpec b);
-	SigSpec Eq(SigSpec a, SigSpec b);
-	SigSpec LogicAnd(SigSpec a, SigSpec b);
-	SigSpec LogicOr(SigSpec a, SigSpec b);
-	SigSpec LogicNot(SigSpec a);
-	SigSpec Mux(SigSpec a, SigSpec b, SigSpec s);
-	SigSpec Bwmux(SigSpec a, SigSpec b, SigSpec s);
-	SigSpec Bmux(SigSpec a, SigSpec s);
+	ir::Value Demux(ir::Value a, ir::Value s);
+	ir::Value Le(ir::Value a, ir::Value b, bool is_signed);
+	ir::Net Ge(ir::Value a, ir::Value b, bool is_signed);
+	ir::Net Lt(ir::Value a, ir::Value b, bool is_signed);
+	ir::Value EqWildcard(ir::Value a, ir::Value b);
+	ir::Net Eq(ir::Value a, ir::Value b);
+	ir::Net LogicAnd(ir::Value a, ir::Value b);
+	ir::Net LogicOr(ir::Value a, ir::Value b);
+	ir::Net LogicNot(ir::Value a);
+	ir::Value Mux(ir::Value a, ir::Value b, ir::Value s);
+	ir::Value Bwmux(ir::Value a, ir::Value b, ir::Value s);
+	ir::Value Bmux(ir::Value a, ir::Value s);
 
-	SigSpec Shift(SigSpec a, bool a_signed, SigSpec s, bool s_signed, int result_width);
-	SigSpec Shiftx(SigSpec a, SigSpec s, bool s_signed, int result_width);
-	SigSpec Neg(SigSpec a, bool signed_);
-	SigSpec Not(SigSpec a);
+	ir::Value Shift(ir::Value a, bool a_signed, ir::Value s, bool s_signed, int result_width);
+	ir::Value Shiftx(ir::Value a, ir::Value s, bool s_signed, int result_width);
+	ir::Value Neg(ir::Value a, bool signed_);
+	ir::Value Not(ir::Value a);
 
-	SigSpec Unop(RTLIL::IdString op, SigSpec a, bool a_signed, int y_width);
-	SigSpec Biop(RTLIL::IdString op, SigSpec a, SigSpec b,
+	ir::Value Unop(RTLIL::IdString op, ir::Value a, bool a_signed, int y_width);
+	ir::Value Biop(RTLIL::IdString op, ir::Value a, ir::Value b,
 				 bool a_signed, bool b_signed, int y_width);
 
-	SigSpec CountOnes(SigSpec sig, int result_width);
+	ir::Value CountOnes(ir::Value sig, int result_width);
 
-	void add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
-							 RTLIL::SigSpec aload, RTLIL::SigSpec d, RTLIL::SigSpec q,
-							 RTLIL::SigSpec ad, bool aload_polarity);
-	void add_dff(std::string_view name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &d,
-				 const RTLIL::SigSpec &q, bool clk_polarity=true);
-	void add_dffe(std::string_view name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &en,
-				 const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, bool clk_polarity=true,
+	void add_dual_edge_aldff(const std::string &base_name, ir::Value clk,
+							 ir::Value aload, ir::Value d, ir::Value q,
+							 ir::Value ad, bool aload_polarity);
+	void add_dff(std::string_view name, const ir::Value &clk, const ir::Value &d,
+				 const ir::Value &q, bool clk_polarity=true);
+	void add_dffe(std::string_view name, const ir::Value &clk, const ir::Value &en,
+				 const ir::Value &d, const ir::Value &q, bool clk_polarity=true,
 				 bool en_polarity=true);
-	void add_aldff(std::string_view name, const RTLIL::SigSpec &clk, const RTLIL::SigSpec &aload,
-				   const RTLIL::SigSpec &d, const RTLIL::SigSpec &q, const RTLIL::SigSpec &ad,
+	void add_aldff(std::string_view name, const ir::Value &clk, const ir::Value &aload,
+				   const ir::Value &d, const ir::Value &q, const ir::Value &ad,
 				   bool clk_polarity = true, bool aload_polarity = true);
 
     // Create a placeholder signal which will be connected to a driver using `connect` later
-	SigSpec add_placeholder_signal(uint64_t width, std::string_view name_suggestion=""sv, bool public_name=false);
+	ir::Value add_placeholder_signal(uint64_t width, std::string_view name_suggestion=""sv, bool public_name=false);
 
     // `target` must be composed solely of signal bits created using add_placeholder_signal
-	void connect(SigSpec target, SigSpec source);
+	void connect(ir::Value target, ir::Value source);
 
 	// Add initialization data on the given memory. The data starts
 	// at bit position `base` which doesn't need to be on a word boundary
 	void add_memory_init(std::string_view name, uint64_t bit_offset,
-						 bool big_endian, RTLIL::Const data);
+						 bool big_endian, ir::Const data);
 
 private:
 	int meminit_prio_counter = 0;
 	void emit_meminit_cell(RTLIL::Memory *mem, uint64_t word_offset,
-						   bool big_endian, RTLIL::Const data,
-						   RTLIL::Const mask);
+						   bool big_endian, ir::Const data,
+						   ir::Const mask);
 
-	std::pair<std::string, SigSpec> add_y_wire(int width);
+	std::pair<std::string, ir::Value> add_y_wire(int width);
 	// apply attributes to newly created cell
 	void bless_cell(RTLIL::Cell *cell);
 };
@@ -500,9 +506,9 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	std::string id(const ast::ValueSymbol &sym);
 	std::string hdlname(const ast::Symbol &sym);
 
-	RTLIL::SigSpec add_wire(const ast::ValueSymbol &sym);
-	RTLIL::SigSpec wire(const ast::Symbol &sym);
-	RTLIL::SigSpec convert_static(VariableBits bits);
+	ir::Value add_wire(const ast::ValueSymbol &sym);
+	ir::Value wire(const ast::Symbol &sym);
+	ir::Value convert_static(VariableBits bits);
 
 	struct Memory {
 		int num_wr_ports = 0;
@@ -512,8 +518,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	// Used to implement modports on `realm`
 	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
 
-	// Cache per-symbol SigSpec
-	Yosys::dict<const ast::Symbol*, RTLIL::SigSpec> wire_cache;
+	// Cache per-symbol signal
+	Yosys::dict<const ast::Symbol*, ir::Value> wire_cache;
 
 	Yosys::pool<VariableBit> driven_variables;
 
@@ -521,11 +527,11 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	Yosys::pool<VariableBit> register_driven_variables;
 
 	// wor/wand support
-	Yosys::dict<VariableBit, RTLIL::SigSpec> special_net_drivers;
+	Yosys::dict<VariableBit, ir::Value> special_net_drivers;
 	std::vector<const ast::NetSymbol *> special_net_symbols;
 
 	// Initial variable state
-	Yosys::dict<VariableBit, RTLIL::State> initial_state;
+	Yosys::dict<VariableBit, ir::Trit> initial_state;
 
 	// Flag to disable elaboration; we set this when `scopes_remap` is
 	// incomplete due to prior errors
@@ -560,13 +566,14 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 
 	void register_driven(const VariableBits &vbits);
 	void register_driven(const ast::Symbol &symbol);
-	void add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs);
+	void add_continuous_driver(VariableBits lhs, ir::Value rhs);
 
-	const std::optional<RTLIL::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc);
+	ir::Const convert_svint(const slang::SVInt &svint, slang::SourceLocation loc);
+	const std::optional<ir::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc);
 };
 
 // slang_frontend.cc
-RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
+ir::Value inside_comparison(EvalContext &eval, ir::Value left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard);
@@ -608,29 +615,29 @@ public:
 	AddressingResolver(EvalContext &eval, const ast::ElementSelectExpression &sel);
 	AddressingResolver(EvalContext &eval, const ast::RangeSelectExpression &sel);
 
-	RTLIL::SigSpec shift_up(RTLIL::SigSpec val, bool oor_undef, int output_len);
-	RTLIL::SigSpec demux(RTLIL::SigSpec val, int output_len);
-	RTLIL::SigSpec mux(RTLIL::SigSpec val, int output_len);
-	RTLIL::SigSpec shift_down(RTLIL::SigSpec val, int output_len);
+	ir::Value shift_up(ir::Value val, bool oor_undef, uint64_t output_len);
+	ir::Value demux(ir::Value val, uint64_t output_len);
+	ir::Value mux(ir::Value val, uint64_t output_len);
+	ir::Value shift_down(ir::Value val, uint64_t output_len);
 	template <typename Bundle> Bundle extract(Bundle val, uint64_t width);
 
 	bool is_static();
 
 	slang::ConstantRange range;
-	int stride = 1;
+	int64_t stride = 1;
 private:
-	void interpret_index(RTLIL::SigSpec signal, int width_down = 1, int width_up = 1);
+	void interpret_index(ir::Value signal, int64_t width_down = 1, int64_t width_up = 1);
 
-	RTLIL::SigSpec shift_up_bitwise(RTLIL::SigSpec val, bool oor_undef, int output_len);
-	RTLIL::SigSpec shift_down_bitwise(RTLIL::SigSpec val, int output_len);
-	RTLIL::SigSpec raw_demux(RTLIL::SigSpec val, int from, int to);
-	RTLIL::SigSpec raw_mux(RTLIL::SigSpec val, int from, int to, int stride);
-	RTLIL::SigSpec embed(RTLIL::SigSpec val, int output_len, int stride, RTLIL::State padding);
+	ir::Value shift_up_bitwise(ir::Value val, bool oor_undef, uint64_t output_len);
+	ir::Value shift_down_bitwise(ir::Value val, uint64_t output_len);
+	ir::Value raw_demux(ir::Value val, int64_t from, int64_t to);
+	ir::Value raw_mux(ir::Value val, int64_t from, int64_t to, uint64_t stride);
+	ir::Value embed(ir::Value val, uint64_t output_len, int64_t stride, ir::Trit padding);
 
 	// these summed together are the zero-based index of the bottom item
 	// of the selection
-	RTLIL::SigSpec raw_signal;
-	int base_offset;
+	ir::Value raw_signal;
+	int64_t base_offset;
 
 	const ast::Expression &expr;
 	EvalContext &eval;
@@ -640,7 +647,7 @@ private:
 // procedural.cc
 void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 								   ProceduralContext &context, LValue &lvalue,
-								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
+								   ir::Value rvalue, ir::Value mask, bool blocking);
 
 // lvalue.cc
 class LValue {
@@ -655,7 +662,7 @@ public:
 	static LValue concatenation(std::vector<LValue> elements);
 	static LValue rangeSelect(LValue inner, AddressingResolver resolver, uint64_t bitsize);
 	static LValue memberAccess(LValue inner, uint64_t base_offset, uint64_t bitsize);
-	static LValue memoryWrite(Variable variable, RTLIL::SigSpec address, uint64_t bitsize);
+	static LValue memoryWrite(Variable variable, ir::Value address, uint64_t bitsize);
 
 	bool is_static();
 	bool is_contiguous_slice();
@@ -680,7 +687,7 @@ private:
 
 	struct MemoryWrite {
 		Variable target;
-		RTLIL::SigSpec address;
+		ir::Value address;
 	};
 
 	std::variant<Variable, Concatenation, RangeSelect, MemberAccess, MemoryWrite> descriptor;
@@ -693,7 +700,7 @@ private:
 
 	friend void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 								   ProceduralContext &context, LValue &lvalue,
-								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
+								   ir::Value rvalue, ir::Value mask, bool blocking);
 };
 
 };

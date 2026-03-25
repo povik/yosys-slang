@@ -16,13 +16,26 @@ Switch::~Switch()
 		delete case_;
 }
 
-Case *Switch::add_case(std::vector<RTLIL::SigSpec> compare)
+Case *Switch::add_case(std::vector<ValuePattern> compare)
 {
 	Case *case_ = new Case;
 	cases.push_back(case_);
 	case_->level = level;
 	case_->compare = compare;
 	return case_;
+}
+
+RTLIL::SigSpec lower_pattern(const ValuePattern &pat)
+{
+	std::vector<RTLIL::SigBit> bits;
+	bits.reserve(pat.size());
+	for (auto &bit : pat.bits) {
+		if (bit.is_wildcard())
+			bits.push_back(RTLIL::Sa);
+		else
+			bits.push_back(bit.net.raw());
+	}
+	return RTLIL::SigSpec(bits);
 }
 
 RTLIL::SwitchRule *Switch::lower(NetlistContext &netlist)
@@ -39,8 +52,9 @@ RTLIL::SwitchRule *Switch::lower(NetlistContext &netlist)
 	if (statement)
 		transfer_attrs(netlist, *statement, rule);
 
-	for (auto case_ : cases)
+	for (auto case_ : cases) {
 		rule->cases.push_back(case_->lower(netlist));
+	}
 
 	return rule;
 }

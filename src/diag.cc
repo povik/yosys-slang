@@ -123,6 +123,7 @@ DiagCode ErrorNonconstantInitialEval(DiagSubsystem::Netlist, 1071);
 DiagCode DeprecatedOption(DiagSubsystem::Netlist, 1072);
 DiagCode GuessingInputPort(DiagSubsystem::Netlist, 1073);
 DiagCode UnsupportedSystemTask(DiagSubsystem::Netlist, 1074);
+DiagCode HighImpedanceUnsupported(DiagSubsystem::Netlist, 1075);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -316,6 +317,9 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(UnsupportedSystemTask, "unsupported system task '{}'");
 	engine.setSeverity(UnsupportedSystemTask, DiagnosticSeverity::Error);
+
+	engine.setMessage(HighImpedanceUnsupported, "high-impedance state (Z) unsupported in this context");
+	engine.setSeverity(HighImpedanceUnsupported, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag

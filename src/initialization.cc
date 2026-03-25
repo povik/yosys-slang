@@ -89,7 +89,7 @@ void evaluate_decl_initializers(NetlistContext &netlist)
 
 		// Use ProceduralContext to get $meminit emission if the target is a memory
 		ProceduralContext context(netlist, ProcessTiming::initial);
-		RTLIL::SigSpec value;
+		ir::Value value;
 
 		const ast::Expression *initializer = nullptr;
 
@@ -140,7 +140,7 @@ void finalize_variable_initialization(NetlistContext &netlist)
 			// Nothing to do
 		} else {
 			auto signal = netlist.convert_static(variable);
-			RTLIL::SigSpec cl, cr; // lhs/rhs of a new connection
+			ir::Value cl, cr; // lhs/rhs of a new connection
 			RTLIL::Const attr_value(RTLIL::Sx, signal.size());
 			for (int i = 0; i < signal.size(); i++) {
 				VariableBit vbit(variable, i);
@@ -148,7 +148,7 @@ void finalize_variable_initialization(NetlistContext &netlist)
 				bool driven = netlist.driven_variables.count(vbit);
 				// register_driven implies driven
 				log_assert(!register_driven || driven);
-				RTLIL::State state = netlist.initial_state.at(vbit, RTLIL::Sx);
+				ir::Trit state = netlist.initial_state.at(vbit, ir::Sx);
 				if (register_driven) {
 #if YOSYS_MAJOR == 0 && YOSYS_MINOR < 58
 					attr_value.bits()[i] = state;

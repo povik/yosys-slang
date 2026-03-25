@@ -86,7 +86,7 @@ std::optional<LValue> LValue::analyze(
 
 		if (context.netlist.is_inferred_memory(ese.value()) &&
 				context.procedural->timing.kind != ProcessTiming::Initial) {
-			RTLIL::SigSpec address = context(ese.selector());
+			ir::Value address = context(ese.selector());
 			auto variable =
 					Variable::from_symbol(&ese.value().as<ast::ValueExpressionBase>().symbol);
 			return LValue::memoryWrite(variable, address, ese.type->getBitstreamWidth());
@@ -181,7 +181,7 @@ LValue LValue::memberAccess(LValue inner, uint64_t base_offset, uint64_t bitsize
 			static_, contiguous_slice_);
 }
 
-LValue LValue::memoryWrite(Variable variable, RTLIL::SigSpec address, uint64_t bitsize)
+LValue LValue::memoryWrite(Variable variable, ir::Value address, uint64_t bitsize)
 {
 	return LValue(MemoryWrite{variable, address}, bitsize, false, false);
 }

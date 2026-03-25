@@ -56,7 +56,7 @@ RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(ProceduralContext &co
 	construct.kind = kind;
 	construct.subroutine = subroutine;
 	construct.flag = flag;
-	context.do_simple_assign(subroutine->location, flag, RTLIL::S0, true);
+	context.do_simple_assign(subroutine->location, flag, ir::S0, true);
 }
 
 RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(
@@ -68,7 +68,7 @@ RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(
 	auto &construct = context.escape_stack.back();
 	construct.kind = kind;
 	construct.flag = flag;
-	context.do_simple_assign(statement->sourceRange.start(), flag, RTLIL::S0, true);
+	context.do_simple_assign(statement->sourceRange.start(), flag, ir::S0, true);
 }
 
 ProcessTiming::ProcessTiming(Kind kind) : kind(kind)
@@ -81,7 +81,7 @@ void ProceduralContext::signal_escape(slang::SourceLocation loc, EscapeConstruct
 {
 	auto it = escape_stack.rbegin();
 	while (it != escape_stack.rend()) {
-		do_simple_assign(loc, it->flag, RTLIL::S1, true);
+		do_simple_assign(loc, it->flag, ir::S1, true);
 		if (it->kind == kind)
 			break;
 		it++;
@@ -149,52 +149,52 @@ VariableBits ProceduralContext::all_driven()
 	return all_driven_filtered;
 }
 
-RTLIL::SigBit ProceduralContext::case_enable()
+ir::Net ProceduralContext::case_enable()
 {
 	if (timing.kind == ProcessTiming::Initial) {
-		return RTLIL::S1;
+		return ir::S1;
 	} else {
-		RTLIL::SigBit ret = netlist.add_placeholder_signal(1);
+		ir::Value ret = netlist.add_placeholder_signal(1);
 		root_case->aux_actions.emplace_back(ret, RTLIL::State::S0);
 		current_case->aux_actions.emplace_back(ret, RTLIL::State::S1);
-		return ret;
+		return ret.as_net();
 	}
 }
 
-void crop_zero_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
+void crop_zero_mask(const ir::Value &mask, ir::Value &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
-		if (mask[i] == RTLIL::S0)
+		if (mask[i] == ir::S0)
 			target.remove(i, 1);
 	}
 }
 
-void crop_zero_mask(const RTLIL::SigSpec &mask, VariableBits &target)
+void crop_zero_mask(const ir::Value &mask, VariableBits &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
-		if (mask[i] == RTLIL::S0)
+		if (mask[i] == ir::S0)
 			target.remove(i);
 	}
 }
 
-void crop_undef_mask(const RTLIL::SigSpec &mask, RTLIL::SigSpec &target)
+void crop_undef_mask(const ir::Value &mask, ir::Value &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
-		if (mask[i] == RTLIL::Sx)
+		if (mask[i] == ir::Sx)
 			target.remove(i, 1);
 	}
 }
 
-void crop_undef_mask(const RTLIL::SigSpec &mask, VariableBits &target)
+void crop_undef_mask(const ir::Value &mask, VariableBits &target)
 {
 	for (int i = mask.size() - 1; i >= 0; i--) {
-		if (mask[i] == RTLIL::Sx)
+		if (mask[i] == ir::Sx)
 			target.remove(i);
 	}
 }
 
 void ProceduralContext::update_variable_state(slang::SourceLocation loc, VariableBits lvalue,
-		RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking)
+		ir::Value unmasked_rvalue, ir::Value mask, bool blocking)
 {
 	log_assert(lvalue.bitwidth() == (uint64_t)unmasked_rvalue.size());
 	log_assert(lvalue.bitwidth() == (uint64_t)mask.size());
@@ -246,7 +246,7 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 		crop_undef_mask(mask, unmasked_rvalue);
 		crop_undef_mask(mask, mask);
 
-		RTLIL::SigSpec &rvalue = unmasked_rvalue;
+		ir::Value &rvalue = unmasked_rvalue;
 
 		if (!rvalue.is_fully_const()) {
 			netlist.add_diag(diag::ErrorNonconstantInitialEval, loc);
@@ -261,12 +261,12 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 			case Variable::Local:
 			case Variable::EscapeFlag:
 				for (uint64_t i = 0; i < size; i++) {
-					initial_locals_state[chunk[i]] = rvalue[(int)(base + i)].data;
+					initial_locals_state[chunk[i]] = rvalue[base + i].trit();
 				}
 				break;
 			case Variable::Static: {
 				for (uint64_t i = 0; i < size; i++) {
-					netlist.initial_state[chunk[i]] = rvalue[(int)(base + i)].data;
+					netlist.initial_state[chunk[i]] = rvalue[base + i].trit();
 				}
 				const ast::Symbol &symbol = *chunk.variable.get_symbol();
 				if (netlist.is_inferred_memory(symbol)) {
@@ -292,21 +292,21 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 		// assignment)
 		vstate.set(lvalue, unmasked_rvalue);
 	} else {
-		RTLIL::SigSpec rvalue_background = vstate.evaluate(netlist, lvalue);
-		RTLIL::SigSpec rvalue = netlist.Bwmux(rvalue_background, unmasked_rvalue, mask);
+		ir::Value rvalue_background = vstate.evaluate(netlist, lvalue);
+		ir::Value rvalue = netlist.Bwmux(rvalue_background, unmasked_rvalue, mask);
 		vstate.set(lvalue, rvalue);
 	}
 }
 
 void ProceduralContext::do_simple_assign(
-		slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec rvalue, bool blocking)
+		slang::SourceLocation loc, VariableBits lvalue, ir::Value rvalue, bool blocking)
 {
-	update_variable_state(loc, lvalue, rvalue, RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
+	update_variable_state(loc, lvalue, rvalue, ir::Value(ir::S1, rvalue.size()), blocking);
 }
 
-RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
+ir::Value ProceduralContext::substitute_rvalue(VariableBits bits)
 {
-	RTLIL::SigSpec subed;
+	ir::Value subed;
 
 	if (timing.kind == ProcessTiming::Initial) {
 		// No non-blocking assignments allowed in initial procedures.
@@ -318,12 +318,12 @@ RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 			case Variable::Local:
 			case Variable::EscapeFlag:
 				for (uint64_t i = 0; i < size; i++) {
-					subed.append(initial_locals_state.at(chunk[i], RTLIL::Sx));
+					subed.append(initial_locals_state.at(chunk[i], ir::Sx));
 				}
 				break;
 			case Variable::Static:
 				for (uint64_t i = 0; i < size; i++) {
-					subed.append(netlist.initial_state.at(chunk[i], RTLIL::Sx));
+					subed.append(netlist.initial_state.at(chunk[i], ir::Sx));
 				}
 				break;
 			default: log_abort();
@@ -346,8 +346,7 @@ RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 }
 
 void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
-		ProceduralContext &context, LValue &lvalue, RTLIL::SigSpec rvalue, RTLIL::SigSpec mask,
-		bool blocking)
+		ProceduralContext &context, LValue &lvalue, ir::Value rvalue, ir::Value mask, bool blocking)
 {
 	if (lvalue.is_static()) {
 		context.update_variable_state(
@@ -379,10 +378,8 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 		uint64_t parent_width = member_acc->inner->bitsize;
 		uint64_t pad = parent_width - lvalue.bitsize - member_acc->base_offset;
 		assign_to_lvalue_with_masking(assign, context, *member_acc->inner,
-				{RTLIL::SigSpec(RTLIL::Sx, pad), rvalue,
-						RTLIL::SigSpec(RTLIL::Sx, member_acc->base_offset)},
-				{RTLIL::SigSpec(RTLIL::S0, pad), mask,
-						RTLIL::SigSpec(RTLIL::S0, member_acc->base_offset)},
+				{ir::Value(ir::Sx, pad), rvalue, ir::Value(ir::Sx, member_acc->base_offset)},
+				{ir::Value(ir::S0, pad), mask, ir::Value(ir::S0, member_acc->base_offset)},
 				blocking);
 	} else if (auto mem_write = std::get_if<LValue::MemoryWrite>(&lvalue.descriptor)) {
 		auto &netlist = context.netlist;
@@ -399,7 +396,7 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 			auto &trigger = timing.triggers[0];
 			cell->setParam(ID::CLK_ENABLE, true);
 			cell->setParam(ID::CLK_POLARITY, trigger.edge_polarity);
-			cell->setPort(ID::CLK, trigger.signal);
+			cell->setPort(ID::CLK, ir::Value(trigger.signal));
 		} else {
 			ast_unreachable(assign);
 		}
@@ -430,8 +427,7 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 	}
 }
 
-void ProceduralContext::assign_rvalue(
-		const ast::AssignmentExpression &assign, RTLIL::SigSpec rvalue)
+void ProceduralContext::assign_rvalue(const ast::AssignmentExpression &assign, ir::Value rvalue)
 {
 	if (assign.timingControl && !netlist.settings.ignore_timing.value_or(false))
 		netlist.add_diag(diag::GenericTimingUnsyn, assign.timingControl->sourceRange);
@@ -463,7 +459,7 @@ void ProceduralContext::assign_rvalue(
 			int relem_width = rsymbol->type->getBitstreamWidth();
 
 			log_assert(nbits_remaining >= relem_width);
-			RTLIL::SigSpec relem = rvalue.extract(nbits_remaining - relem_width, relem_width);
+			ir::Value relem = rvalue.extract(nbits_remaining - relem_width, relem_width);
 			nbits_remaining -= relem_width;
 
 			assign_rvalue(inner_assign, eval.apply_nested_conversion(inner_assign.right(), relem));
@@ -475,7 +471,7 @@ void ProceduralContext::assign_rvalue(
 	auto analyzed_lvalue = LValue::analyze(this->eval, *raw_lexpr, false);
 	if (analyzed_lvalue) {
 		assign_to_lvalue_with_masking(assign, *this, *analyzed_lvalue, rvalue,
-				RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
+				ir::Value(ir::S1, rvalue.size()), blocking);
 	}
 }
 

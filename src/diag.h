@@ -79,6 +79,7 @@ extern slang::DiagCode ErrorNonconstantInitialEval;
 extern slang::DiagCode DeprecatedOption;
 extern slang::DiagCode GuessingInputPort;
 extern slang::DiagCode UnsupportedSystemTask;
+extern slang::DiagCode HighImpedanceUnsupported;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag
