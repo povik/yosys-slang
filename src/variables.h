@@ -283,6 +283,16 @@ public:
 			index--;
 			return *this;
 		}
+		const_bit_iterator &operator+=(int n)
+		{
+			index += n;
+			return *this;
+		}
+		const_bit_iterator &operator-=(int n)
+		{
+			index -= n;
+			return *this;
+		}
 		const_bit_iterator operator+(int n) const { return {container, index + n}; }
 		const_bit_iterator operator-(int n) const { return {container, index - n}; }
 		int operator-(const const_bit_iterator &other) const { return index - other.index; }
