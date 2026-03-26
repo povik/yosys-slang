@@ -409,6 +409,23 @@ struct BackendGraphBuilderBase {
 	virtual void add_memory_init(std::string_view name, uint64_t bit_offset,
 						 		 bool big_endian, ir::Const data) = 0;
 
+	// Mark a placeholder signal as a module input port.
+	virtual void add_input(std::string_view name, ir::Value signal) { (void)name; (void)signal; }
+
+	// Create a module output port driven by the given signal.
+	virtual void add_output(std::string_view name, ir::Value signal) { (void)name; (void)signal; }
+
+	// Instantiate a blackbox cell with named port connections.
+	struct PortConnection {
+		std::string name;
+		enum Direction { kInput, kOutput, kInOut } direction;
+		ir::Value value;
+	};
+	virtual void add_instance(std::string_view cell_type,
+	                          std::vector<PortConnection> ports) {
+		(void)cell_type; (void)ports;
+	}
+
 	virtual void add_dual_edge_aldff(const std::string &base_name, ir::Value clk,
 							 		 ir::Value aload, ir::Value d, ir::Value q,
 							 		 ir::Value ad, bool aload_polarity) = 0;
@@ -453,6 +470,9 @@ struct GraphBuilder {
 	void set_initialization(ir::Value signal, ir::Const init_value);
 	void add_memory_init(std::string_view name, uint64_t bit_offset,
 						 bool big_endian, ir::Const data);
+	void add_input(std::string_view name, ir::Value signal);
+	void add_output(std::string_view name, ir::Value signal);
+	void add_instance(std::string_view cell_type, std::vector<BackendGraphBuilderBase::PortConnection> ports);
 	void add_dual_edge_aldff(const std::string &base_name, ir::Value clk,
 							 ir::Value aload, ir::Value d, ir::Value q,
 							 ir::Value ad, bool aload_polarity);

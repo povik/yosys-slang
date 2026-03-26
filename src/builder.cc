@@ -358,6 +358,22 @@ void GraphBuilder::add_memory_init(std::string_view name, uint64_t bit_offset,
 	backend->add_memory_init(name, bit_offset, big_endian, data);
 }
 
+void GraphBuilder::add_input(std::string_view name, ir::Value signal)
+{
+	backend->add_input(name, signal);
+}
+
+void GraphBuilder::add_output(std::string_view name, ir::Value signal)
+{
+	backend->add_output(name, signal);
+}
+
+void GraphBuilder::add_instance(std::string_view cell_type,
+                                std::vector<BackendGraphBuilderBase::PortConnection> ports)
+{
+	backend->add_instance(cell_type, std::move(ports));
+}
+
 void GraphBuilder::add_dual_edge_aldff(const std::string &base_name, ir::Value clk,
 									   ir::Value aload, ir::Value d, ir::Value q,
 									   ir::Value ad, bool aload_polarity)
