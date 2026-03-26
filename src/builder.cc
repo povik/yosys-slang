@@ -244,7 +244,7 @@ ir::Value GraphBuilder::Biop(ast::BinaryOperator op, ir::Value a, ir::Value b, b
 		// Defer to three-valued evaluation over a representation of the operators.
 		// This is a bit much, but I'm writing this tired and don't trust doing it
 		// another way.
-		int width = std::max(a.size(), b.size());
+		int width = std::max(a.size(), b.size()) + 1;
 		for (int i = 0; i < width; i++) {
 			ir::Net abit = i < a.size() ? ir::Net(a[i]) : (a_signed ? a.msb() : ir::Net(ir::S0));
 			ir::Net bbit = i < b.size() ? ir::Net(b[i]) : (b_signed ? b.msb() : ir::Net(ir::S0));
