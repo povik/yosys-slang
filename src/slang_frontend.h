@@ -10,11 +10,19 @@
 #include "slang/ast/expressions/Operator.h"
 #include "ir.h"
 
+#ifdef SLANG_NO_YOSYS
+#include <set>
+#include <unordered_set>
+#include "yosys_hashlib.h"
+#include "log_stubs.h"
+#define YS_HASH_PTR_OPS
+#else
 // work around yosys PR #4524 changing the way you ask for pointer hashing
 #if YS_HASHING_VERSION <= 0
 #define YS_HASH_PTR_OPS ,Yosys::hashlib::hash_ptr_ops
 #else
 #define YS_HASH_PTR_OPS
+#endif
 #endif
 
 template<> struct Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : Yosys::hashlib::hash_ptr_ops {};
@@ -57,14 +65,18 @@ using Yosys::log_error;
 using Yosys::log_warning;
 using Yosys::log_id;
 using Yosys::log_signal;
+using Yosys::log_abort;
 using Yosys::ys_debug;
 using Yosys::ceil_log2;
+using Yosys::stringf;
 #ifndef log_debug
 using Yosys::log_debug;
 #endif
+#ifndef SLANG_NO_YOSYS
 namespace RTLIL = ::Yosys::RTLIL;
-namespace ast = ::slang::ast;
 namespace ID = ::Yosys::RTLIL::ID;
+#endif
+namespace ast = ::slang::ast;
 
 struct NetlistContext;
 class ProceduralContext;
@@ -215,7 +227,9 @@ struct ProcessTiming {
 	};
 	std::vector<Sensitivity> triggers;
 
+#ifndef SLANG_NO_YOSYS
 	void extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, ir::Net enable);
+#endif
 
 	static ProcessTiming implicit;
 	static ProcessTiming initial;
@@ -241,7 +255,9 @@ public:
 	// only used when timing.kind==ProcessTiming::Initial
 	Yosys::dict<VariableBit, ir::Trit> initial_locals_state;
 
+#ifndef SLANG_NO_YOSYS
 	std::vector<RTLIL::Cell *> preceding_memwr;
+#endif
 
 private:
 	int flag_counter = 0;
@@ -266,8 +282,10 @@ public:
 	// Action priority barrier: creates a trivial empty switch/case
 	void descend_into_empty_case();
 
+#ifndef SLANG_NO_YOSYS
 	// For $check, $print cells
 	void set_effects_trigger(RTLIL::Cell *cell);
+#endif
 	void update_variable_state(slang::SourceLocation loc, VariableBits lvalue, ir::Value unmasked_rvalue, ir::Value mask, bool blocking);
 	void do_simple_assign(slang::SourceLocation loc, VariableBits lvalue, ir::Value rvalue, bool blocking);
 	ir::Value substitute_rvalue(VariableBits bits);
@@ -537,10 +555,12 @@ struct NetlistContext : GraphBuilder, public DiagnosticIssuer {
 	ir::Value wire(const ast::Symbol &sym);
 	ir::Value convert_static(VariableBits bits);
 
+#ifndef SLANG_NO_YOSYS
 	struct Memory {
 		int num_wr_ports = 0;
 	};
 	Yosys::dict<RTLIL::IdString, Memory> emitted_mems;
+#endif
 
 	// Used to implement modports on `realm`
 	Yosys::dict<const ast::Scope*, std::string YS_HASH_PTR_OPS> scopes_remap;
@@ -653,27 +673,41 @@ struct ValuePattern
 				return false;
 		return true;
 	}
+
+	// Convert to ir::Value. Only valid when is_fully_concrete().
+	ir::Value to_value() const
+	{
+		ir::Value v;
+		v.reserve(bits.size());
+		for (auto &b : bits)
+			v.append(b.net);
+		return v;
+	}
 };
 
 // slang_frontend.cc
 ir::Net matches_pattern(NetlistContext &builder, const ValuePattern &pattern, ir::Value &value);
 ir::Value inside_comparison(EvalContext &eval, ir::Value left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
+#ifndef SLANG_NO_YOSYS
 void transfer_attrs(NetlistContext &netlist, const ast::Symbol &from, RTLIL::AttrObject *to);
-void transfer_attrs(NetlistContext &netlist, const ast::Symbol &from, AttributeGuard &guard);
 void transfer_attrs(NetlistContext &netlist, const ast::Statement &from, RTLIL::AttrObject *to);
-void transfer_attrs(NetlistContext &netlist, const ast::Statement &from, AttributeGuard &guard);
 void transfer_attrs(NetlistContext &netlist, const ast::Expression &from, RTLIL::AttrObject *to);
+#endif
+void transfer_attrs(NetlistContext &netlist, const ast::Symbol &from, AttributeGuard &guard);
+void transfer_attrs(NetlistContext &netlist, const ast::Statement &from, AttributeGuard &guard);
 void transfer_attrs(NetlistContext &netlist, const ast::Expression &from, AttributeGuard &guard);
 uint64_t bitstream_member_offset(const ast::FieldSymbol &member);
 bool is_special_net_type(const ast::NetType &type);
 bool is_special_net(const ast::Symbol &symbol);
 void finalize_special_nets(NetlistContext &netlist);
 
+#ifndef SLANG_NO_YOSYS
 // blackboxes.cc
 extern void import_blackboxes_from_rtlil(slang::SourceManager &mgr, ast::Compilation &target, RTLIL::Design *source);
 extern bool is_decl_empty_module(const slang::syntax::SyntaxNode &syntax);
 extern void export_blackbox_to_rtlil(NetlistContext &netlist, const ast::InstanceSymbol &inst, RTLIL::Design *target);
+#endif
 
 // abort_helpers.cc
 [[noreturn]] void unimplemented_(const ast::Symbol &obj, const char *file, int line, const char *condition);

@@ -20,6 +20,7 @@
 #include "slang/syntax/AllSyntax.h"
 #include "slang/util/Util.h"
 
+#ifndef SLANG_NO_YOSYS
 #include "kernel/bitpattern.h"
 #include "kernel/celltypes.h"
 #include "kernel/fmt.h"
@@ -27,8 +28,16 @@
 #include "kernel/rtlil.h"
 #include "kernel/sigtools.h"
 #include "kernel/utils.h"
+#endif
 
+#ifndef SLANG_NO_YOSYS
 #include "cases.h"
+#endif
+
+#include "slang_frontend.h"
+#include "diag.h"
+#include "async_pattern.h"
+#include "variables.h"
 
 namespace slang_frontend {
 static ValuePattern svint_to_pattern(
@@ -37,11 +46,9 @@ static ValuePattern svint_to_pattern(
 		slang::SourceLocation loc);
 }
 #include "statements.h"
+#ifndef SLANG_NO_YOSYS
 #include "version.h"
-#include "slang_frontend.h"
-#include "diag.h"
-#include "async_pattern.h"
-#include "variables.h"
+#endif
 #include "backend_builder.h"
 
 using namespace std::string_literals;
@@ -131,10 +138,12 @@ namespace parsing = slang::parsing;
 
 namespace slang_frontend {
 
+#ifndef SLANG_NO_YOSYS
 static const RTLIL::IdString rtlil_id(const std::string_view &view)
 {
 	return RTLIL::escape_id(std::string(view));
 }
+#endif
 
 uint64_t bitstream_member_offset(const ast::FieldSymbol &member)
 {
@@ -230,7 +239,9 @@ const std::optional<ir::Const> NetlistContext::convert_const(const slang::Consta
 		return bits;
 	} else if (constval.isString()) {
 		ir::Const ret = convert_svint(constval.convertToInt().integer(), loc);
+#ifndef SLANG_NO_YOSYS
 		ret.raw_rtlil().flags |= RTLIL::CONST_FLAG_STRING;
+#endif
 		return ret;
 	} else if (constval.isNullHandle()) {
 		return {};
@@ -241,11 +252,14 @@ const std::optional<ir::Const> NetlistContext::convert_const(const slang::Consta
 
 };
 
+#ifndef SLANG_NO_YOSYS
 #include "cases.h"
+#endif
 #include "memory.h"
 
 namespace slang_frontend {
 
+#ifndef SLANG_NO_YOSYS
 static Yosys::pool<VariableBit> detect_possibly_unassigned_subset(Yosys::pool<VariableBit> &signals, Case *rule, int level=0)
 {
 	Yosys::pool<VariableBit> remaining = signals;
@@ -358,6 +372,7 @@ void ProceduralContext::set_effects_trigger(RTLIL::Cell *cell)
 	ir::Net en = case_enable();
 	timing.extract_trigger(netlist, cell, en);
 }
+#endif // SLANG_NO_YOSYS
 
 ir::Net matches_pattern(NetlistContext &netlist, const ValuePattern &pattern, ir::Value &value)
 {
@@ -756,6 +771,7 @@ ir::Value handle_past(EvalContext &eval, const ast::CallExpression &call)
 	return past_wire;
 }
 
+#ifndef SLANG_NO_YOSYS
 void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 {
 	NetlistContext &netlist = context.netlist;
@@ -802,6 +818,7 @@ void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 		fmt.append_literal("\n");
 	fmt.emit_rtlil(cell);
 }
+#endif // SLANG_NO_YOSYS
 
 ir::Value EvalContext::operator()(ast::Expression const &expr)
 {
@@ -1053,6 +1070,9 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 
 			if (netlist.is_inferred_memory(elemsel.value())) {
+#ifdef SLANG_NO_YOSYS
+				log_error("Memory read cells not supported without Yosys\n");
+#else
 				int width = elemsel.type->getBitstreamWidth();
 				std::string id = netlist.id(elemsel.value()
 										.as<ast::ValueExpressionBase>().symbol);
@@ -1078,6 +1098,7 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 				memrd->setPort(ID::DATA, ret);
 				memrd->setParam(ID::WIDTH, width);
 				transfer_attrs(netlist, expr, memrd);
+#endif
 				break;
 			}
 
@@ -1145,10 +1166,14 @@ ir::Value EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Call:
 		{
 			const auto &call = expr.as<ast::CallExpression>();
-			if (call.isSystemCall() && (call.getSubroutineName() == "$display"
+			if (false) {
+				// placeholder
+#ifndef SLANG_NO_YOSYS
+			} else if (call.isSystemCall() && (call.getSubroutineName() == "$display"
 					|| call.getSubroutineName() == "$write")) {
 				require(expr, procedural != nullptr);
 				handle_display(*procedural, call);
+#endif
 			} else if (call.isSystemCall()) {
 				auto name = call.getSubroutineName();
 				if (name == "$countones") {
@@ -1548,6 +1573,17 @@ public:
 			return;
 		}
 
+#ifdef SLANG_NO_YOSYS
+		// Under SLANG_NO_YOSYS we track port directions without RTLIL wires
+		switch (symbol.direction) {
+		case ast::ArgumentDirection::In:
+		case ast::ArgumentDirection::InOut:
+			netlist.register_driven(*symbol.internalSymbol);
+			break;
+		default:
+			break;
+		}
+#else
 		RTLIL::Wire *w = netlist.wire(*symbol.internalSymbol).raw().as_wire();
 		log_assert(w);
 		switch (symbol.direction) {
@@ -1579,6 +1615,7 @@ public:
 			netlist.add_diag(diag::RefUnsupported, symbol.location);
 			break;
 		}
+#endif
 	}
 
 	void handle(const ast::MultiPortSymbol &sym)
@@ -1657,6 +1694,7 @@ public:
 			return;
 		}
 
+#ifndef SLANG_NO_YOSYS
 		// blackboxes get special handling no matter the hierarchy mode
 		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.backend->canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
@@ -1723,6 +1761,7 @@ public:
 			export_blackbox_to_rtlil(netlist, sym, netlist.backend->canvas->design);
 			return;
 		}
+#endif // SLANG_NO_YOSYS
 
 		if (netlist.should_dissolve(sym)) {
 			sym.body.visit(*this);
@@ -1821,6 +1860,10 @@ public:
 				}
 			}
 		} else {
+#ifdef SLANG_NO_YOSYS
+			log_error("Hierarchical (non-dissolved) module instantiation not supported without Yosys\n");
+			(void)sym;
+#else
 			log_assert(sym.isModule());
 			auto ref_body = &get_instance_body(settings, sym);
 			ast_invariant(sym, ref_body->parentInstance != nullptr);
@@ -1968,6 +2011,7 @@ public:
 				}
 			}
 			transfer_attrs(netlist, sym, cell);
+#endif // SLANG_NO_YOSYS
 		}
 	}
 
@@ -2051,6 +2095,9 @@ public:
 			log_debug("Adding %s (%s)\n", netlist.id(sym).c_str(), kind.c_str());
 
 			if (netlist.is_inferred_memory(sym)) {
+#ifdef SLANG_NO_YOSYS
+				log_error("Memory inference not supported without Yosys\n");
+#else
 				RTLIL::Memory *m = new RTLIL::Memory;
 				m->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 				transfer_attrs(netlist, sym, m);
@@ -2064,6 +2111,7 @@ public:
 
 				log_debug("Memory inferred for variable %s (size: %d, width: %d)\n",
 						  log_id(m->name), m->size, m->width);
+#endif
 			} else {
 				netlist.add_wire(sym);
 			}
@@ -2112,6 +2160,10 @@ public:
 
 	void handle(const ast::UninstantiatedDefSymbol &sym)
 	{
+#ifdef SLANG_NO_YOSYS
+		(void)sym;
+		return;
+#else
 		if (sym.isChecker()) {
 			netlist.add_diag(diag::LangFeatureUnsupported, sym.location);
 			return;
@@ -2148,6 +2200,7 @@ public:
 				cell->setPort(port_id, netlist.eval(expr));
 			}
 		}
+#endif // SLANG_NO_YOSYS
 	}
 
 	void handle(const ast::ClockingBlockSymbol& symbol) {
@@ -2187,6 +2240,10 @@ public:
 
 	void handle(const ast::PrimitiveInstanceSymbol &sym)
 	{
+#ifdef SLANG_NO_YOSYS
+		(void)sym;
+		return;
+#else
 		auto ports = sym.getPortConnections();
 		auto type = sym.primitiveType.name;
 		auto id = (!sym.name.compare("")) ? netlist.backend->new_id() : netlist.id(sym);
@@ -2351,6 +2408,7 @@ public:
 			cell->setPort(ID::Y, mid_wire);
 			transfer_attrs(netlist, sym, inv_cell);
 		}
+#endif // SLANG_NO_YOSYS
 	}
 
 	void handle(const ast::PropertySymbol &sym) {
@@ -2525,7 +2583,11 @@ std::string build_hiername(NetlistContext &netlist, const ast::Symbol &symbol,
 
 std::string NetlistContext::id(const ast::Symbol &symbol)
 {
+#ifdef SLANG_NO_YOSYS
+	return build_hiername(*this, symbol, ".");
+#else
 	return RTLIL::escape_id(build_hiername(*this, symbol, "."));
+#endif
 }
 
 std::string NetlistContext::unescaped_id(const ast::Symbol &symbol)
@@ -2571,11 +2633,14 @@ ir::Value NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 	auto &type = symbol.getType();
 
 	AttributeGuard guard(*this);
+#ifndef SLANG_NO_YOSYS
 	guard.set(ID::hdlname, hdlname(symbol));
+#endif
 	transfer_attrs(*this, symbol, guard);
 
 	ir::Value sig = add_placeholder_signal(type.getBitstreamWidth(), id(symbol), true);
 
+#ifndef SLANG_NO_YOSYS
 	if (type.kind == ast::SymbolKind::PackedArrayType &&
 			type.as<ast::PackedArrayType>().elementType.isScalar()) {
 		auto range = type.getFixedRange();
@@ -2584,6 +2649,7 @@ ir::Value NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 			w->upto = true;
 		w->start_offset = range.lower();
 	}
+#endif
 
 	wire_cache[&symbol] = sig;
 	if (ast::NetSymbol::isKind(symbol.kind)) {
@@ -2597,6 +2663,9 @@ ir::Value NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 
 void finalize_special_nets(NetlistContext &netlist)
 {
+#ifdef SLANG_NO_YOSYS
+	(void)netlist;
+#else
 	for (auto symbol : netlist.special_net_symbols) {
 		for (auto bit : VariableBits(Variable::from_symbol(symbol))) {
 			switch (symbol->netType.netKind) {
@@ -2619,6 +2688,7 @@ void finalize_special_nets(NetlistContext &netlist)
 			}
 		}
 	}
+#endif
 }
 
 bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)
@@ -2645,7 +2715,11 @@ bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagno
 			auto &note = why_blackbox->addNote(diag::NoteModuleBlackboxBecauseEmpty, sym.location);
 			note << sym.name;
 		}
+#ifdef SLANG_NO_YOSYS
+		return false;
+#else
 		return is_decl_empty_module(*sym.getSyntax());
+#endif
 	}
 
 	return false;
@@ -2811,7 +2885,9 @@ NetlistContext::NetlistContext(
 	: settings(settings), compilation(compilation), realm(instance.body), eval(*this)
 {
 	GraphBuilder::backend = std::move(backend);
+#ifndef SLANG_NO_YOSYS
 	transfer_attrs(*this, instance.body.getDefinition(), GraphBuilder::backend->canvas);
+#endif
 }
 
 NetlistContext::NetlistContext(

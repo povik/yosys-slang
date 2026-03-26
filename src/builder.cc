@@ -221,11 +221,11 @@ int CARRY(int a, int b, int c)
 	return OR(AND(a, b), AND(c, OR(a, b)));
 }
 
-int convert(RTLIL::SigBit bit)
+int convert(ir::Net bit)
 {
-	if (bit == RTLIL::S1)
+	if (bit == ir::S1)
 		return 1;
-	else if (bit == RTLIL::S0)
+	else if (bit == ir::S0)
 		return -1;
 	else
 		return 0;
@@ -282,9 +282,9 @@ ir::Value GraphBuilder::Biop(ast::BinaryOperator op, ir::Value a, ir::Value b, b
 	uint64_t msb_zeroes = 0;
 	if (op == ast::BinaryOperator::Multiply && !a_signed && !b_signed) {
 		int as = a.size(), bs = b.size();
-		while (as > 0 && a[as - 1] == RTLIL::S0)
+		while (as > 0 && a[as - 1] == ir::S0)
 			as--;
-		while (bs > 0 && b[bs - 1] == RTLIL::S0)
+		while (bs > 0 && b[bs - 1] == ir::S0)
 			bs--;
 		msb_zeroes = std::max<int>(0, ((int)y_width) - (as + bs));
 	}
@@ -303,7 +303,7 @@ ir::Value GraphBuilder::CountOnes(ir::Value sig, int result_width)
 	int x = 1, y = 0;
 	auto width = sig.size();
 	if (width == 0) {
-		ret = RTLIL::Const(0, 1);
+		ret = ir::Value(0, 1);
 	} else if (width == 1) {
 		// Single bit
 		ret = sig;

@@ -15,6 +15,7 @@
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/Type.h"
 
+#ifndef SLANG_NO_YOSYS
 // Fix for Yosys declaring ceil_log2 as both inline and non-inline
 // but not defining the non-inline one; be sure to include utils.h
 // with the inline definition to prevent linkage errors on some
@@ -22,6 +23,7 @@
 #include "kernel/utils.h"
 
 #include "cases.h"
+#endif
 #include "diag.h"
 #include "slang_frontend.h"
 #include "variables.h"
@@ -125,7 +127,9 @@ void ProceduralContext::inherit_state(ProceduralContext &other)
 	assert(seen_nonblocking_assignment.empty());
 	seen_blocking_assignment = other.seen_blocking_assignment;
 	seen_nonblocking_assignment = other.seen_nonblocking_assignment;
+#ifndef SLANG_NO_YOSYS
 	preceding_memwr = other.preceding_memwr;
+#endif
 	vstate = other.vstate;
 	flag_counter = other.flag_counter;
 }
@@ -398,7 +402,9 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 				{ir::Value(ir::Sx, pad), rvalue, ir::Value(ir::Sx, member_acc->base_offset)},
 				{ir::Value(ir::S0, pad), mask, ir::Value(ir::S0, member_acc->base_offset)},
 				blocking);
-	} else if (auto mem_write = std::get_if<LValue::MemoryWrite>(&lvalue.descriptor)) {
+	}
+#ifndef SLANG_NO_YOSYS
+	else if (auto mem_write = std::get_if<LValue::MemoryWrite>(&lvalue.descriptor)) {
 		auto &netlist = context.netlist;
 		RTLIL::Cell *cell = netlist.backend->canvas->addCell(netlist.backend->new_id(), ID($memwr_v2));
 		std::string id = netlist.id(*mem_write->target.get_symbol());
@@ -438,7 +444,9 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 		cell->setPort(ID::ADDR, mem_write->address);
 		cell->setParam(ID::WIDTH, rvalue.size());
 		cell->setPort(ID::DATA, rvalue);
-	} else {
+	}
+#endif
+	else {
 		// unreachable
 		log_abort();
 	}

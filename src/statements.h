@@ -6,9 +6,10 @@
 //
 #pragma once
 
+#ifndef SLANG_NO_YOSYS
 #include "kernel/rtlil.h"
-
 #include "cases.h"
+#endif
 #include "slang/ast/ASTVisitor.h"
 #include "slang_frontend.h"
 #include "variables.h"
@@ -120,7 +121,7 @@ public:
 				const ast::Statement *case_statement = nullptr)
 		{
 			if (compare.size() == 1 && compare[0].is_fully_concrete() && dispatch.is_fully_def() &&
-					dispatch != lower_pattern(compare[0])) {
+					dispatch != compare[0].to_value()) {
 				return;
 			}
 
@@ -420,6 +421,10 @@ public:
 
 	void handle(const ast::ImmediateAssertionStatement &statement)
 	{
+#ifdef SLANG_NO_YOSYS
+		// $check cells not supported without Yosys
+		(void)statement;
+#else
 		if (netlist.settings.ignore_assertions.value_or(false))
 			return;
 
@@ -452,17 +457,22 @@ public:
 		cell->setPort(ID::ARGS, {});
 		cell->setPort(ID::A, {netlist.ReduceBool(eval(statement.cond))});
 		transfer_attrs(netlist, statement, cell);
+#endif
 	}
 
-	void handle(const ast::ConcurrentAssertionStatement &stmt)
+	void handle(const ast::ConcurrentAssertionStatement &statement)
 	{
+#ifdef SLANG_NO_YOSYS
+		(void)statement;
+#else
 		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			if (stmt.assertionKind == ast::AssertionKind::Expect) {
-				netlist.add_diag(diag::ExpectStatementUnsupported, stmt.sourceRange);
+			if (statement.assertionKind == ast::AssertionKind::Expect) {
+				netlist.add_diag(diag::ExpectStatementUnsupported, statement.sourceRange);
 			} else {
-				netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+				netlist.add_diag(diag::SVAUnsupported, statement.sourceRange);
 			}
 		}
+#endif
 	}
 
 	ir::Value handle_call(const ast::CallExpression &call)
@@ -790,7 +800,7 @@ public:
 	{
 		auto set_iterator_value = [this, &stmt](const ast::VariableSymbol &target, int32_t value) {
 			context.do_simple_assign(
-					stmt.sourceRange.start(), eval.variable(target), RTLIL::Const(value, 32), true);
+					stmt.sourceRange.start(), eval.variable(target), ir::Const(value, 32), true);
 		};
 
 		std::vector<SwitchHelper> sw_stack;

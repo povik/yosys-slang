@@ -7,11 +7,13 @@
 #include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/types/Type.h"
 
+#ifndef SLANG_NO_YOSYS
 // Fix for Yosys declaring ceil_log2 as both inline and non-inline
 // but not defining the non-inline one; be sure to include utils.h
 // with the inline definition to prevent linkage errors on some
 // platforms
 #include "kernel/utils.h"
+#endif
 
 #include "slang_frontend.h"
 #include "variables.h"
