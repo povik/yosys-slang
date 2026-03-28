@@ -79,6 +79,12 @@ extern slang::DiagCode ErrorNonconstantInitialEval;
 extern slang::DiagCode DeprecatedOption;
 extern slang::DiagCode GuessingInputPort;
 extern slang::DiagCode UnsupportedSystemTask;
+extern slang::DiagCode ErrorNonconstantArgument;
+extern slang::DiagCode ReadmemFileNotFound;
+extern slang::DiagCode ReadmemInvalidAddress;
+extern slang::DiagCode ReadmemAddressOutsideOfRange;
+extern slang::DiagCode ReadmemWordsRangeMismatch;
+extern slang::DiagCode ReadmemBadBinaryDigit;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag
