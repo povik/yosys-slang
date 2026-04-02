@@ -954,7 +954,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		finish_addr = (finish_addr + 1) * inner_dim_size - 1;
 	}
 
-	uint64_t mem_width = current_type->getBitWidth();
+	uint64_t mem_width = current_type->getBitstreamWidth();
 	bool in_comment = false;
 	bool no_addr_specs = true;
 	bool done = false;
@@ -1036,9 +1036,11 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 			}
 
 			if ((cursor == finish_addr + increment) ||
-				(increment > 0 && cursor > outer_range_max * inner_dim_size) ||
-				(increment < 0 && cursor < outer_range_min * inner_dim_size))
+				(increment > 0 && cursor > finish_addr) ||
+				(increment < 0 && cursor < finish_addr)) {
 				done = true;
+
+			}
 			num_words++;
 		}
 	}
@@ -2393,10 +2395,18 @@ public:
 				m->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 				transfer_attrs(netlist, sym, m);
 				m->name = netlist.id(sym);
-				m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
-				auto range = sym.getType().getFixedRange();
-				m->start_offset = range.lower();
-				m->size = range.width();
+
+				// Calculate size of all unpacked dimensions
+				int size = 1;
+				const auto *current_type = &sym.getType();
+				while (current_type->isUnpackedArray()) {
+					size *= current_type->getFixedRange().fullWidth();
+					current_type = current_type->getArrayElementType();
+				}
+
+				m->width = current_type->getBitstreamWidth();
+				m->start_offset = sym.getType().getFixedRange().lower();
+				m->size = size;
 				netlist.canvas->memories[m->name] = m;
 				netlist.emitted_mems[m->name] = {};
 
