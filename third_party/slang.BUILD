@@ -184,6 +184,7 @@ cc_library(
         "source/analysis/AnalyzedProcedure.cpp",
         "source/analysis/CaseDecisionDag.cpp",
         "source/analysis/ClockInference.cpp",
+        "source/analysis/DataFlowAnalysis.cpp",
         "source/analysis/DFAResults.cpp",
         "source/analysis/DriverTracker.cpp",
         "source/analysis/ValueDriver.cpp",
