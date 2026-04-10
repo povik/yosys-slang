@@ -270,11 +270,10 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 				}
 				const ast::Symbol &symbol = *chunk.variable.get_symbol();
 				if (netlist.is_inferred_memory(symbol)) {
-					bool big_endian = !symbol.as<ast::ValueSymbol>()
-											   .getType()
-											   .getFixedRange()
-											   .isLittleEndian();
-					netlist.add_memory_init(netlist.id(symbol), chunk.base, big_endian,
+					// convert_const always stores element[i] at physical position
+					// (i - range.lower()), regardless of range direction, so the
+					// data is already in the correct word order.
+					netlist.add_memory_init(netlist.id(symbol), chunk.base, false,
 							rvalue.extract((int)base, (int)size).as_const());
 				}
 			} break;
@@ -450,8 +449,16 @@ void ProceduralContext::assign_rvalue(
 		// break down into individual assignments
 		auto &pattern_lexpr = raw_lexpr->as<ast::SimpleAssignmentPatternExpression>();
 
+		// Bits are extracted top-down (highest first).  For BE unpacked arrays
+		// the element with the highest logical index sits at the top bits
+		// (see EvalContext::operator() SimpleAssignmentPattern handling), so
+		// we need to visit elements in reverse declaration order so that each
+		// element is matched with the correct slice of rvalue.
+		bool be_unpacked = raw_lexpr->type->isUnpackedArray() &&
+				!raw_lexpr->type->getFixedRange().isLittleEndian();
+
 		int nbits_remaining = rvalue.size();
-		for (auto el : pattern_lexpr.elements()) {
+		auto do_elem = [&](const ast::Expression *el) {
 			log_assert(el->kind == ast::ExpressionKind::Assignment);
 			auto &inner_assign = el->as<ast::AssignmentExpression>();
 
@@ -467,6 +474,15 @@ void ProceduralContext::assign_rvalue(
 			nbits_remaining -= relem_width;
 
 			assign_rvalue(inner_assign, eval.apply_nested_conversion(inner_assign.right(), relem));
+		};
+
+		auto elems = pattern_lexpr.elements();
+		if (be_unpacked) {
+			for (auto it = elems.rbegin(); it != elems.rend(); it++)
+				do_elem(*it);
+		} else {
+			for (auto el : elems)
+				do_elem(el);
 		}
 
 		log_assert(nbits_remaining == 0);

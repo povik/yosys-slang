@@ -562,7 +562,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	void register_driven(const ast::Symbol &symbol);
 	void add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs);
 
-	const std::optional<RTLIL::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc);
+	const std::optional<RTLIL::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc, const ast::Type *type = nullptr);
 };
 
 // slang_frontend.cc
