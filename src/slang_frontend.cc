@@ -2023,6 +2023,8 @@ public:
 							RTLIL::IdString port_name = port_sig.as_wire()->name;
 							if (netlist.scopes_remap.count(&modport)) {
 								cell->setPort(port_name, netlist.wire(port));
+								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
+									netlist.register_driven(port);
 							} else {
 								cell->setPort(port_name, netlist.wire(*port.internalSymbol));
 								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
