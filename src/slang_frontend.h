@@ -649,6 +649,7 @@ struct PatternBit
 	PatternBit(ir::Net n) : kind(Concrete), net(n) {}
 	static PatternBit wildcard() { return {}; }
 	bool is_wildcard() const { return kind == Wildcard; }
+	bool is_const() const { return kind == Wildcard || net.is_const(); }
 	bool operator==(const PatternBit &o) const
 	{
 		if (kind != o.kind)
@@ -690,6 +691,14 @@ struct ValuePattern
 	{
 		for (auto &b : bits)
 			if (b.is_wildcard() || !b.net.is_def())
+				return false;
+		return true;
+	}
+
+	bool is_fully_const() const
+	{
+		for (auto &b : bits)
+			if (!b.is_const())
 				return false;
 		return true;
 	}
