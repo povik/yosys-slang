@@ -51,7 +51,7 @@ EnterAutomaticScopeGuard::~EnterAutomaticScopeGuard()
 
 RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(ProceduralContext &context,
 		EscapeConstructKind kind, const ast::SubroutineSymbol *subroutine)
-	: context(context), flag(Variable::escape_flag(context.flag_counter++))
+	: flag(Variable::escape_flag(context.flag_counter++)), context(context)
 {
 	assert(kind == EscapeConstructKind::FunctionBody);
 	context.escape_stack.emplace_back();
@@ -64,7 +64,7 @@ RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(ProceduralContext &co
 
 RegisterEscapeConstructGuard::RegisterEscapeConstructGuard(
 		ProceduralContext &context, EscapeConstructKind kind, const ast::Statement *statement)
-	: context(context), flag(Variable::escape_flag(context.flag_counter++))
+	: flag(Variable::escape_flag(context.flag_counter++)), context(context)
 {
 	log_assert(kind == EscapeConstructKind::Loop || kind == EscapeConstructKind::LoopBody);
 	context.escape_stack.emplace_back();
