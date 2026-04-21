@@ -83,8 +83,8 @@ class ProceduralContext;
 class RegisterEscapeConstructGuard;
 class EnterAutomaticScopeGuard;
 class VariableBits;
-class VariableBit;
-class VariableChunk;
+struct VariableBit;
+struct VariableChunk;
 struct ProcessTiming;
 class Case;
 class LValue;
@@ -362,10 +362,10 @@ public:
 
 private:
 	ProceduralContext &context;
-	const ast::Scope *scope;
 };
 
 struct BackendGraphBuilderBase {
+	virtual ~BackendGraphBuilderBase() = default;
 	// Emits a node for SystemVerilog unary operator
 	virtual ir::Value Unop(ast::UnaryOperator op, ir::Value a, bool a_signed, uint64_t y_width) = 0;
 
@@ -846,7 +846,7 @@ private:
 	uint64_t bitsize;
 
 	LValue(decltype(descriptor) descriptor, uint64_t bitsize, bool static_, bool contiguous_slice_)
-		: descriptor(std::move(descriptor)), bitsize(bitsize), static_(static_), contiguous_slice_(contiguous_slice_) {}
+		: descriptor(std::move(descriptor)), contiguous_slice_(contiguous_slice_), static_(static_), bitsize(bitsize) {}
 
 	friend void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 								   ProceduralContext &context, LValue &lvalue,

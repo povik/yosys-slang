@@ -73,8 +73,8 @@ public:
 		SwitchHelper(SwitchHelper &&other)
 			: context(other.context), vstate(other.vstate), dispatch(std::move(other.dispatch)),
 			  current_case_info(std::move(other.current_case_info)),
-			  original_enabled(other.original_enabled), masked_enabled(other.masked_enabled),
-			  finished(other.finished)
+			  finished(other.finished), original_enabled(other.original_enabled),
+			  masked_enabled(other.masked_enabled)
 		{
 			branch_updates.swap(other.branch_updates);
 			std::swap(save_snap, other.save_snap);
@@ -942,11 +942,6 @@ public:
 
 		std::vector<slang::ast::ForeachLoopStatement::LoopDim> reversedDims(
 				stmt.loopDims.rbegin(), stmt.loopDims.rend());
-		for (auto i = 0; i < loopVarStack.size(); ++i) {
-			if (loopVarStack[i]) {
-				auto currDim = reversedDims[i];
-			}
-		}
 
 		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 		unroll_limit.enter_unrolling();

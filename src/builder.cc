@@ -304,7 +304,6 @@ ir::Value GraphBuilder::Unop(ast::UnaryOperator op, ir::Value a, bool a_signed, 
 ir::Value GraphBuilder::CountOnes(ir::Value sig, int result_width)
 {
 	ir::Value ret;
-	int x = 1, y = 0;
 	auto width = sig.size();
 	if (width == 0) {
 		ret = ir::Value(0, 1);
