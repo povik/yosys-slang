@@ -1,0 +1,31 @@
+read_slang --std 1800-2017 --keep-hierarchy <<EOF
+interface foobar;
+  logic in1;
+  logic out1;
+  modport port (
+    input in1,
+    output out1
+  );
+endinterface
+
+module bar (foobar.port ports);
+  assign ports.out1 = ports.in1;
+endmodule
+
+module foo (foobar.port ports);
+  bar inst2 (.ports(ports));
+endmodule
+
+module top (input in1, output out1);
+  foobar _foobar();
+  assign _foobar.in1 = in1;
+  assign out1 = _foobar.out1;
+  foo inst1 (.ports(_foobar));
+  always_comb assert(out1 === in1);
+endmodule
+EOF
+hierarchy -top top
+check -assert
+flatten
+chformal -lower
+sat -verify -enable_undef -prove-asserts
