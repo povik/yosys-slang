@@ -1,9 +1,47 @@
-find_package(Yosys)
 include(GitRevision)
 
-git_rev_parse(YOSYS_SLANG_REVISION ${CMAKE_SOURCE_DIR})
-git_rev_parse(SLANG_REVISION ${CMAKE_SOURCE_DIR}/third_party/slang)
+# Paths resolved relative to this CMakeLists so the file works whether
+# slang-elab is the top-level project or is pulled in via add_subdirectory.
+get_filename_component(_SLANG_ELAB_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+git_rev_parse(YOSYS_SLANG_REVISION ${_SLANG_ELAB_ROOT})
+git_rev_parse(SLANG_REVISION ${_SLANG_ELAB_ROOT}/third_party/slang)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h)
+
+# Frontend-only static library: the slang-elab sources compiled without the
+# Yosys backend. Mirrors the Bazel //third-party/slang-elab/src:slang_frontend
+# target. Callers link their own backend (e.g. OpenROAD's syn::elab).
+add_library(slang_frontend STATIC
+    addressing.cc
+    async_pattern.cc
+    builder.cc
+    diag.cc
+    initialization.cc
+    lvalue.cc
+    naming.cc
+    procedural.cc
+    slang_frontend.cc
+    variables.cc
+    ${CMAKE_CURRENT_BINARY_DIR}/version.h
+)
+target_compile_definitions(slang_frontend PUBLIC
+    SLANG_MUX_LOWERING
+    SLANG_NO_YOSYS
+)
+target_include_directories(slang_frontend
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(slang_frontend PUBLIC slang::slang fmt::fmt)
+set_target_properties(slang_frontend PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+option(SLANG_ELAB_BUILD_YOSYS_PLUGIN "Build slang-elab as a Yosys plugin" ON)
+if (NOT SLANG_ELAB_BUILD_YOSYS_PLUGIN)
+    return()
+endif()
+
+find_package(Yosys)
 
 if (BUILD_AS_PLUGIN)
     set(LIBRARY_TYPE SHARED)
