@@ -1,0 +1,21 @@
+read_slang <<EOF
+module test (
+  input  logic a_i[2],
+  output logic y_o[2]
+);
+  inner i_inner (
+    .a_i ('{a_i[0], a_i[1]}),
+    .y_o ('{y_o[0], y_o[1]})
+  );
+endmodule
+
+module inner (
+  input  logic a_i[2],
+  output logic y_o[2]
+);
+  assign y_o[0] = a_i[1];
+  assign y_o[1] = a_i[0];
+endmodule
+EOF
+
+check -assert

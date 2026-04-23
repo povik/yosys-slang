@@ -30,6 +30,7 @@ set(ALL_TESTS
     unit/latch.ys
     unit/selftests.tcl
     various/assign_mixing.ys
+    various/assignment_pattern_lhs.ys
     various/bb_detect.ys
     various/blackbox_scenarios.ys
     various/bus_range.ys
