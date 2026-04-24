@@ -208,10 +208,6 @@ static std::string ff_naming_base_name_from_options(SynthesisSettings &settings,
 	std::string prefix = settings.ff_naming_prefix();
 	std::string suffix = settings.ff_naming_suffix();
 
-	std::string signal_name = format_signal_name_fragment(&netlist.realm, symbol, subfield_suffix);
-	auto *symbol_scope = symbol.getParentScope();
-	ast_invariant(symbol, symbol_scope != nullptr);
-	std::string local_signal_name = format_signal_name_fragment(symbol_scope, symbol, subfield_suffix);
 
 	// Avoid duplicating the configured suffix when the base name already ends in it
 	auto maybe_append_suffix = [&](std::string name) {
@@ -239,10 +235,15 @@ static std::string ff_naming_base_name_from_options(SynthesisSettings &settings,
 		return with_prefix(base_name);
 	}
 
+	std::string signal_name = format_signal_name_fragment(&netlist.realm, symbol, subfield_suffix);
+
 	if (mode == "signal")
 		return with_prefix(maybe_append_suffix(signal_name));
 	if (mode == "auto") {
 		if (block_symbol) {
+			auto *symbol_scope = symbol.getParentScope();
+			ast_invariant(symbol, symbol_scope != nullptr);
+			std::string local_signal_name = format_signal_name_fragment(symbol_scope, symbol, subfield_suffix);
 			std::string block_name = format_scope_name_fragment(&netlist.realm, block_symbol);
 			if (disambiguate_block_name)
 				return with_prefix(maybe_append_suffix(block_name + "_" + local_signal_name));
