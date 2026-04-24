@@ -55,3 +55,178 @@ select -assert-any t:$*ff* c:$driver$a[1].field1 %i
 select -assert-any t:$*ff* c:$driver$a[1].field0 %i
 select -assert-any t:$*ff* c:$driver$a[0].field1 %i
 select -assert-any t:$*ff* c:$driver$a[0].field0 %i
+
+design -reset
+read_slang --ff-naming signal <<EOF
+module top(input logic clk);
+	typedef struct packed {
+		logic valid;
+		struct packed {
+			logic [1:0] opcode;
+		} header;
+	} packet_t;
+
+	packet_t state_q, state_d;
+
+	always_ff @(posedge clk)
+		state_q <= state_d;
+endmodule
+EOF
+select -assert-count 2 t:$*ff*
+select -assert-any t:$*ff* c:state_q_valid_reg %i
+select -assert-any t:$*ff* c:state_q_header_opcode_reg %i
+
+design -reset
+read_slang --ff-naming signal <<EOF
+module top(input logic clk);
+	logic [3:0] state_q, state_d;
+
+	always_ff @(posedge clk)
+		state_q[2] <= state_d[2];
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* n:*state_q_2_reg %i
+
+design -reset
+read_slang --ff-naming signal <<EOF
+module top(input logic clk);
+	logic [7:0] state_q, state_d;
+
+	always_ff @(posedge clk)
+		state_q[5:2] <= state_d[5:2];
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* c:state_q_5downto2_reg %i
+
+design -reset
+read_slang --ff-naming auto <<EOF
+module top(input logic clk);
+	logic state_q, state_d;
+
+	always_ff @(posedge clk) begin : state_update
+		state_q <= state_d;
+	end
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* c:state_update_reg %i
+
+design -reset
+read_slang --ff-naming auto <<EOF
+module top(input logic clk);
+	logic a_q, a_d, b_q, b_d;
+
+	always_ff @(posedge clk) begin : regs
+		a_q <= a_d;
+		b_q <= b_d;
+	end
+endmodule
+EOF
+select -assert-count 2 t:$*ff*
+select -assert-any t:$*ff* c:regs_a_q_reg %i
+select -assert-any t:$*ff* c:regs_b_q_reg %i
+
+design -reset
+read_slang --ff-naming auto <<EOF
+module top(input logic clk);
+	genvar i;
+	for (i = 0; i < 2; i++) begin : gen_gpios
+		logic serial_q, serial_d;
+		always_ff @(posedge clk) begin : capture
+			serial_q <= serial_d;
+		end
+	end
+endmodule
+EOF
+select -assert-count 2 t:$*ff*
+select -assert-any t:$*ff* c:gen_gpios_0_capture_reg %i
+select -assert-any t:$*ff* c:gen_gpios_1_capture_reg %i
+
+design -reset
+read_slang --ff-naming signal <<EOF
+module top(input logic clk);
+	genvar i;
+	for (i = 0; i < 2; i++) begin : gen_gpios
+		logic serial_q, serial_d;
+		always_ff @(posedge clk)
+			serial_q <= serial_d;
+	end
+endmodule
+EOF
+select -assert-count 2 t:$*ff*
+select -assert-any t:$*ff* c:gen_gpios_0_serial_q_reg %i
+select -assert-any t:$*ff* c:gen_gpios_1_serial_q_reg %i
+
+design -reset
+read_slang --ff-naming signal <<EOF
+module top(input logic clk, input logic d);
+	always_ff @(posedge clk) begin
+		static logic local_q;
+		local_q <= d;
+	end
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* n:*__*_local_q_reg %i
+
+design -reset
+read_slang --ff-naming auto <<EOF
+module top(input logic clk);
+	logic state_reg, state_d;
+
+	always_ff @(posedge clk)
+		state_reg <= state_d;
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* n:state_reg* %i
+
+design -reset
+read_slang --ff-naming signal --ff-suffix _ff <<EOF
+module top(input logic clk);
+	logic state_q, state_d;
+
+	always_ff @(posedge clk)
+		state_q <= state_d;
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* c:state_q_ff %i
+
+design -reset
+read_slang --ff-naming signal --ff-prefix dbg_ <<EOF
+module top(input logic clk);
+	logic dbg_state_q, state_d;
+
+	always_ff @(posedge clk)
+		dbg_state_q <= state_d;
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* n:*dbg_state_q_reg %i
+
+design -reset
+read_slang --ff-naming legacy --ff-prefix dbg_ <<EOF
+module top(input logic clk);
+	logic state_q, state_d;
+
+	always_ff @(posedge clk)
+		state_q <= state_d;
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* c:dbg_state_q %i
+
+design -reset
+read_slang --ff-naming legacy --ff-suffix _ff <<EOF
+module top(input logic clk);
+	logic state_q, state_d;
+
+	always_ff @(posedge clk)
+		state_q <= state_d;
+endmodule
+EOF
+select -assert-count 1 t:$*ff*
+select -assert-any t:$*ff* n:*\$driver$state_q_ff %i

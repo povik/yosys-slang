@@ -4,6 +4,8 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include <cctype>
+
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/Type.h"
 
@@ -77,6 +79,110 @@ std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::
 	log_assert(sum == chunk.bitwidth());
 
 	return ret;
+}
+
+// Format one raw hierarchy or signal name into a friendly identifier
+static std::string format_name_fragment(std::string_view raw)
+{
+	std::string ret;
+	ret.reserve(raw.size() + 8);
+
+	auto push_sep = [&]() {
+		if (!ret.empty() && ret.back() != '_')
+			ret.push_back('_');
+	};
+
+	for (size_t i = 0; i < raw.size(); i++) {
+		unsigned char ch = raw[i];
+
+		// Alphanumeric and underscore characters are kept as-is
+		if (std::isalnum(ch) || ch == '_') {
+			ret.push_back(ch);
+			continue;
+		}
+
+		// Flatten dotted hierarchy and subfields into underscores
+		if (ch == '.') {
+			push_sep();
+			continue;
+		}
+
+		// `$<n>` comes from unnamed scopes; keep it distinct from `[n]`, which is an array index.
+		if (ch == '$' && i + 1 < raw.size() && std::isdigit((unsigned char)raw[i + 1])) {
+			if (ret.empty() || ret.back() != '_')
+				ret.push_back('_');
+			ret.push_back('_');
+			i++;
+			while (i < raw.size() && std::isdigit((unsigned char)raw[i])) {
+				ret.push_back(raw[i]);
+				i++;
+			}
+			i--;
+			continue;
+		}
+
+		// Add packed and unpacked indices as explicit suffixes
+		if (ch == '[') {
+			push_sep();
+
+			std::string lhs_index;
+			size_t j = i + 1;
+			while (j < raw.size() && raw[j] != ']' && raw[j] != ':') {
+				lhs_index.push_back(raw[j]);
+				j++;
+			}
+			ret.append(lhs_index);
+
+			if (j < raw.size() && raw[j] == ':') {
+				// Keep multi-bit slices explicit so ranges remain readable
+				j++;
+				std::string rhs;
+				while (j < raw.size() && raw[j] != ']') {
+					rhs.push_back(raw[j]);
+					j++;
+				}
+
+				if (lhs_index != rhs) {
+					ret.append("downto");
+					ret.append(rhs);
+				}
+			}
+
+			while (j < raw.size() && raw[j] != ']')
+				j++;
+			i = j;
+			continue;
+		}
+
+		// Collapse any remaining symbols into a separator
+		push_sep();
+	}
+
+	while (!ret.empty() && ret.back() == '_')
+		ret.pop_back();
+
+	return ret;
+}
+
+// Format a scope path relative to another scope using the naming fragment rules above.
+std::string format_scope_name_fragment(const ast::Scope *relative_to, const ast::Scope *scope)
+{
+	return format_name_fragment(hierpath_relative_to(relative_to, scope));
+}
+
+// Format a signal path plus optional subfield or slice suffix into one name fragment.
+std::string format_signal_name_fragment(const ast::Scope *relative_to, const ast::ValueSymbol &symbol,
+		std::string_view suffix)
+{
+	auto *scope = symbol.getParentScope();
+	ast_invariant(symbol, scope != nullptr);
+
+	std::string raw = hierpath_relative_to(relative_to, scope);
+	if (!raw.empty())
+		raw.push_back('.');
+	raw.append(symbol.name);
+	raw.append(suffix);
+	return format_name_fragment(raw);
 }
 
 }; // namespace slang_frontend
