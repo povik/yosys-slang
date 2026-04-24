@@ -81,7 +81,8 @@ std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::
 	return ret;
 }
 
-// Format one raw hierarchy or signal name into a friendly identifier
+// Format one raw hierarchy or signal name into an alphanumeric+underscore identifier fragment
+// Makes it easy to use and compose in Tcl-style contexts without escaping characters
 static std::string format_name_fragment(std::string_view raw)
 {
 	std::string ret;
