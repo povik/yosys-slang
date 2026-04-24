@@ -358,6 +358,7 @@ struct RTLILBuilder {
 				 bool a_signed, bool b_signed, int y_width);
 
 	SigSpec CountOnes(SigSpec sig, int result_width);
+	SigSpec Clog2(SigSpec sig, int result_width);
 
 	void add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
 							 RTLIL::SigSpec aload, RTLIL::SigSpec d, RTLIL::SigSpec q,
