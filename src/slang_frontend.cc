@@ -2077,6 +2077,19 @@ public:
 			return;
 		}
 
+		if (ast::SimpleAssignmentPatternExpression::isKind(expr.left().kind)) {
+			auto &pattern_lexpr = expr.left().as<ast::SimpleAssignmentPatternExpression>();
+			RTLIL::SigSpec link;
+			auto els = pattern_lexpr.elements();
+			for (auto it = els.rbegin(); it != els.rend(); it++) {
+				ast_invariant(**it, (*it)->kind == ast::ExpressionKind::Assignment);
+				auto &inner_assign = (*it)->as<ast::AssignmentExpression>();
+				link.append(netlist.eval.connection_lhs(inner_assign));
+			}
+			netlist.connect(link, rvalue);
+			return;
+		}
+
 		netlist.add_continuous_driver(netlist.eval.lhs(expr.left()), rvalue);
 	}
 

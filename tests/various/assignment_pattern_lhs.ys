@@ -37,3 +37,36 @@ endmodule
 EOF
 chformal -lower
 sat -show-all -verify -enable_undef -prove-asserts
+
+design -reset
+read_slang <<EOF
+typedef struct packed {
+  logic a;
+  logic b;
+} foo_t;
+typedef struct packed {
+  foo_t foo;
+  logic c;
+} bar_t;
+
+module inner (
+  input bar_t a_i[2]
+);
+  logic [1:0] a1, b1, c1, a2, b2, c2;
+  logic [1:0] ga1, gb1, gc1, ga2, gb2, gc2;
+  assign '{'{'{a1, b1}, c1}, '{'{a2, b2}, c2}} = a_i;
+  always_comb
+    '{'{'{ga1, gb1}, gc1}, '{'{ga2, gb2}, gc2}} = a_i;
+
+  always_comb begin
+    assert(a1 === ga1);
+    assert(b1 === gb1);
+    assert(c1 === gc1);
+    assert(a2 === ga2);
+    assert(b2 === gb2);
+    assert(c2 === gc2);
+  end
+endmodule
+EOF
+chformal -lower
+sat -show-all -verify -enable_undef -prove-asserts
