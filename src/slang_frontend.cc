@@ -624,23 +624,35 @@ void NetlistContext::add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs)
 RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assign)
 {
 	ast_invariant(assign, !assign.timingControl);
-	const ast::Expression *rsymbol = &assign.right();
-	VariableBits vbits = lhs(assign.left());
+	const ast::Expression *rexpr = &assign.right();
 
-	if (rsymbol->kind == ast::ExpressionKind::EmptyArgument &&
+	if (ast::SimpleAssignmentPatternExpression::isKind(assign.left().kind)) {
+		auto &pattern_lexpr = assign.left().as<ast::SimpleAssignmentPatternExpression>();
+		RTLIL::SigSpec link;
+		auto els = pattern_lexpr.elements();
+		for (auto it = els.rbegin(); it != els.rend(); it++) {
+			ast_invariant(**it, (*it)->kind == ast::ExpressionKind::Assignment);
+			auto &inner_assign = (*it)->as<ast::AssignmentExpression>();
+			link.append(connection_lhs(inner_assign));
+		}
+		return link;
+	}
+
+	VariableBits vbits = lhs(assign.left());
+	if (rexpr->kind == ast::ExpressionKind::EmptyArgument &&
 			!vbits.has_special_nets()) {
 		// early path
 		netlist.register_driven(vbits);
 		return netlist.convert_static(vbits);
 	}
 
-	while (rsymbol->kind == ast::ExpressionKind::Conversion)
-		rsymbol = &rsymbol->as<ast::ConversionExpression>().operand();
-	ast_invariant(assign, rsymbol->kind == ast::ExpressionKind::EmptyArgument);
-	ast_invariant(assign, rsymbol->type->isBitstreamType());
+	while (rexpr->kind == ast::ExpressionKind::Conversion)
+		rexpr = &rexpr->as<ast::ConversionExpression>().operand();
+	ast_invariant(assign, rexpr->kind == ast::ExpressionKind::EmptyArgument);
+	ast_invariant(assign, rexpr->type->isBitstreamType());
 
 	RTLIL::SigSpec link = netlist.add_placeholder_signal(
-								rsymbol->type->getBitstreamWidth());
+								rexpr->type->getBitstreamWidth());
 	netlist.add_continuous_driver(vbits,
 			apply_nested_conversion(assign.right(), link));
 	return link;
@@ -2062,6 +2074,19 @@ public:
 			ast_invariant(expr, (uint64_t)rvalue.size() >= lvalue.bitwidth());
 
 			netlist.add_continuous_driver(lvalue, rvalue.extract(0, lvalue.bitwidth()));
+			return;
+		}
+
+		if (ast::SimpleAssignmentPatternExpression::isKind(expr.left().kind)) {
+			auto &pattern_lexpr = expr.left().as<ast::SimpleAssignmentPatternExpression>();
+			RTLIL::SigSpec link;
+			auto els = pattern_lexpr.elements();
+			for (auto it = els.rbegin(); it != els.rend(); it++) {
+				ast_invariant(**it, (*it)->kind == ast::ExpressionKind::Assignment);
+				auto &inner_assign = (*it)->as<ast::AssignmentExpression>();
+				link.append(netlist.eval.connection_lhs(inner_assign));
+			}
+			netlist.connect(link, rvalue);
 			return;
 		}
 
