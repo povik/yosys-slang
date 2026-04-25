@@ -7,7 +7,6 @@
 #include "slang/ast/expressions/ConversionExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/OperatorExpressions.h"
-#include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/symbols/MemberSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
@@ -111,20 +110,6 @@ std::optional<LValue> LValue::analyze(
 				return std::nullopt;
 			elements.push_back(std::move(*element_lv));
 		}
-		return LValue::concatenation(std::move(elements));
-	}
-	case ast::ExpressionKind::SimpleAssignmentPattern: {
-		std::vector<LValue> elements;
-		const auto &pattern = expr.as<ast::SimpleAssignmentPatternExpression>();
-		for (auto element : pattern.elements()) {
-			ast_invariant(expr, element->kind == ast::ExpressionKind::Assignment);
-			auto &assign = element->as<ast::AssignmentExpression>();
-			auto element_lv = analyze(context, assign.left(), silent);
-			if (!element_lv)
-				return std::nullopt;
-			elements.push_back(std::move(*element_lv));
-		}
-
 		return LValue::concatenation(std::move(elements));
 	}
 	case ast::ExpressionKind::MemberAccess: {

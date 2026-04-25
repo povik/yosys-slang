@@ -1,21 +1,39 @@
 read_slang <<EOF
-module test (
-  input  logic a_i[2],
-  output logic y_o[2]
+typedef struct packed {
+  logic a;
+  logic b;
+} foo_t;
+typedef struct packed {
+  foo_t foo;
+  logic c;
+} bar_t;
+
+module feedthrough (
+  input bar_t a_i[2],
+  output bar_t y_o[2]
 );
-  inner i_inner (
-    .a_i ('{a_i[0], a_i[1]}),
-    .y_o ('{y_o[0], y_o[1]})
-  );
+  assign y_o = a_i;
 endmodule
 
 module inner (
-  input  logic a_i[2],
-  output logic y_o[2]
+  input bar_t a_i[2]
 );
-  assign y_o[0] = a_i[1];
-  assign y_o[1] = a_i[0];
+  logic [1:0] a1, b1, c1, a2, b2, c2;
+  logic [1:0] ga1, gb1, gc1, ga2, gb2, gc2;
+  feedthrough f(a_i,
+    '{'{'{a1, b1}, c1}, '{'{a2, b2}, c2}});
+  always_comb
+    '{'{'{ga1, gb1}, gc1}, '{'{ga2, gb2}, gc2}} = a_i;
+
+  always_comb begin
+    assert(a1 === ga1);
+    assert(b1 === gb1);
+    assert(c1 === gc1);
+    assert(a2 === ga2);
+    assert(b2 === gb2);
+    assert(c2 === gc2);
+  end
 endmodule
 EOF
-
-check -assert
+chformal -lower
+sat -show-all -verify -enable_undef -prove-asserts
