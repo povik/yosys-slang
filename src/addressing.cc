@@ -26,9 +26,12 @@ void AddressingResolver::interpret_index(RTLIL::SigSpec signal, int width_down, 
 	} else {
 		base_offset = range.right - width_up + 1;
 
-		// We might want some other handling of big-endian
-		// indexing.
-		raw_signal = netlist.Not(signal);
+		// Sign-extend signal by one bit before inverting. This correctly
+		// maps big-endian index i to physical position (range.right - i):
+		//   Not(sign_ext(i)) + (range.right + 1) == (-i - 1) + (range.right + 1) == range.right - i.
+		// Sign-extension (not zero-extension) is required so that the identity
+		// holds for negative indices (e.g. logic [-7:-2]).
+		raw_signal = netlist.Not(RTLIL::SigSpec({signal.msb(), signal}));
 		base_offset += 1;
 	}
 }
@@ -38,6 +41,12 @@ AddressingResolver::AddressingResolver(EvalContext &eval, const ast::ElementSele
 {
 	require(sel, sel.value().type->hasFixedRange());
 	range = sel.value().type->getFixedRange();
+	// For unpacked arrays, elements are stored sequentially by logical index
+	// regardless of the declared range direction.  Normalise big-endian ranges
+	// to little-endian so that interpret_index maps element[i] directly to
+	// physical position (i - range.lower()), consistent with the memory-inferred path.
+	if (sel.value().type->isUnpackedArray() && !range.isLittleEndian())
+		range = {(int32_t)range.upper(), (int32_t)range.lower()};
 	interpret_index(eval.eval_signed(sel.selector()));
 
 	stride = sel.type->getBitstreamWidth();
@@ -48,6 +57,10 @@ AddressingResolver::AddressingResolver(EvalContext &eval, const ast::RangeSelect
 {
 	require(sel, sel.value().type->hasFixedRange());
 	range = sel.value().type->getFixedRange();
+	// For unpacked arrays, normalise big-endian ranges to little-endian
+	// so that element indexing is consistent with the memory-inferred path.
+	if (sel.value().type->isUnpackedArray() && !range.isLittleEndian())
+		range = {(int32_t)range.upper(), (int32_t)range.lower()};
 
 	switch (sel.getSelectionKind()) {
 	case ast::RangeSelectionKind::Simple: {

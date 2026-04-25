@@ -110,3 +110,51 @@ memory_collect
 select -assert-count 1 t:$mem_v2
 memory_map
 sat -verify -enable_undef -prove-asserts
+
+# BE unpacked array [0:1]: constant aggregate init must index correctly.
+# Without --no-implicit-memories x is a $mem ROM, y is synthesised as flops.
+# Both must agree on which element is at each index.
+design -reset
+read_slang --no-implicit-memories <<EOF2
+module top();
+	(* rom_block *)
+	reg [3:0] x[0:1];
+	reg [3:0] y[0:1];
+
+	initial begin
+		x = '{7, 1};
+		y = '{7, 1};
+	end
+
+	always_comb
+		assert(x[0] === y[0] && x[1] === y[1]);
+endmodule
+EOF2
+chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
+memory_map
+sat -verify -enable_undef -prove-asserts
+
+# BE unpacked array with non-zero lower bound [2:4].
+design -reset
+read_slang --no-implicit-memories <<EOF2
+module top();
+	(* rom_block *)
+	reg [3:0] x[2:4];
+	reg [3:0] y[2:4];
+
+	initial begin
+		x = '{5, 3, 9};
+		y = '{5, 3, 9};
+	end
+
+	always_comb
+		assert(x[2] === y[2] && x[3] === y[3] && x[4] === y[4]);
+endmodule
+EOF2
+chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
+memory_map
+sat -verify -enable_undef -prove-asserts

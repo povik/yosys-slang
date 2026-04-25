@@ -70,3 +70,24 @@ module test_bitsel07(data, sel);
 	input signed [4:0] sel;
 	base #(.MSB(-2), .LSB(-7)) t(.*);
 endmodule
+
+// BE with negative indices: sign-extension fix in interpret_index
+module test_bitsel08(data, sel);
+	input [-7:-2] data;
+	input signed [4:0] sel;
+	base #(.MSB(-7), .LSB(-2)) t(.*);
+endmodule
+
+// BE spanning negative and positive indices
+module test_bitsel09(data, sel);
+	input [-3:4] data;
+	input signed [4:0] sel;
+	base #(.MSB(-3), .LSB(4)) t(.*);
+endmodule
+
+// LE spanning negative and positive indices (mirror of test_bitsel09)
+module test_bitsel10(data, sel);
+	input [4:-3] data;
+	input signed [4:0] sel;
+	base #(.MSB(4), .LSB(-3)) t(.*);
+endmodule

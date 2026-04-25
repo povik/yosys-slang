@@ -1,0 +1,185 @@
+# Test big-endian unpacked arrays ([0:N] range) are addressed correctly.
+#
+# With --no-implicit-memories the array goes through AddressingResolver instead
+# of the $mem path.  A bug caused the resolver to reverse the index for BE
+# unpacked arrays (as if they were packed BE vectors), making arr[i] access
+# element (range.right - i) instead of element i.
+
+# [0:3] and [3:0] unpacked arrays must be equivalent under --no-implicit-memories.
+# Uses equiv_make/induct so shared state is matched and proof is fast.
+design -reset
+read_slang --no-implicit-memories <<EOF
+module be_top(input clk, input [1:0] addr, input din, output dout);
+    reg arr [0:3];
+    always @(posedge clk)
+        arr[addr] <= din;
+    assign dout = arr[addr];
+endmodule
+EOF
+proc; opt_clean
+
+read_slang --no-implicit-memories <<EOF
+module le_top(input clk, input [1:0] addr, input din, output dout);
+    reg arr [3:0];
+    always @(posedge clk)
+        arr[addr] <= din;
+    assign dout = arr[addr];
+endmodule
+EOF
+proc; opt_clean
+
+equiv_make le_top be_top equiv_top
+equiv_induct equiv_top
+equiv_status -assert
+
+# Same equivalence must hold with the default (memory-inferred) path.
+design -reset
+read_slang <<EOF
+module be_top(input clk, input [1:0] addr, input din, output dout);
+    reg arr [0:3];
+    always @(posedge clk)
+        arr[addr] <= din;
+    assign dout = arr[addr];
+endmodule
+EOF
+proc; memory; memory_map; opt_clean
+
+read_slang <<EOF
+module le_top(input clk, input [1:0] addr, input din, output dout);
+    reg arr [3:0];
+    always @(posedge clk)
+        arr[addr] <= din;
+    assign dout = arr[addr];
+endmodule
+EOF
+proc; memory; memory_map; opt_clean
+
+equiv_make le_top be_top equiv_top
+equiv_induct equiv_top
+equiv_status -assert
+
+# BE packed vector [0:3]: dynamic bit-select must return the correct bit.
+# v[addr] on logic [0:3] should equal v_le[3-addr] of its LE mirror.
+# Tests the zero-extension fix in interpret_index.
+design -reset
+read_slang <<EOF
+module top(input [1:0] addr, input [0:3] v,
+           output bit_be, output bit_le);
+    assign bit_be = v[addr];
+    logic [3:0] v_le;
+    assign v_le = {v[0], v[1], v[2], v[3]};
+    assign bit_le = v_le[3 - addr];
+    always_comb
+        assert(bit_be === bit_le);
+endmodule
+EOF
+prep
+chformal -lower
+sat -verify -enable_undef -prove-asserts
+
+# BE vs LE unpacked array with non-zero lower bound: [2:5] vs [5:2].
+# Both arrays must return the same element for the same logical index.
+design -reset
+read_slang --no-implicit-memories <<EOF
+module be_top(input clk, input [1:0] idx, input din, output dout);
+    reg arr [2:5];
+    always @(posedge clk)
+        arr[idx + 2] <= din;
+    assign dout = arr[idx + 2];
+endmodule
+EOF
+proc; opt_clean
+
+read_slang --no-implicit-memories <<EOF
+module le_top(input clk, input [1:0] idx, input din, output dout);
+    reg arr [5:2];
+    always @(posedge clk)
+        arr[idx + 2] <= din;
+    assign dout = arr[idx + 2];
+endmodule
+EOF
+proc; opt_clean
+
+equiv_make le_top be_top equiv_top
+equiv_induct equiv_top
+equiv_status -assert
+
+# Same equivalence via default (memory-inferred) path.
+design -reset
+read_slang <<EOF
+module be_top(input clk, input [1:0] idx, input din, output dout);
+    reg arr [2:5];
+    always @(posedge clk)
+        arr[idx + 2] <= din;
+    assign dout = arr[idx + 2];
+endmodule
+EOF
+proc; memory; memory_map; opt_clean
+
+read_slang <<EOF
+module le_top(input clk, input [1:0] idx, input din, output dout);
+    reg arr [5:2];
+    always @(posedge clk)
+        arr[idx + 2] <= din;
+    assign dout = arr[idx + 2];
+endmodule
+EOF
+proc; memory; memory_map; opt_clean
+
+equiv_make le_top be_top equiv_top
+equiv_induct equiv_top
+equiv_status -assert
+
+# BE vs LE unpacked array with multi-bit (8-bit) elements.
+# [0:3] vs [3:0] must produce identical read/write behaviour.
+design -reset
+read_slang --no-implicit-memories <<EOF
+module be_top(input clk, input [1:0] addr, input [7:0] din, output [7:0] dout);
+    reg [7:0] arr [0:3];
+    always @(posedge clk)
+        arr[addr] <= din;
+    assign dout = arr[addr];
+endmodule
+EOF
+proc; opt_clean
+
+read_slang --no-implicit-memories <<EOF
+module le_top(input clk, input [1:0] addr, input [7:0] din, output [7:0] dout);
+    reg [7:0] arr [3:0];
+    always @(posedge clk)
+        arr[addr] <= din;
+    assign dout = arr[addr];
+endmodule
+EOF
+proc; opt_clean
+
+equiv_make le_top be_top equiv_top
+equiv_induct equiv_top
+equiv_status -assert
+
+# BE unpacked array with negative lower bound: [0:-3] vs [-3:0].
+# Uses --no-implicit-memories path.
+design -reset
+read_slang --no-implicit-memories <<EOF
+module be_top(input clk, input [1:0] addr, input din, output dout);
+    reg arr [0:-3];
+    always @(posedge clk)
+        arr[addr - 3] <= din;
+    assign dout = arr[addr - 3];
+endmodule
+EOF
+proc; opt_clean
+
+read_slang --no-implicit-memories <<EOF
+module le_top(input clk, input [1:0] addr, input din, output dout);
+    reg arr [-3:0];
+    always @(posedge clk)
+        arr[addr - 3] <= din;
+    assign dout = arr[addr - 3];
+endmodule
+EOF
+proc; opt_clean
+
+equiv_make le_top be_top equiv_top
+equiv_induct equiv_top
+equiv_status -assert

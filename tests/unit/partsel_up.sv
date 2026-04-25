@@ -123,3 +123,17 @@ module test_partsel_up10(i1, i2, sel);
 	input [2:0] sel;
 	base2 #(.MSB(2), .LSB(7)) t(.*);
 endmodule
+
+// BE range with all-negative indices: sign-extension fix
+module test_partsel_up11(data, sel);
+	input [-7:-2] data;
+	input [2:0] sel;
+	base #(.MSB(-7), .LSB(-2)) t(.*);
+endmodule
+
+module test_partsel_up12(i1, i2, sel);
+	input [-7:-2] i1;
+	input [1:0] i2;
+	input [2:0] sel;
+	base2 #(.MSB(-7), .LSB(-2)) t(.*);
+endmodule

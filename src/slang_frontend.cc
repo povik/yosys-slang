@@ -180,7 +180,8 @@ static const RTLIL::Const convert_svint(const slang::SVInt &svint)
 }
 
 const std::optional<RTLIL::Const> NetlistContext::convert_const(const slang::ConstantValue &constval,
-																slang::SourceLocation loc)
+																slang::SourceLocation loc,
+																const ast::Type *type)
 {
 	if (constval.bad()) {
 		// no diagnostic in this case as we assume one has been raised upstream
@@ -211,13 +212,31 @@ const std::optional<RTLIL::Const> NetlistContext::convert_const(const slang::Con
 		std::vector<RTLIL::State> bits;
 		bits.reserve(constval.getBitstreamWidth());
 
+		const ast::Type *elem_type = (type && type->isUnpackedArray()) ?
+				type->getArrayElementType() : nullptr;
+		// For LE unpacked arrays slang's elements() declaration order has the
+		// highest-index element first, so reversing puts element[0] at the LSB,
+		// matching AddressingResolver's physical layout (element i at position i).
+		// For BE unpacked arrays slang's elements() declaration order has the
+		// lowest-index element first; reversing would put element[max] at LSB.
+		// Since AddressingResolver normalises BE to LE, element[0] must still be
+		// at the LSB, so we iterate forward (no reversal) for BE arrays.
+		bool be_unpacked = type && type->isUnpackedArray() &&
+				!type->getFixedRange().isLittleEndian();
 		auto elems = constval.elements();
-		for (auto it = elems.rbegin(); it != elems.rend(); it++) {
-			if (auto piece = convert_const(*it, loc)) {
-				bits.insert(bits.end(), piece->begin(), piece->end());	
-			} else {
-				return {};
+		auto convert_elem = [&](const slang::ConstantValue &elem) -> bool {
+			if (auto piece = convert_const(elem, loc, elem_type)) {
+				bits.insert(bits.end(), piece->begin(), piece->end());
+				return true;
 			}
+			return false;
+		};
+		if (be_unpacked) {
+			for (auto it = elems.begin(); it != elems.end(); it++)
+				if (!convert_elem(*it)) return {};
+		} else {
+			for (auto it = elems.rbegin(); it != elems.rend(); it++)
+				if (!convert_elem(*it)) return {};
 		}
 
 		log_assert(bits.size() == constval.getBitstreamWidth());
@@ -876,7 +895,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			expr.kind == ast::ExpressionKind::StringLiteral) {
 		auto const_result = expr.eval(this->const_);
 		if (const_result) {
-			auto converted = netlist.convert_const(const_result, expr.sourceRange.start());
+			auto converted = netlist.convert_const(const_result, expr.sourceRange.start(), expr.type);
 			if (converted) {
 				ret = *converted;
 				goto done;
@@ -1191,8 +1210,22 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
 
 			ret = {};
-			for (auto elem : pattern_expr.elements())
-				ret = {ret, (*this)(*elem)};
+			// SigSpec({a, b}) places 'b' at the lowest bits (initializer_list ctor
+			// processes in reverse).  For LE unpacked arrays the declaration order
+			// already puts high indices first so the last-appended low-index element
+			// ends up at the lowest bits - matching AddressingResolver's LE-normalised
+			// addressing.  For BE unpacked arrays (e.g. [0:3]) the declaration order
+			// puts low indices first, so the last-appended high-index element would end
+			// up at the lowest bits - reversed relative to LE-normalised addressing.
+			// Iterating in reverse for BE arrays fixes this.
+			if (expr.type->isUnpackedArray() && !expr.type->getFixedRange().isLittleEndian()) {
+				auto elems = pattern_expr.elements();
+				for (auto it = elems.rbegin(); it != elems.rend(); it++)
+					ret = {ret, (*this)(**it)};
+			} else {
+				for (auto elem : pattern_expr.elements())
+					ret = {ret, (*this)(*elem)};
+			}
 			ret = ret.repeat(repl_count);
 		}
 		break;
