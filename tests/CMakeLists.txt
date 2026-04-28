@@ -61,7 +61,7 @@ set(ALL_TESTS
     various/timescale.ys
     various/top_attr.ys
     various/unknown_cells.ys
-    various/toplevel_intf_unsupported.ys
+    various/toplevel_intf.ys
     various/wait_test.ys
     various/expect_test.ys
     various/program_test.ys
