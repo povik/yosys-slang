@@ -45,12 +45,15 @@ endif()
 
 include(FetchContent)
 
-find_package(fmt CONFIG QUIET)
+option(USE_EXTERNAL_FMT "Build with external fmt library" OFF)
+if (USE_EXTERNAL_FMT)
+    find_package(fmt CONFIG QUIET)
+endif()
 
 if (fmt_FOUND)
-    message(STATUS "Using system fmt")
+    message(STATUS "Using external fmt")
 else()
-    message(STATUS "System fmt not found; using bundled third_party/fmt")
+    message(STATUS "Using bundled third_party/fmt")
 
     option(FMT_INSTALL OFF)
     FetchContent_Declare(
