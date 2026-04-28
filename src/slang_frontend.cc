@@ -79,6 +79,14 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 			"--udp-handling", udp_handling, "Set the processing mode for user defined primitives."
 			" When set to 'blackboxes' the UDP is treated as a blackboxed instance."
 			" When set to 'error', an error is emitted if a UDP is encountered. By default, the frontend emits an error.");
+	cmdLine.add("--ff-naming", ff_naming,
+				"Set the naming scheme used for flip-flops inferred from always_ff blocks."
+				" Valid values: legacy, signal, auto."
+				" Note: 'auto' names are unstable and may change across versions.", "<mode>");
+	cmdLine.add("--ff-prefix", ff_prefix,
+				"Set the prefix prepended to inferred flip-flop names.", "<prefix>");
+	cmdLine.add("--ff-suffix", ff_suffix,
+				"Set the suffix appended to inferred flip-flop names.", "<suffix>");
 
 	// Deprecated section
 	cmdLine.add("--compat-mode", compat_mode,
@@ -163,6 +171,87 @@ static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
 		return RTLIL::escape_id(std::string(sym.name));
 	else
 		return RTLIL::escape_id(std::string(sym.name) + "$" + instance);
+}
+
+// Return the pre-prefix flip-flop base name used by the legacy scheme
+static std::string ff_naming_legacy_signal_name(NetlistContext &netlist, const ast::ValueSymbol &symbol,
+		std::string_view suffix)
+{
+	return Yosys::stringf("%s%s",
+			RTLIL::unescape_id(netlist.id(symbol)).c_str(), std::string(suffix).c_str());
+}
+
+// Find the named block that `--ff-naming auto` should prefer, if there is one
+static const ast::StatementBlockSymbol *ff_naming_auto_block(const ast::StatementBlockSymbol *prologue_block,
+		const ast::Statement &sync_body)
+{
+	if (prologue_block && !prologue_block->name.empty())
+		return prologue_block;
+
+	if (sync_body.kind != ast::StatementKind::Block)
+		return nullptr;
+
+	auto &block = sync_body.as<ast::BlockStatement>();
+	ast_invariant(sync_body, block.blockKind == ast::StatementBlockKind::Sequential);
+	if (block.blockSymbol && !block.blockSymbol->name.empty())
+		return block.blockSymbol;
+
+	return nullptr;
+}
+
+// Build the final inferred flip-flop base name from the active ff naming options
+static std::string ff_naming_base_name_from_options(SynthesisSettings &settings, NetlistContext &netlist,
+		const ast::StatementBlockSymbol *block_symbol, bool disambiguate_block_name,
+		const ast::ValueSymbol &symbol, std::string_view subfield_suffix)
+{
+	auto mode = settings.ff_naming_mode();
+	std::string prefix = settings.ff_naming_prefix();
+	std::string suffix = settings.ff_naming_suffix();
+
+
+	// Avoid duplicating the configured suffix when the base name already ends in it
+	auto maybe_append_suffix = [&](std::string name) {
+		if (!suffix.empty() && name.size() >= suffix.size() &&
+				name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
+				return name;
+		return name + suffix;
+	};
+
+	auto make_public = [](std::string name) {
+		return std::string("\\") + name;
+	};
+
+	// Avoid duplicating the configured prefix when the base name already starts with it
+	auto with_prefix = [&](std::string name) {
+		if (!prefix.empty() && name.size() >= prefix.size() &&
+				name.compare(0, prefix.size(), prefix) == 0)
+			return make_public(name);
+		return make_public(prefix + name);
+	};
+
+	if (mode == "legacy") {
+		std::string base_name = ff_naming_legacy_signal_name(netlist, symbol, subfield_suffix);
+		base_name = maybe_append_suffix(base_name);
+		return with_prefix(base_name);
+	}
+
+	std::string signal_name = format_signal_name_fragment(&netlist.realm, symbol, subfield_suffix);
+
+	if (mode == "signal")
+		return with_prefix(maybe_append_suffix(signal_name));
+	if (mode == "auto") {
+		if (block_symbol) {
+			auto *symbol_scope = symbol.getParentScope();
+			ast_invariant(symbol, symbol_scope != nullptr);
+			std::string local_signal_name = format_signal_name_fragment(symbol_scope, symbol, subfield_suffix);
+			std::string block_name = format_scope_name_fragment(&netlist.realm, block_symbol);
+			if (disambiguate_block_name)
+				return with_prefix(maybe_append_suffix(block_name + "_" + local_signal_name));
+			return with_prefix(maybe_append_suffix(block_name));
+		}
+		return with_prefix(maybe_append_suffix(signal_name));
+	}
+	log_abort();
 }
 
 static const RTLIL::Const convert_svint(const slang::SVInt &svint)
@@ -1499,6 +1588,14 @@ public:
 
 			// FIXME: ignores variables not driven from the sync procedure
 			VariableBits driven = sync_procedure.all_driven();
+			const ast::StatementBlockSymbol *block_symbol = ff_naming_auto_block(prologue_block, sync_body);
+			int emitted_ff_names = 0;
+			for (VariableChunk driven_chunk : driven.chunks()) {
+				const ast::Type *type = &driven_chunk.variable.get_symbol()->getType();
+				emitted_ff_names += generate_subfield_names(driven_chunk, type).size();
+			}
+			bool disambiguate_block_name = emitted_ff_names > 1;
+
 			for (VariableChunk driven_chunk : driven.chunks()) {
 				const ast::Type *type = &driven_chunk.variable.get_symbol()->getType();
 				RTLIL::SigSpec assigned = sync_procedure.vstate.evaluate(netlist, driven_chunk);
@@ -1509,9 +1606,10 @@ public:
 				if (aloads.empty()) {
 
 					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
-						log_assert(named_chunk.variable.get_symbol() != nullptr);
-						std::string base_name = Yosys::stringf("$driver$%s%s",
-							RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+						auto *named_symbol = named_chunk.variable.get_symbol();
+						log_assert(named_symbol != nullptr);
+						std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+								disambiguate_block_name, *named_symbol, name);
 
 						if (clock.edge == ast::EdgeKind::BothEdges) {
 							netlist.add_dual_edge_aldff(base_name,
@@ -1545,9 +1643,10 @@ public:
 					if (!aldff_q.empty()) {
 						for (auto driven_chunk2 : aldff_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							log_assert(named_chunk.variable.get_symbol() != nullptr);
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							auto *named_symbol = named_chunk.variable.get_symbol();
+							log_assert(named_symbol != nullptr);
+							std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+									disambiguate_block_name, *named_symbol, name);
 
 							if (clock.edge == ast::EdgeKind::BothEdges) {
 								netlist.add_dual_edge_aldff(base_name,
@@ -1579,11 +1678,13 @@ public:
 
 						for (auto driven_chunk2 : dffe_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							auto *named_symbol = named_chunk.variable.get_symbol();
+							log_assert(named_symbol != nullptr);
+							std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+									disambiguate_block_name, *named_symbol, name);
 
 							netlist.add_dffe(base_name,
-											 timing.triggers[0].signal,
+										 timing.triggers[0].signal,
 											 aloads[0].trigger,
 											 assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 											 netlist.convert_static(named_chunk),
@@ -2968,6 +3069,12 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 
 	if (!settings.no_synthesis_define.value_or(false)) {
 		driver.options.defines.push_back("SYNTHESIS=1");
+	}
+
+	if (settings.ff_naming.has_value()) {
+		auto &mode = settings.ff_naming.value();
+		if (mode != "legacy" && mode != "signal" && mode != "auto")
+			log_cmd_error("Unknown --ff-naming mode '%s'\n", mode.c_str());
 	}
 
 	if (!settings.no_default_translate_off.value_or(false)) {
