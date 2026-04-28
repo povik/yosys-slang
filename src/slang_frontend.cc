@@ -2187,6 +2187,39 @@ public:
 				return;
 			visitor.visitDefault(sym);
 		}));
+
+		// For top-level modules with AllowTopLevelIfacePorts, slang creates synthetic
+		// interface instances that live outside the realm body. Set up scopes_remap and
+		// add wires for modport port symbols so expressions and initializers can resolve them.
+		auto *parent_scope = body.parentInstance->getParentScope();
+		bool is_top_level = parent_scope &&
+			parent_scope->asSymbol().kind == ast::SymbolKind::Root;
+		if (is_top_level) {
+			for (auto *conn : body.parentInstance->getPortConnections()) {
+				if (conn->port.kind != ast::SymbolKind::InterfacePort)
+					continue;
+				auto [iface_sym, ref_modport] = conn->getIfaceConn();
+				if (!iface_sym || !ref_modport)
+					continue;
+				if (iface_sym->kind != ast::SymbolKind::Instance)
+					continue;
+
+				iface_sym->visit(ast::makeVisitor(
+					[&](auto &visitor, const ast::ModportSymbol &modport) {
+						if (!modport.name.compare(ref_modport->name)) {
+							netlist.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
+								netlist.id(conn->port);
+							visitor.visitDefault(modport);
+						}
+					},
+					[&](auto &, const ast::ModportPortSymbol &port) {
+						if (!port.getType().isFixedSize())
+							return;
+						netlist.add_wire(port);
+					}
+				));
+			}
+		}
 	}
 
 	void handle(const ast::InstanceBodySymbol &body)
@@ -2268,7 +2301,54 @@ public:
 	void handle(const ast::VariableSymbol&) {}
 	void handle(const ast::EmptyMemberSymbol&) {}
 	void handle(const ast::ModportSymbol&) {}
-	void handle(const ast::InterfacePortSymbol&) {}
+
+	void handle(const ast::InterfacePortSymbol &symbol)
+	{
+		if (symbol.getParentScope()->getContainingInstance() != &netlist.realm)
+			return;
+
+		// Only handle top-level interface ports. For submodules with interface ports
+		// in keep-hierarchy mode, the parent's processing already sets up port wires.
+		auto *parent_scope = netlist.realm.parentInstance->getParentScope();
+		if (!parent_scope || parent_scope->asSymbol().kind != ast::SymbolKind::Root)
+			return;
+
+		auto [iface_sym, ref_modport] = symbol.getConnection();
+		if (!iface_sym || !ref_modport)
+			return;
+		if (iface_sym->kind != ast::SymbolKind::Instance)
+			return;
+
+		iface_sym->visit(ast::makeVisitor(
+			[&](auto &visitor, const ast::ModportSymbol &modport) {
+				if (!modport.name.compare(ref_modport->name))
+					visitor.visitDefault(modport);
+			},
+			[&](auto &, const ast::ModportPortSymbol &port) {
+				RTLIL::Wire *w = netlist.wire(port).as_wire();
+				log_assert(w);
+				switch (port.direction) {
+				case ast::ArgumentDirection::In:
+					netlist.register_driven(Variable::from_symbol(&port));
+					w->port_input = true;
+					break;
+				case ast::ArgumentDirection::Out:
+					w->port_output = true;
+					break;
+				case ast::ArgumentDirection::InOut:
+					netlist.register_driven(Variable::from_symbol(&port));
+					w->port_input = true;
+					w->port_output = true;
+					break;
+				case ast::ArgumentDirection::Ref:
+					netlist.add_diag(diag::RefUnsupported, port.location);
+					break;
+				default:
+					log_abort();
+				}
+			}
+		));
+	}
 	void handle(const ast::GenericClassDefSymbol&) {}
 	void handle(const ast::LetDeclSymbol&) {}
 	void handle(const ast::SpecparamSymbol&) {}
@@ -3008,13 +3088,6 @@ std::vector<slang::DiagCode> forbidden_diag_demotions = {
 
 void catch_forbidden_options(slang::driver::Driver &driver) {
 	slang::DiagnosticEngine &engine = driver.diagEngine;
-
-	auto &flags = driver.options.compilationFlags;
-	if (flags[ast::CompilationFlags::AllowTopLevelIfacePorts]) {
-		slang::Diagnostic diag(diag::NoAllowTopLevelIfacePorts, slang::SourceLocation::NoLocation);
-		engine.issue(diag);
-		flags[ast::CompilationFlags::AllowTopLevelIfacePorts] = false;
-	}
 
 	// FIXME: this doesn't catch demotions which are location specific via pragmas
 	for (auto code : forbidden_diag_demotions) {
