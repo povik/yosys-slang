@@ -1,4 +1,3 @@
-test_slangdiag -expect "top-level module 'top' has unconnected interface port 'prim'"
 read_slang --allow-toplevel-iface-ports <<EOF
 interface bus();
 	logic a, b;
@@ -7,5 +6,9 @@ endinterface
 
 module top(bus.primary prim);
 	wire c = prim.a;
+	assign prim.b = ~prim.a;
 endmodule
 EOF
+
+select -assert-count 1 w:prim.a
+select -assert-count 1 w:prim.b
