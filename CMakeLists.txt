@@ -45,21 +45,30 @@ endif()
 
 include(FetchContent)
 
-# The log will show "-- Using remote fmt library", but that is misleading,
-# as no network access will be done. (Our first declaration of `fmt` wins.)
-option(FMT_INSTALL OFF)
-FetchContent_Declare(
-    fmt
-    EXCLUDE_FROM_ALL
-    SOURCE_DIR ${CMAKE_SOURCE_DIR}/third_party/fmt
-)
+find_package(fmt CONFIG QUIET)
+
+if (fmt_FOUND)
+    message(STATUS "Using system fmt")
+else()
+    message(STATUS "System fmt not found; using bundled third_party/fmt")
+
+    option(FMT_INSTALL OFF)
+    FetchContent_Declare(
+        fmt
+        EXCLUDE_FROM_ALL
+        SOURCE_DIR ${CMAKE_SOURCE_DIR}/third_party/fmt
+    )
+    FetchContent_MakeAvailable(fmt)
+endif()
 
 set(SLANG_USE_MIMALLOC OFF)
 add_subdirectory(third_party/slang)
 
 # We're statically linking slang (and fmt) into our plugin, which itself is a shared library.
 # Unless we build the dependencies as PIC, linking will fail.
-set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_AS_PLUGIN})
+if (TARGET fmt)
+    set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_AS_PLUGIN})
+endif()
 set_target_properties(slang_slang PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_AS_PLUGIN})
 
 add_subdirectory(src)
