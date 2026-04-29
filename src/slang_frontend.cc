@@ -857,12 +857,9 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		auto &diag = netlist.add_diag(diag::ArgumentTypeUnsupported, filename_arg->sourceRange);
 		diag << filename_arg->type->toString();
 		return;
-	} else if (filename_result.isString()) {
-		// Parameter evaluated as a string
-		mem_filename = filename_result.str();
 	} else {
-		// Explicit string passed
-		mem_filename = filename_arg->as<ast::StringLiteral>().getValue();
+		auto constval = filename_result.convertToStr();
+		mem_filename = constval.str();
 	}
 
 	std::ifstream f;
