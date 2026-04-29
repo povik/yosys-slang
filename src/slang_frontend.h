@@ -454,8 +454,6 @@ struct SynthesisSettings {
 	std::optional<bool> no_synthesis_define;
 	std::optional<UdpHandleMode> udp_handling;
 	std::optional<std::string> ff_naming;
-	std::optional<std::string> ff_prefix;
-	std::optional<std::string> ff_suffix;
 	// pass std::less<> to enable transparent lookup
 	std::set<std::string, std::less<>> blackboxed_modules;
 	bool disable_instance_caching = false;
@@ -481,22 +479,6 @@ struct SynthesisSettings {
 
 	std::string ff_naming_mode() {
 		return ff_naming.value_or("legacy");
-	}
-
-	std::string ff_naming_prefix() {
-		if (ff_prefix.has_value())
-			return ff_prefix.value();
-		if (ff_naming_mode() == "legacy")
-			return "$driver$";
-		return "";
-	}
-
-	std::string ff_naming_suffix() {
-		if (ff_suffix.has_value())
-			return ff_suffix.value();
-		if (ff_naming_mode() == "legacy")
-			return "";
-		return "_reg";
 	}
 
 	void addOptions(slang::CommandLine &cmdLine);
@@ -620,9 +602,10 @@ extern void export_blackbox_to_rtlil(NetlistContext &netlist, const ast::Instanc
 // naming.cc
 typedef std::pair<VariableChunk, std::string> NamedChunk;
 std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type);
-std::string format_scope_name_fragment(const ast::Scope *relative_to, const ast::Scope *scope);
+std::string format_scope_name_fragment(const ast::Scope *relative_to, const ast::Scope *scope,
+		std::string_view sep="_"sv);
 std::string format_signal_name_fragment(const ast::Scope *relative_to, const ast::ValueSymbol &symbol,
-		std::string_view suffix);
+		std::string_view suffix, std::string_view sep="_"sv);
 
 // initialization.cc
 void evaluate_decl_initializers(NetlistContext &netlist);

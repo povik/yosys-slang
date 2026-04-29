@@ -81,16 +81,21 @@ std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::
 	return ret;
 }
 
-// Format one raw hierarchy or signal name into an alphanumeric+underscore identifier fragment
-// Makes it easy to use and compose in Tcl-style contexts without escaping characters
-static std::string format_name_fragment(std::string_view raw)
+// Format one raw hierarchy or signal name into an alphanumeric / separator identifier fragment.
+// Makes it easy to use and compose in Tcl-style contexts without escaping characters.
+static std::string format_name_fragment(std::string_view raw, std::string_view sep)
 {
 	std::string ret;
 	ret.reserve(raw.size() + 8);
 
+	auto ends_with_sep = [&]() {
+		return !sep.empty() && ret.size() >= sep.size() &&
+			ret.compare(ret.size() - sep.size(), sep.size(), sep) == 0;
+	};
+
 	auto push_sep = [&]() {
-		if (!ret.empty() && ret.back() != '_')
-			ret.push_back('_');
+		if (!ret.empty() && !ends_with_sep())
+			ret.append(sep);
 	};
 
 	for (size_t i = 0; i < raw.size(); i++) {
@@ -110,9 +115,8 @@ static std::string format_name_fragment(std::string_view raw)
 
 		// `$<n>` comes from unnamed scopes; keep it distinct from `[n]`, which is an array index.
 		if (ch == '$' && i + 1 < raw.size() && std::isdigit((unsigned char)raw[i + 1])) {
-			if (ret.empty() || ret.back() != '_')
-				ret.push_back('_');
-			ret.push_back('_');
+			push_sep();
+			ret.append(sep);
 			i++;
 			while (i < raw.size() && std::isdigit((unsigned char)raw[i])) {
 				ret.push_back(raw[i]);
@@ -159,21 +163,22 @@ static std::string format_name_fragment(std::string_view raw)
 		push_sep();
 	}
 
-	while (!ret.empty() && ret.back() == '_')
-		ret.pop_back();
+	while (ends_with_sep())
+		ret.resize(ret.size() - sep.size());
 
 	return ret;
 }
 
 // Format a scope path relative to another scope using the naming fragment rules above.
-std::string format_scope_name_fragment(const ast::Scope *relative_to, const ast::Scope *scope)
+std::string format_scope_name_fragment(const ast::Scope *relative_to, const ast::Scope *scope,
+		std::string_view sep)
 {
-	return format_name_fragment(hierpath_relative_to(relative_to, scope));
+	return format_name_fragment(hierpath_relative_to(relative_to, scope), sep);
 }
 
 // Format a signal path plus optional subfield or slice suffix into one name fragment.
 std::string format_signal_name_fragment(const ast::Scope *relative_to, const ast::ValueSymbol &symbol,
-		std::string_view suffix)
+		std::string_view suffix, std::string_view sep)
 {
 	auto *scope = symbol.getParentScope();
 	ast_invariant(symbol, scope != nullptr);
@@ -183,7 +188,7 @@ std::string format_signal_name_fragment(const ast::Scope *relative_to, const ast
 		raw.push_back('.');
 	raw.append(symbol.name);
 	raw.append(suffix);
-	return format_name_fragment(raw);
+	return format_name_fragment(raw, sep);
 }
 
 }; // namespace slang_frontend
