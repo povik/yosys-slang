@@ -53,6 +53,7 @@ set(ALL_TESTS
     various/issue50.ys
     various/mem_inference.ys
     various/meminit.ys
+    various/module_uniquify.ys
     various/pragmas.ys
     various/regress.ys
     various/stringattrs.ys
