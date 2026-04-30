@@ -8,4 +8,7 @@ module(
 
 # yosys 0.62.bcr.2 is the first release that exports :hdrs for plugins.
 bazel_dep(name = "yosys", version = "0.62.bcr.2")
-bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "rules_python", version = "2.0.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "rules_license", version = "1.0.0")

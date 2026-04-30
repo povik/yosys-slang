@@ -7,10 +7,36 @@ derives them from `git describe`); refine with a workspace-status hook
 if needed.
 """
 
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+load("@rules_license//rules:license.bzl", "license")
 
-package(default_visibility = ["//visibility:public"])
+package(
+    default_applicable_licenses = [":license"],
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+)
+
+license(
+    name = "license",
+    package_name = "yosys-slang",
+    license_kinds = ["@rules_license//licenses/spdx:ISC"],
+    license_text = "LICENSE",
+)
+
+# Version of the slang library tracked in third_party/slang.
+# Bump when the submodule is updated. SLANG_VERSION_PATCH/HASH are
+# normally derived from `git describe`; left as 0/"unknown" here since
+# the submodule is checked out detached.
+SLANG_VERSION_MAJOR = 10
+SLANG_VERSION_MINOR = 0
+SLANG_VERSION_PATCH = 0
+SLANG_VERSION_HASH = "unknown"
+
+# yosys-slang's own revision string is taken from MODULE.bazel's
+# version field (set by the BCR submitter at release time).
+YOSYS_SLANG_REVISION = module_version() or "unknown"
 
 # --- Generated export header (static build = no-op) ---
 
@@ -24,16 +50,16 @@ genrule(
 HEADER""",
 )
 
-genrule(
+expand_template(
     name = "slang_version_cpp",
-    srcs = ["third_party/slang/source/util/VersionInfo.cpp.in"],
-    outs = ["VersionInfo.cpp"],
-    cmd = """sed \
-        -e 's/@SLANG_VERSION_MAJOR@/10/' \
-        -e 's/@SLANG_VERSION_MINOR@/0/' \
-        -e 's/@SLANG_VERSION_PATCH@/0/' \
-        -e 's/@SLANG_VERSION_HASH@/unknown/' \
-        $(location third_party/slang/source/util/VersionInfo.cpp.in) > $@""",
+    out = "VersionInfo.cpp",
+    substitutions = {
+        "@SLANG_VERSION_MAJOR@": str(SLANG_VERSION_MAJOR),
+        "@SLANG_VERSION_MINOR@": str(SLANG_VERSION_MINOR),
+        "@SLANG_VERSION_PATCH@": str(SLANG_VERSION_PATCH),
+        "@SLANG_VERSION_HASH@": SLANG_VERSION_HASH,
+    },
+    template = "third_party/slang/source/util/VersionInfo.cpp.in",
 )
 
 # --- Code generation for slang ---
@@ -67,12 +93,13 @@ genrule(
         "slang/diagnostics/TypesDiags.h",
     ],
     cmd = """
-        python3 $(location third_party/slang/scripts/diagnostic_gen.py) \
+        $(PYTHON3) $(location third_party/slang/scripts/diagnostic_gen.py) \
             --outDir $(@D) \
             --srcDir $$(dirname $(location third_party/slang/source/parsing/Parser.cpp))/.. \
             --incDir $$(dirname $(location third_party/slang/include/slang/diagnostics/Diagnostics.h))/.. \
             --diagnostics $(location third_party/slang/scripts/diagnostics.txt)
     """,
+    toolchains = ["@rules_python//python:current_py_toolchain"],
 )
 
 genrule(
@@ -94,10 +121,11 @@ genrule(
     ],
     cmd = """
         SCRIPTS=$$(dirname $(location third_party/slang/scripts/syntax_gen.py)) && \
-        python3 $(location third_party/slang/scripts/syntax_gen.py) \
+        $(PYTHON3) $(location third_party/slang/scripts/syntax_gen.py) \
             --dir $(@D) \
             --syntax $$SCRIPTS/syntax.txt
     """,
+    toolchains = ["@rules_python//python:current_py_toolchain"],
 )
 
 # --- fmt (vendored in third_party/fmt) ---
@@ -166,13 +194,7 @@ cc_library(
         "-std=c++20",
         "-Wno-unused-parameter",
     ],
-    defines = [
-        "SLANG_BOOST_SINGLE_HEADER",
-        "SLANG_VERSION_MAJOR=10",
-        "SLANG_VERSION_MINOR=0",
-        "SLANG_VERSION_PATCH=0",
-        'SLANG_VERSION_HASH=\\"unknown\\"',
-    ],
+    defines = ["SLANG_BOOST_SINGLE_HEADER"],
     includes = [
         "third_party/slang/external",
         "third_party/slang/include",
@@ -181,20 +203,24 @@ cc_library(
     deps = [":fmt"],
 )
 
-genrule(
+expand_template(
     name = "version_h",
-    outs = ["version.h"],
-    cmd = """cat > $@ << 'HEADER'
-#pragma once
-#define YOSYS_SLANG_REVISION "unknown"
-#define SLANG_REVISION "unknown"
-HEADER""",
+    out = "version.h",
+    substitutions = {
+        "@YOSYS_SLANG_REVISION@": YOSYS_SLANG_REVISION,
+        "@SLANG_REVISION@": "{}.{}.{}".format(
+            SLANG_VERSION_MAJOR,
+            SLANG_VERSION_MINOR,
+            SLANG_VERSION_PATCH,
+        ),
+    },
+    template = "src/version.h.in",
 )
 
 # --- yosys-slang plugin (shared library) ---
 
-cc_binary(
-    name = "slang.so",
+cc_library(
+    name = "yosys_slang_plugin",
     srcs = glob([
         "src/*.cc",
         "src/*.h",
@@ -204,14 +230,15 @@ cc_binary(
         "-std=c++20",
         "-Wno-unused-parameter",
     ],
-    defines = [
-        'YOSYS_SLANG_REVISION=\\"unknown\\"',
-        'SLANG_REVISION=\\"unknown\\"',
-    ],
-    linkopts = ["-shared"],
-    linkshared = True,
     deps = [
         ":slang",
         "@yosys//:hdrs",
     ],
+    alwayslink = True,
+)
+
+cc_shared_library(
+    name = "slang.so",
+    shared_lib_name = "slang.so",
+    deps = [":yosys_slang_plugin"],
 )
