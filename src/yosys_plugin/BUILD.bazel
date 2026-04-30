@@ -1,0 +1,7 @@
+load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
+
+cc_shared_library(
+    name = "slang.so",
+    shared_lib_name = "slang.so",
+    deps = ["//:yosys_slang_plugin"],
+)
