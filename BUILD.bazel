@@ -9,7 +9,6 @@ if needed.
 
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_cc//cc:cc_shared_library.bzl", "cc_shared_library")
 load("@rules_license//rules:license.bzl", "license")
 
 package(
@@ -230,6 +229,7 @@ cc_library(
         "-std=c++20",
         "-Wno-unused-parameter",
     ],
+    visibility = ["//src/yosys_plugin:__pkg__"],
     deps = [
         ":slang",
         "@yosys//:hdrs",
@@ -237,8 +237,3 @@ cc_library(
     alwayslink = True,
 )
 
-cc_shared_library(
-    name = "slang.so",
-    shared_lib_name = "slang.so",
-    deps = [":yosys_slang_plugin"],
-)
