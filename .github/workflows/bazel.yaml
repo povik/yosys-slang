@@ -1,0 +1,26 @@
+name: Bazel build
+on: [push, pull_request]
+jobs:
+  bazel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # TODO: remove the local-registry override once the yosys 0.62.bcr.2
+      # module lands in BCR (bazelbuild/bazel-central-registry#8636).
+      - name: Patch BCR with in-flight yosys 0.62.bcr.2
+        run: |
+          git clone --filter=blob:none https://github.com/bazelbuild/bazel-central-registry.git "$HOME/bcr"
+          git -C "$HOME/bcr" fetch origin pull/8636/head:pr-8636
+          git -C "$HOME/bcr" checkout pr-8636
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+      - name: Build
+        run: |
+          bazel build //... \
+            --registry=file://$HOME/bcr \
+            --registry=https://bcr.bazel.build
