@@ -24,6 +24,22 @@ license(
     license_text = "LICENSE",
 )
 
+# Bundled slang and fmt are vendored under their own (MIT) licenses.
+
+license(
+    name = "license_slang",
+    package_name = "slang",
+    license_kinds = ["@rules_license//licenses/spdx:MIT"],
+    license_text = "third_party/slang/LICENSE",
+)
+
+license(
+    name = "license_fmt",
+    package_name = "fmt",
+    license_kinds = ["@rules_license//licenses/spdx:MIT"],
+    license_text = "third_party/fmt/LICENSE",
+)
+
 # Version of the slang library tracked in third_party/slang.
 # Bump when the submodule is updated. SLANG_VERSION_PATCH/HASH are
 # normally derived from `git describe`; left as 0/"unknown" here since
@@ -136,6 +152,7 @@ cc_library(
         "third_party/fmt/src/os.cc",
     ],
     hdrs = glob(["third_party/fmt/include/fmt/*.h"]),
+    applicable_licenses = [":license_fmt"],
     copts = [
         "-fPIC",
         "-std=c++20",
@@ -188,6 +205,7 @@ cc_library(
         ":slang/syntax/SyntaxFwd.h",
         ":slang/syntax/SyntaxKind.h",
     ],
+    applicable_licenses = [":license_slang"],
     copts = [
         "-fPIC",
         "-std=c++20",
