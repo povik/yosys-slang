@@ -2661,7 +2661,7 @@ bool is_special_net(const ast::Symbol &symbol)
 		&& is_special_net_type(symbol.as<ast::NetSymbol>().netType);
 }
 
-RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
+const RTLIL::SigSpec& NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto &type = symbol.getType();
 
@@ -2687,7 +2687,7 @@ RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 			special_net_symbols.push_back(&net);
 		}
 	}
-	return sig;
+	return wire_cache[&symbol];
 }
 
 void finalize_special_nets(NetlistContext &netlist)
@@ -2869,7 +2869,7 @@ bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::Sourc
 	return true;
 }
 
-RTLIL::SigSpec NetlistContext::wire(const ast::Symbol &symbol)
+const RTLIL::SigSpec& NetlistContext::wire(const ast::Symbol &symbol)
 {
 	auto it = wire_cache.find(&symbol);
 	if (it == wire_cache.end())
