@@ -2198,7 +2198,9 @@ public:
 		if (&body == &netlist.realm) {
 			// This is the containing instance body for this netlist;
 			// find inferred memories
+#ifndef SLANG_NO_YOSYS
 			detect_memories(body);
+#endif
 			// add all internal wires before we enter the body
 			add_internal_wires(body);
 			// Evaluate inline initializers on variables
@@ -2720,7 +2722,26 @@ ir::Value NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 void finalize_special_nets(NetlistContext &netlist)
 {
 #ifdef SLANG_NO_YOSYS
-	(void)netlist;
+	for (auto symbol : netlist.special_net_symbols) {
+		for (auto bit : VariableBits(Variable::from_symbol(symbol))) {
+			ast::UnaryOperator op;
+			switch (symbol->netType.netKind) {
+			case ast::NetType::WAnd:
+			case ast::NetType::TriAnd:
+				op = ast::UnaryOperator::BitwiseAnd;
+				break;
+			case ast::NetType::WOr:
+			case ast::NetType::TriOr:
+				op = ast::UnaryOperator::BitwiseOr;
+				break;
+			default:
+				ast_unreachable(*symbol);
+			}
+			ir::Value reduced = netlist.backend->Unop(
+				op, netlist.special_net_drivers[bit], /*a_signed=*/false, /*y_width=*/1);
+			netlist.backend->connect(netlist.convert_static(bit), reduced);
+		}
+	}
 #else
 	for (auto symbol : netlist.special_net_symbols) {
 		for (auto bit : VariableBits(Variable::from_symbol(symbol))) {
