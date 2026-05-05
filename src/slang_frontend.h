@@ -501,8 +501,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	std::string id(const ast::ValueSymbol &sym);
 	std::string hdlname(const ast::Symbol &sym);
 
-	RTLIL::SigSpec add_wire(const ast::ValueSymbol &sym);
-	RTLIL::SigSpec wire(const ast::Symbol &sym);
+	const RTLIL::SigSpec& add_wire(const ast::ValueSymbol &sym);
+	const RTLIL::SigSpec& wire(const ast::Symbol &sym);
 	RTLIL::SigSpec convert_static(VariableBits bits);
 
 	struct Memory {
