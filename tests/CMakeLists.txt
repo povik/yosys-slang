@@ -41,6 +41,7 @@ set(ALL_TESTS
     various/flop_naming.ys
     various/formal_stmts.ys
     various/hierref_error.ys
+    various/huge_reg.ys
     various/ignore_asserts.ys
     various/init.ys
     various/intf_array_naming.ys
