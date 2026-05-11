@@ -123,6 +123,9 @@ DiagCode ErrorNonconstantInitialEval(DiagSubsystem::Netlist, 1071);
 DiagCode DeprecatedOption(DiagSubsystem::Netlist, 1072);
 DiagCode GuessingInputPort(DiagSubsystem::Netlist, 1073);
 DiagCode UnsupportedSystemTask(DiagSubsystem::Netlist, 1074);
+DiagCode UnsupportedSVAFeature(DiagSubsystem::Netlist, 1075);
+DiagCode RepetitionsUnsupported(DiagSubsystem::Netlist, 1076);
+DiagCode SVAClockingRequiresEdge(DiagSubsystem::Netlist, 1077);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -316,6 +319,15 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(UnsupportedSystemTask, "unsupported system task '{}'");
 	engine.setSeverity(UnsupportedSystemTask, DiagnosticSeverity::Error);
+
+	engine.setMessage(UnsupportedSVAFeature, "encountered unsupported SVA feature");
+	engine.setSeverity(UnsupportedSVAFeature, DiagnosticSeverity::Error);
+
+	engine.setMessage(RepetitionsUnsupported, "repetitions unsupported");
+	engine.setSeverity(RepetitionsUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(SVAClockingRequiresEdge, "SVA clocking requires a signal edge");
+	engine.setSeverity(SVAClockingRequiresEdge, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag

@@ -26,7 +26,9 @@ namespace slang {
 	class DiagnosticEngine;
 	class CommandLine;
 	namespace ast {
+		class AssertionExpr;
 		class Compilation;
+		class ConcurrentAssertionStatement;
 		class Symbol;
 		class Expression;
 		class SubroutineSymbol;
@@ -42,6 +44,7 @@ namespace slang {
 		class NetSymbol;
 		class ElementSelectExpression;
 		class RangeSelectExpression;
+		class StatementBlockSymbol;
 	};
 };
 
@@ -143,6 +146,10 @@ struct EvalContext {
 	// Evaluates the given symbols/expressions to their value in this context
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
 
+	// Evaluates the given expression using SVA rules.
+	// See IEEE Std 1800-2017 section 16.14.6
+	RTLIL::SigSpec sva(ast::Expression const &expr);
+
 	// Evaluates the given expression, inserts an extra sign bit if need
 	// be so that the result can always be interpreted as a signed value
 	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
@@ -159,10 +166,14 @@ struct EvalContext {
 	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
 
 	EvalContext(NetlistContext &netlist);
-	EvalContext(NetlistContext &netlist, ProceduralContext &procedural);
+	EvalContext(ProceduralContext &procedural);
 
 	// for testing
 	bool ignore_ast_constants = false;
+
+	// Variable reading within SVA is special depending on whether the variable
+	// is static, automatic, or is part of an expression casted to `const`
+	bool in_sva_expression = false;
 
 	friend class EnterAutomaticScopeGuard;
 };
@@ -696,5 +707,13 @@ private:
 								   ProceduralContext &context, LValue &lvalue,
 								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
 };
+
+// sva.cc
+void process_sva_property(const ast::ConcurrentAssertionStatement &statement,
+						  const ast::StatementBlockSymbol *block,
+						  ProceduralContext &procedural, const ast::AssertionExpr &expr);
+void process_freestanding_sva_property(NetlistContext &netlist,
+									   const ast::ConcurrentAssertionStatement &statement,
+						  			   const ast::StatementBlockSymbol *block);
 
 };

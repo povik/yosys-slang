@@ -79,6 +79,9 @@ extern slang::DiagCode ErrorNonconstantInitialEval;
 extern slang::DiagCode DeprecatedOption;
 extern slang::DiagCode GuessingInputPort;
 extern slang::DiagCode UnsupportedSystemTask;
+extern slang::DiagCode UnsupportedSVAFeature;
+extern slang::DiagCode RepetitionsUnsupported;
+extern slang::DiagCode SVAClockingRequiresEdge;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag
