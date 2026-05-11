@@ -15,4 +15,6 @@ module test_sva_edge_cases (input clk, input a, input b, input c);
 		i++;
 		j++;
 	end
+
+	assert property (disable iff (!c) c);
 endmodule

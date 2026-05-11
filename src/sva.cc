@@ -143,6 +143,10 @@ void process_freestanding_sva_property(NetlistContext &netlist,
 		// No clocking
 		ProceduralContext procedure(netlist, ProcessTiming::implicit);
 		process_sva_property(statement, block, procedure, spec);
+
+		RTLIL::Process *rtlil_proc = netlist.canvas->addProcess(netlist.new_id());
+		transfer_attrs<const ast::Statement>(netlist, statement, rtlil_proc);
+		procedure.copy_case_tree_into(rtlil_proc->root_case);
 	}
 }
 
