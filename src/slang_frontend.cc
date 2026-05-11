@@ -1311,8 +1311,8 @@ EvalContext::EvalContext(NetlistContext &netlist)
 {
 }
 
-EvalContext::EvalContext(NetlistContext &netlist, ProceduralContext &procedural)
-	: netlist(netlist), procedural(&procedural),
+EvalContext::EvalContext(ProceduralContext &procedural)
+	: netlist(procedural.netlist), procedural(&procedural),
 	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
 {
 }

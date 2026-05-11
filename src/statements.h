@@ -17,6 +17,162 @@
 
 namespace slang_frontend {
 
+struct SwitchHelper
+{
+	Case *parent;
+	Case *&current_case;
+	Switch *sw;
+
+	using VariableState = ProceduralContext::VariableState;
+
+	VariableState &vstate;
+	VariableState::Map save_map;
+	std::vector<std::tuple<Case *, VariableBits, RTLIL::SigSpec>> branch_updates;
+	bool entered = false, finished = false;
+
+	SwitchHelper(ProceduralContext &context, RTLIL::SigSpec signal)
+		: parent(context.current_case), current_case(context.current_case), vstate(context.vstate)
+	{
+		sw = parent->add_switch(signal);
+	}
+
+	~SwitchHelper()
+	{
+		log_assert(!entered);
+		log_assert(branch_updates.empty() || finished);
+	}
+
+	SwitchHelper(const SwitchHelper &) = delete;
+	SwitchHelper &operator=(const SwitchHelper &) = delete;
+	SwitchHelper(SwitchHelper &&other)
+		: parent(other.parent), current_case(other.current_case), sw(other.sw),
+		  vstate(other.vstate), entered(other.entered), finished(other.finished)
+	{
+		branch_updates.swap(other.branch_updates);
+		save_map.swap(other.save_map);
+		other.entered = false;
+		other.finished = false;
+	}
+
+	void enter_branch(std::vector<RTLIL::SigSpec> compare)
+	{
+		save_map.clear();
+		vstate.save(save_map);
+		log_assert(!entered);
+		log_assert(current_case == parent);
+		current_case = sw->add_case(compare);
+		entered = true;
+	}
+
+	void exit_branch()
+	{
+		log_assert(entered);
+		log_assert(current_case != parent);
+		Case *this_case = current_case;
+		current_case = parent;
+		entered = false;
+		auto updates = vstate.restore(save_map);
+		branch_updates.push_back(std::make_tuple(this_case, updates.first, updates.second));
+	}
+
+	void branch(std::vector<RTLIL::SigSpec> compare, std::function<void()> f)
+	{
+		// TODO: extend detection
+		if (compare.size() == 1 && compare[0].is_fully_def() && sw->signal.is_fully_def() &&
+				sw->signal != compare[0]) {
+			// dead branch
+			return;
+		}
+
+		enter_branch(compare);
+		f();
+		exit_branch();
+	}
+
+	void finish(NetlistContext &netlist)
+	{
+		VariableBits updated_anybranch;
+		for (auto &branch : branch_updates)
+			updated_anybranch.append(std::get<1>(branch));
+		updated_anybranch.sort_and_unify();
+
+		// end-of-scope variables
+		Yosys::pool<Variable> eos_variables;
+
+		auto &va = vstate.visible_assignments;
+		for (auto bit : updated_anybranch)
+			if (bit.variable.kind != Variable::Static && !va.count(bit))
+				eos_variables.insert(bit.variable);
+
+		for (auto chunk : updated_anybranch.chunks()) {
+			if (chunk.variable.kind != Variable::Static && eos_variables.count(chunk.variable)) {
+				for (uint64_t i = 0; i < chunk.bitwidth(); i++)
+					log_assert(!va.count(chunk[i]));
+
+				continue;
+			}
+
+			std::string name_suggestion;
+			if (auto symbol = chunk.variable.get_symbol())
+				name_suggestion = RTLIL::unescape_id(netlist.id(*symbol)) + chunk.slice_text();
+
+			AttributeGuard guard(netlist);
+			if (sw->statement)
+				transfer_attrs(netlist, *sw->statement, guard);
+
+			RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
+			RTLIL::SigSpec w = netlist.add_placeholder_signal(chunk.bitwidth(), name_suggestion);
+			parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
+			vstate.set(chunk, w);
+		}
+
+		for (auto &branch : branch_updates) {
+			Case *rule;
+			VariableBits target;
+			RTLIL::SigSpec source;
+			std::tie(rule, target, source) = branch;
+
+			int done = 0;
+			for (auto chunk : target.chunks()) {
+				if (eos_variables.count(chunk.variable)) {
+					done += (int)chunk.bitwidth();
+					continue;
+				}
+
+				// get the wire (or some part of it) which we created up above
+				RTLIL::SigSpec target_w;
+				for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
+					log_assert(va.count(chunk[i]));
+					target_w.append(va.at(chunk[i]));
+				}
+
+				rule->aux_actions.push_back(
+						RTLIL::SigSig(target_w, source.extract(done, (int)chunk.bitwidth())));
+				done += (int)chunk.bitwidth();
+			}
+		}
+
+		finished = true;
+	}
+};
+
+static const ast::Statement *unwrap_statement(const ast::Statement *statement)
+{
+	switch (statement->kind) {
+	case ast::StatementKind::Block:
+		return unwrap_statement(&statement->as<ast::BlockStatement>().body);
+	case ast::StatementKind::List: {
+		auto &list = statement->as<ast::StatementList>();
+		if (list.list.size() == 1) {
+			return unwrap_statement(list.list[0]);
+		}
+		break;
+	}
+	default: break;
+	}
+	return statement;
+}
+
 struct StatementExecutor : public ast::ASTVisitor<StatementExecutor, ast::VisitFlags::Statements>
 {
 public:
@@ -30,165 +186,6 @@ public:
 		: netlist(context.netlist), context(context), eval(context.eval),
 		  unroll_limit(context.unroll_limit)
 	{}
-
-	struct SwitchHelper
-	{
-		Case *parent;
-		Case *&current_case;
-		Switch *sw;
-
-		using VariableState = ProceduralContext::VariableState;
-
-		VariableState &vstate;
-		VariableState::Map save_map;
-		std::vector<std::tuple<Case *, VariableBits, RTLIL::SigSpec>> branch_updates;
-		bool entered = false, finished = false;
-
-		SwitchHelper(ProceduralContext &context, RTLIL::SigSpec signal)
-			: parent(context.current_case), current_case(context.current_case),
-			  vstate(context.vstate)
-		{
-			sw = parent->add_switch(signal);
-		}
-
-		~SwitchHelper()
-		{
-			log_assert(!entered);
-			log_assert(branch_updates.empty() || finished);
-		}
-
-		SwitchHelper(const SwitchHelper &) = delete;
-		SwitchHelper &operator=(const SwitchHelper &) = delete;
-		SwitchHelper(SwitchHelper &&other)
-			: parent(other.parent), current_case(other.current_case), sw(other.sw),
-			  vstate(other.vstate), entered(other.entered), finished(other.finished)
-		{
-			branch_updates.swap(other.branch_updates);
-			save_map.swap(other.save_map);
-			other.entered = false;
-			other.finished = false;
-		}
-
-		void enter_branch(std::vector<RTLIL::SigSpec> compare)
-		{
-			save_map.clear();
-			vstate.save(save_map);
-			log_assert(!entered);
-			log_assert(current_case == parent);
-			current_case = sw->add_case(compare);
-			entered = true;
-		}
-
-		void exit_branch()
-		{
-			log_assert(entered);
-			log_assert(current_case != parent);
-			Case *this_case = current_case;
-			current_case = parent;
-			entered = false;
-			auto updates = vstate.restore(save_map);
-			branch_updates.push_back(std::make_tuple(this_case, updates.first, updates.second));
-		}
-
-		void branch(std::vector<RTLIL::SigSpec> compare, std::function<void()> f)
-		{
-			// TODO: extend detection
-			if (compare.size() == 1 && compare[0].is_fully_def() && sw->signal.is_fully_def() &&
-					sw->signal != compare[0]) {
-				// dead branch
-				return;
-			}
-
-			enter_branch(compare);
-			f();
-			exit_branch();
-		}
-
-		void finish(NetlistContext &netlist)
-		{
-			VariableBits updated_anybranch;
-			for (auto &branch : branch_updates)
-				updated_anybranch.append(std::get<1>(branch));
-			updated_anybranch.sort_and_unify();
-
-			// end-of-scope variables
-			Yosys::pool<Variable> eos_variables;
-
-			auto &va = vstate.visible_assignments;
-			for (auto bit : updated_anybranch)
-				if (bit.variable.kind != Variable::Static && !va.count(bit))
-					eos_variables.insert(bit.variable);
-
-			for (auto chunk : updated_anybranch.chunks()) {
-				if (chunk.variable.kind != Variable::Static &&
-						eos_variables.count(chunk.variable)) {
-					for (uint64_t i = 0; i < chunk.bitwidth(); i++)
-						log_assert(!va.count(chunk[i]));
-
-					continue;
-				}
-
-				std::string name_suggestion;
-				if (auto symbol = chunk.variable.get_symbol())
-					name_suggestion = RTLIL::unescape_id(netlist.id(*symbol)) + chunk.slice_text();
-
-				AttributeGuard guard(netlist);
-				if (sw->statement)
-					transfer_attrs(netlist, *sw->statement, guard);
-
-				RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
-				RTLIL::SigSpec w =
-						netlist.add_placeholder_signal(chunk.bitwidth(), name_suggestion);
-				parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
-				vstate.set(chunk, w);
-			}
-
-			for (auto &branch : branch_updates) {
-				Case *rule;
-				VariableBits target;
-				RTLIL::SigSpec source;
-				std::tie(rule, target, source) = branch;
-
-				int done = 0;
-				for (auto chunk : target.chunks()) {
-					if (eos_variables.count(chunk.variable)) {
-						done += (int)chunk.bitwidth();
-						continue;
-					}
-
-					// get the wire (or some part of it) which we created up above
-					RTLIL::SigSpec target_w;
-					for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
-						log_assert(va.count(chunk[i]));
-						target_w.append(va.at(chunk[i]));
-					}
-
-					rule->aux_actions.push_back(
-							RTLIL::SigSig(target_w, source.extract(done, (int)chunk.bitwidth())));
-					done += (int)chunk.bitwidth();
-				}
-			}
-
-			finished = true;
-		}
-	};
-
-	static const ast::Statement *unwrap_statement(const ast::Statement *statement)
-	{
-		switch (statement->kind) {
-		case ast::StatementKind::Block:
-			return unwrap_statement(&statement->as<ast::BlockStatement>().body);
-		case ast::StatementKind::List: {
-			auto &list = statement->as<ast::StatementList>();
-			if (list.list.size() == 1) {
-				return unwrap_statement(list.list[0]);
-			}
-			break;
-		}
-		default: break;
-		}
-		return statement;
-	}
 
 	void handle(const ast::ImmediateAssertionStatement &statement)
 	{

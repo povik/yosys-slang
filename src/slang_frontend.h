@@ -159,7 +159,7 @@ struct EvalContext {
 	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
 
 	EvalContext(NetlistContext &netlist);
-	EvalContext(NetlistContext &netlist, ProceduralContext &procedural);
+	EvalContext(ProceduralContext &procedural);
 
 	// for testing
 	bool ignore_ast_constants = false;
