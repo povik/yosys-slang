@@ -848,6 +848,15 @@ void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 	fmt.emit_rtlil(cell);
 }
 
+RTLIL::SigSpec EvalContext::sva(ast::Expression const &expr)
+{
+	bool in_sva_expression_save = in_sva_expression;
+	in_sva_expression = true;
+	auto ret = (*this)(expr);
+	in_sva_expression = in_sva_expression_save;
+	return ret;
+}
+
 RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 {
 	RTLIL::Module *mod = netlist.canvas;
@@ -957,7 +966,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			ast_invariant(symbol, ast::ValueSymbol::isKind(symbol.kind));
 			Variable variable1 = variable(symbol.as<ast::ValueSymbol>());
 			log_assert((bool) variable1);
-			if (procedural) {
+			if (procedural && (!in_sva_expression || variable1.kind != Variable::Static)) {
 				if (procedural->timing.kind == ProcessTiming::Initial && ast::NetSymbol::isKind(symbol.kind)) {
 					netlist.add_diag(diag::ReadingNetStateFromInitialBlockUnsupported, expr.sourceRange);
 					ret = RTLIL::SigSpec(RTLIL::Sx, (int) expr.type->getBitstreamWidth());
@@ -1104,7 +1113,14 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Conversion:
 		{
 			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
-			if (conv.operand().kind != ast::ExpressionKind::Streaming) {
+			if (conv.isConstCast) {
+				// See IEEE Std 1800-2017 section 16.14.6: the insides of a const cast
+				// follow the rules of ordinary procedural evaluation
+				bool in_sva_expression_save = in_sva_expression;
+				in_sva_expression = false;
+				ret = apply_conversion(conv, (*this)(conv.operand()));
+				in_sva_expression = in_sva_expression_save;
+			} else if (conv.operand().kind != ast::ExpressionKind::Streaming) {
 				ret = apply_conversion(conv, (*this)(conv.operand()));
 			} else {
 				const ast::Type &to = conv.type->getCanonicalType();
@@ -1137,7 +1153,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 
-			if (netlist.is_inferred_memory(elemsel.value())) {
+			if (netlist.is_inferred_memory(elemsel.value()) && !in_sva_expression) {
 				int width = elemsel.type->getBitstreamWidth();
 				std::string id = netlist.id(elemsel.value()
 										.as<ast::ValueExpressionBase>().symbol);
@@ -1618,7 +1634,32 @@ public:
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
 	{
-		interpret(symbol);
+		if (symbol.isFromAssertion &&
+				symbol.procedureKind == ast::ProceduralBlockKind::Always) {
+			const ast::StatementBlockSymbol *block_symbol = nullptr;
+			const ast::Statement *body = &symbol.getBody();
+			if (ast::BlockStatement::isKind(body->kind)) {
+				auto &block = body->as<ast::BlockStatement>();
+				block_symbol = block.blockSymbol;
+				body = &block.body;
+			}
+			ast_invariant(symbol, ast::ConcurrentAssertionStatement::isKind(body->kind) ||
+									ast::ImmediateAssertionStatement::isKind(body->kind));
+			if (!netlist.settings.ignore_assertions.value_or(false)) {
+				if (ast::ConcurrentAssertionStatement::isKind(body->kind)) {
+					process_freestanding_sva_property(netlist, body->as<ast::ConcurrentAssertionStatement>(),
+													  block_symbol);
+				} else {
+					ProceduralContext procedure(netlist, ProcessTiming::implicit);
+					symbol.getBody().visit(StatementExecutor(procedure));
+					RTLIL::Process *rtlil_proc = netlist.canvas->addProcess(netlist.new_id());
+					transfer_attrs(netlist, symbol, rtlil_proc);
+					procedure.copy_case_tree_into(rtlil_proc->root_case);
+				}
+			}
+		} else {
+			interpret(symbol);
+		}
 	}
 
 	void handle(const ast::NetSymbol &symbol)
