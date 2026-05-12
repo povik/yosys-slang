@@ -2486,18 +2486,10 @@ public:
 				m->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 				transfer_attrs(netlist, sym, m);
 				m->name = netlist.id(sym);
-
-				// Calculate size of all unpacked dimensions
-				int size = 1;
-				const auto *current_type = &sym.getType();
-				while (current_type->isUnpackedArray()) {
-					size *= current_type->getFixedRange().fullWidth();
-					current_type = current_type->getArrayElementType();
-				}
-
-				m->width = current_type->getBitstreamWidth();
-				m->start_offset = sym.getType().getFixedRange().lower();
-				m->size = size;
+				m->width = sym.getType().getArrayElementType()->getBitstreamWidth();
+				auto range = sym.getType().getFixedRange();
+				m->start_offset = range.lower();
+				m->size = range.width();
 				netlist.canvas->memories[m->name] = m;
 				netlist.emitted_mems[m->name] = {};
 
