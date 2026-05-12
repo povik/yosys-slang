@@ -624,23 +624,35 @@ void NetlistContext::add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs)
 RTLIL::SigSpec EvalContext::connection_lhs(ast::AssignmentExpression const &assign)
 {
 	ast_invariant(assign, !assign.timingControl);
-	const ast::Expression *rsymbol = &assign.right();
-	VariableBits vbits = lhs(assign.left());
+	const ast::Expression *rexpr = &assign.right();
 
-	if (rsymbol->kind == ast::ExpressionKind::EmptyArgument &&
+	if (ast::SimpleAssignmentPatternExpression::isKind(assign.left().kind)) {
+		auto &pattern_lexpr = assign.left().as<ast::SimpleAssignmentPatternExpression>();
+		RTLIL::SigSpec link;
+		auto els = pattern_lexpr.elements();
+		for (auto it = els.rbegin(); it != els.rend(); it++) {
+			ast_invariant(**it, (*it)->kind == ast::ExpressionKind::Assignment);
+			auto &inner_assign = (*it)->as<ast::AssignmentExpression>();
+			link.append(connection_lhs(inner_assign));
+		}
+		return link;
+	}
+
+	VariableBits vbits = lhs(assign.left());
+	if (rexpr->kind == ast::ExpressionKind::EmptyArgument &&
 			!vbits.has_special_nets()) {
 		// early path
 		netlist.register_driven(vbits);
 		return netlist.convert_static(vbits);
 	}
 
-	while (rsymbol->kind == ast::ExpressionKind::Conversion)
-		rsymbol = &rsymbol->as<ast::ConversionExpression>().operand();
-	ast_invariant(assign, rsymbol->kind == ast::ExpressionKind::EmptyArgument);
-	ast_invariant(assign, rsymbol->type->isBitstreamType());
+	while (rexpr->kind == ast::ExpressionKind::Conversion)
+		rexpr = &rexpr->as<ast::ConversionExpression>().operand();
+	ast_invariant(assign, rexpr->kind == ast::ExpressionKind::EmptyArgument);
+	ast_invariant(assign, rexpr->type->isBitstreamType());
 
 	RTLIL::SigSpec link = netlist.add_placeholder_signal(
-								rsymbol->type->getBitstreamWidth());
+								rexpr->type->getBitstreamWidth());
 	netlist.add_continuous_driver(vbits,
 			apply_nested_conversion(assign.right(), link));
 	return link;
@@ -1097,6 +1109,15 @@ void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 	fmt.emit_rtlil(cell);
 }
 
+RTLIL::SigSpec EvalContext::sva(ast::Expression const &expr)
+{
+	bool in_sva_expression_save = in_sva_expression;
+	in_sva_expression = true;
+	auto ret = (*this)(expr);
+	in_sva_expression = in_sva_expression_save;
+	return ret;
+}
+
 RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 {
 	RTLIL::Module *mod = netlist.canvas;
@@ -1206,7 +1227,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			ast_invariant(symbol, ast::ValueSymbol::isKind(symbol.kind));
 			Variable variable1 = variable(symbol.as<ast::ValueSymbol>());
 			log_assert((bool) variable1);
-			if (procedural) {
+			if (procedural && (!in_sva_expression || variable1.kind != Variable::Static)) {
 				if (procedural->timing.kind == ProcessTiming::Initial && ast::NetSymbol::isKind(symbol.kind)) {
 					netlist.add_diag(diag::ReadingNetStateFromInitialBlockUnsupported, expr.sourceRange);
 					ret = RTLIL::SigSpec(RTLIL::Sx, (int) expr.type->getBitstreamWidth());
@@ -1353,7 +1374,14 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Conversion:
 		{
 			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
-			if (conv.operand().kind != ast::ExpressionKind::Streaming) {
+			if (conv.isConstCast) {
+				// See IEEE Std 1800-2017 section 16.14.6: the insides of a const cast
+				// follow the rules of ordinary procedural evaluation
+				bool in_sva_expression_save = in_sva_expression;
+				in_sva_expression = false;
+				ret = apply_conversion(conv, (*this)(conv.operand()));
+				in_sva_expression = in_sva_expression_save;
+			} else if (conv.operand().kind != ast::ExpressionKind::Streaming) {
 				ret = apply_conversion(conv, (*this)(conv.operand()));
 			} else {
 				const ast::Type &to = conv.type->getCanonicalType();
@@ -1386,7 +1414,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 
-			if (netlist.is_inferred_memory(elemsel.value())) {
+			if (netlist.is_inferred_memory(elemsel.value()) && !in_sva_expression) {
 				int width = elemsel.type->getBitstreamWidth();
 				std::string id = netlist.id(elemsel.value()
 										.as<ast::ValueExpressionBase>().symbol);
@@ -1490,6 +1518,11 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					auto arg = call.arguments()[0];
 					auto sig = (*this)(*arg);
 					ret = netlist.CountOnes(sig, (int)call.type->getBitstreamWidth());
+				} else if (name == "$clog2") {
+					ast_invariant(expr, call.arguments().size() == 1);
+					auto arg = call.arguments()[0];
+					auto sig = (*this)(*arg);
+					ret = netlist.Clog2(sig, (int)call.type->getBitstreamWidth());
 				} else if (name == "$past") {
 					ret = handle_past(*this, call);
 				} else if (name == "$signed" || name == "$unsigned") {
@@ -1558,8 +1591,8 @@ EvalContext::EvalContext(NetlistContext &netlist)
 {
 }
 
-EvalContext::EvalContext(NetlistContext &netlist, ProceduralContext &procedural)
-	: netlist(netlist), procedural(&procedural),
+EvalContext::EvalContext(ProceduralContext &procedural)
+	: netlist(procedural.netlist), procedural(&procedural),
 	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
 {
 }
@@ -1865,7 +1898,32 @@ public:
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
 	{
-		interpret(symbol);
+		if (symbol.isFromAssertion &&
+				symbol.procedureKind == ast::ProceduralBlockKind::Always) {
+			const ast::StatementBlockSymbol *block_symbol = nullptr;
+			const ast::Statement *body = &symbol.getBody();
+			if (ast::BlockStatement::isKind(body->kind)) {
+				auto &block = body->as<ast::BlockStatement>();
+				block_symbol = block.blockSymbol;
+				body = &block.body;
+			}
+			ast_invariant(symbol, ast::ConcurrentAssertionStatement::isKind(body->kind) ||
+									ast::ImmediateAssertionStatement::isKind(body->kind));
+			if (!netlist.settings.ignore_assertions.value_or(false)) {
+				if (ast::ConcurrentAssertionStatement::isKind(body->kind)) {
+					process_freestanding_sva_property(netlist, body->as<ast::ConcurrentAssertionStatement>(),
+													  block_symbol);
+				} else {
+					ProceduralContext procedure(netlist, ProcessTiming::implicit);
+					symbol.getBody().visit(StatementExecutor(procedure));
+					RTLIL::Process *rtlil_proc = netlist.canvas->addProcess(netlist.new_id());
+					transfer_attrs(netlist, symbol, rtlil_proc);
+					procedure.copy_case_tree_into(rtlil_proc->root_case);
+				}
+			}
+		} else {
+			interpret(symbol);
+		}
 	}
 
 	void handle(const ast::NetSymbol &symbol)
@@ -2287,6 +2345,8 @@ public:
 							RTLIL::IdString port_name = port_sig.as_wire()->name;
 							if (netlist.scopes_remap.count(&modport)) {
 								cell->setPort(port_name, netlist.wire(port));
+								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
+									netlist.register_driven(port);
 							} else {
 								cell->setPort(port_name, netlist.wire(*port.internalSymbol));
 								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
@@ -2324,6 +2384,19 @@ public:
 			ast_invariant(expr, (uint64_t)rvalue.size() >= lvalue.bitwidth());
 
 			netlist.add_continuous_driver(lvalue, rvalue.extract(0, lvalue.bitwidth()));
+			return;
+		}
+
+		if (ast::SimpleAssignmentPatternExpression::isKind(expr.left().kind)) {
+			auto &pattern_lexpr = expr.left().as<ast::SimpleAssignmentPatternExpression>();
+			RTLIL::SigSpec link;
+			auto els = pattern_lexpr.elements();
+			for (auto it = els.rbegin(); it != els.rend(); it++) {
+				ast_invariant(**it, (*it)->kind == ast::ExpressionKind::Assignment);
+				auto &inner_assign = (*it)->as<ast::AssignmentExpression>();
+				link.append(netlist.eval.connection_lhs(inner_assign));
+			}
+			netlist.connect(link, rvalue);
 			return;
 		}
 
@@ -2906,7 +2979,7 @@ bool is_special_net(const ast::Symbol &symbol)
 		&& is_special_net_type(symbol.as<ast::NetSymbol>().netType);
 }
 
-RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
+const RTLIL::SigSpec& NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto &type = symbol.getType();
 
@@ -2932,7 +3005,7 @@ RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 			special_net_symbols.push_back(&net);
 		}
 	}
-	return sig;
+	return wire_cache[&symbol];
 }
 
 void finalize_special_nets(NetlistContext &netlist)
@@ -3114,7 +3187,7 @@ bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::Sourc
 	return true;
 }
 
-RTLIL::SigSpec NetlistContext::wire(const ast::Symbol &symbol)
+const RTLIL::SigSpec& NetlistContext::wire(const ast::Symbol &symbol)
 {
 	auto it = wire_cache.find(&symbol);
 	if (it == wire_cache.end())

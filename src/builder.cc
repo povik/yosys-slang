@@ -565,6 +565,23 @@ SigSpec RTLILBuilder::CountOnes(SigSpec sig, int result_width)
 	return ret;
 }
 
+SigSpec RTLILBuilder::Clog2(SigSpec sig, int result_width)
+{
+	int width = sig.size();
+
+	if (width == 0)
+		return RTLIL::Const(0, result_width);
+
+	SigSpec n_minus_1 = Biop(ID($sub), sig, RTLIL::Const(1, width), false, false, width);
+
+	SigSpec result = RTLIL::Const(0, result_width);
+	for (int i = 0; i < width; i++)
+		result = Mux(result, RTLIL::Const(i + 1, result_width), n_minus_1[i]);
+
+	SigSpec n_not_zero = ReduceBool(sig);
+	return Mux(RTLIL::Const(0, result_width), result, n_not_zero);
+}
+
 static const RTLIL::Const reverse_data(RTLIL::Const &orig, int width)
 {
 	std::vector<RTLIL::State> bits;

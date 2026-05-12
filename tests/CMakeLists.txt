@@ -30,9 +30,11 @@ set(ALL_TESTS
     unit/latch.ys
     unit/selftests.tcl
     various/assign_mixing.ys
+    various/assignment_pattern_lhs.ys
     various/bb_detect.ys
     various/blackbox_scenarios.ys
     various/bus_range.ys
+    various/concurrent_assert.ys
     various/defaults.ys
     various/delays.ys
     various/dualedge.ys
@@ -40,6 +42,7 @@ set(ALL_TESTS
     various/flop_naming.ys
     various/formal_stmts.ys
     various/hierref_error.ys
+    various/huge_reg.ys
     various/ignore_asserts.ys
     various/init.ys
     various/intf_array_naming.ys
@@ -49,6 +52,7 @@ set(ALL_TESTS
     various/issue227.ys
     various/issue240.ys
     various/issue266.ys
+    various/issue300.ys
     various/issue50.ys
     various/mem_inference.ys
     various/meminit.ys
