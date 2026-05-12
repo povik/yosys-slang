@@ -972,6 +972,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 	int num_words = 0;
 	int increment = start_addr < finish_addr ? 1 : -1;
 	int32_t cursor = start_addr;
+	int32_t data_first_address = start_addr;
 
 	slang::ConstantRange command_range(start_addr, finish_addr);
 
@@ -982,21 +983,17 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		bool needs_reversal = (increment == -1 && target_range.isLittleEndian()) ||
 							  (increment == 1 && !target_range.isLittleEndian());
 
+		int nwords = const_.size() / word_size;
 		// HDL address corresponding to the base of const_ after reversal
-		int32_t hdl_base;
-
-		if (needs_reversal) {
-			const_ = reverse_data(const_, word_size);
-			hdl_base = cursor;
-		} else {
-			hdl_base = cursor - (const_.size() / word_size) + 1;
-		}
+		int32_t hdl_base =
+				needs_reversal ? data_first_address + (nwords - 1) * increment : data_first_address;
 
 		uint32_t base = target_range.isLittleEndian() ? hdl_base - target_range.right
 													  : target_range.right - hdl_base;
 
 		context.do_simple_assign(call.sourceRange.start(),
-				target.extract(((uint64_t)base) * word_size, const_.size()), const_,
+				target.extract(((uint64_t)base) * word_size, const_.size()),
+				needs_reversal ? reverse_data(const_, word_size) : const_,
 				/* blocking= */ true);
 		data.clear();
 	};
@@ -1045,8 +1042,10 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 
 				// Flush data before jumping to the next address
 				if (next_addr != cursor) {
-					flush_data();
+					if (!data.empty())
+						flush_data();
 					cursor = next_addr;
+					data_first_address = next_addr;
 				}
 				no_jumps = false;
 				continue;
@@ -1071,9 +1070,8 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		}
 	}
 
-	if (!data.empty()) {
+	if (!data.empty())
 		flush_data();
-	}
 
 	if (call.arguments().size() == 4 && no_jumps &&
 			num_words != std::abs(finish_addr - start_addr) + 1) {
