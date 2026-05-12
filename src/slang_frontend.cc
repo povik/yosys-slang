@@ -939,7 +939,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		}
 		ast_invariant(call, start_result.isInteger());
 		start_addr = start_result.integer().as<int32_t>().value();
-		if (!target_type.getFixedRange().containsPoint(start_addr)) {
+		if (!target_range.containsPoint(start_addr)) {
 			auto &diag =
 					netlist.add_diag(diag::ReadmemAddressOutsideOfRange, start_arg->sourceRange);
 			diag << start_addr;
@@ -957,7 +957,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		}
 		ast_invariant(call, finish_result.isInteger());
 		finish_addr = finish_result.integer().as<int32_t>().value();
-		if (!target_type.getFixedRange().containsPoint(start_addr)) {
+		if (!target_range.containsPoint(finish_addr)) {
 			auto &diag =
 					netlist.add_diag(diag::ReadmemAddressOutsideOfRange, finish_arg->sourceRange);
 			diag << finish_addr;
