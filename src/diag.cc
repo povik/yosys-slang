@@ -341,10 +341,10 @@ void setup_messages(slang::DiagnosticEngine &engine)
 	engine.setMessage(ReadmemFileNotFound, "failed to open file '{}'");
 	engine.setSeverity(ReadmemFileNotFound, DiagnosticSeverity::Error);
 
-	engine.setMessage(ReadmemInvalidAddress, "can not parse address '{}' in '{}'");
+	engine.setMessage(ReadmemInvalidAddress, "cannot parse address '{}' in '{}'");
 	engine.setSeverity(ReadmemInvalidAddress, DiagnosticSeverity::Error);
 
-	engine.setMessage(ReadmemAddressOutsideOfRange, "address '{}' is out of range");
+	engine.setMessage(ReadmemAddressOutsideOfRange, "address '{}' (hexadecimal) is out of range");
 	engine.setSeverity(ReadmemAddressOutsideOfRange, DiagnosticSeverity::Error);
 
 	engine.setMessage(ReadmemWordsRangeMismatch, "number of words in '{}' doesn't match the range");

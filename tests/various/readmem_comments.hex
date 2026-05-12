@@ -1,0 +1,6 @@
+// leading line comment
+01 /* inline block comment */ 02
+/* multi-
+   line
+   comment */ 03
+04 // trailing line comment
