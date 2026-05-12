@@ -126,6 +126,12 @@ DiagCode UnsupportedSystemTask(DiagSubsystem::Netlist, 1074);
 DiagCode UnsupportedSVAFeature(DiagSubsystem::Netlist, 1075);
 DiagCode RepetitionsUnsupported(DiagSubsystem::Netlist, 1076);
 DiagCode SVAClockingRequiresEdge(DiagSubsystem::Netlist, 1077);
+DiagCode ErrorNonconstantArgument(DiagSubsystem::Netlist, 1078);
+DiagCode ReadmemFileNotFound(DiagSubsystem::Netlist, 1079);
+DiagCode ReadmemInvalidAddress(DiagSubsystem::Netlist, 1080);
+DiagCode ReadmemAddressOutsideOfRange(DiagSubsystem::Netlist, 1081);
+DiagCode ReadmemWordsRangeMismatch(DiagSubsystem::Netlist, 1082);
+DiagCode ReadmemBadBinaryDigit(DiagSubsystem::Netlist, 1083);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -328,6 +334,24 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(SVAClockingRequiresEdge, "SVA clocking requires a signal edge");
 	engine.setSeverity(SVAClockingRequiresEdge, DiagnosticSeverity::Error);
+
+	engine.setMessage(ErrorNonconstantArgument, "failed to evaluate system function with non-constant argument");
+	engine.setSeverity(ErrorNonconstantArgument, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemFileNotFound, "failed to open file '{}'");
+	engine.setSeverity(ReadmemFileNotFound, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemInvalidAddress, "cannot parse address '{}' in '{}'");
+	engine.setSeverity(ReadmemInvalidAddress, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemAddressOutsideOfRange, "address '{}' (hexadecimal) is out of range");
+	engine.setSeverity(ReadmemAddressOutsideOfRange, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemWordsRangeMismatch, "number of words in '{}' doesn't match the range");
+	engine.setSeverity(ReadmemWordsRangeMismatch, DiagnosticSeverity::Warning);
+
+	engine.setMessage(ReadmemBadBinaryDigit, "digit larger than 1 is used in '{}'");
+	engine.setSeverity(ReadmemBadBinaryDigit, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag

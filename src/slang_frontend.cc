@@ -801,6 +801,286 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 	return past_wire;
 }
 
+static const RTLIL::Const reverse_data(RTLIL::Const &orig, int width)
+{
+	std::vector<RTLIL::State> bits;
+	log_assert(orig.size() % width == 0);
+	bits.reserve(orig.size());
+	for (int i = orig.size() - width; i >= 0; i -= width)
+		bits.insert(bits.end(), orig.begin() + i, orig.begin() + i + width);
+	return bits;
+}
+
+/*
+ * The following two functions contain parts adapted from Yosys
+ * Copyright (C) 2012  Claire Xenia Wolf <claire@yosyshq.com>
+ * Licensed under the ISC License
+ */
+int str_to_state_vect(std::vector<RTLIL::State> &data, const char *str, uint64_t mem_width, bool is_hex)
+{
+	// All digits in string (MSB at index 0)
+	std::vector<uint8_t> digits;
+	std::vector<RTLIL::State> data_word;
+	data_word.reserve(mem_width);
+
+	while (*str) {
+		if ('0' <= *str && *str <= '9')
+			digits.push_back(*str - '0');
+		else if ('a' <= *str && *str <= 'f')
+			digits.push_back(10 + *str - 'a');
+		else if ('A' <= *str && *str <= 'F')
+			digits.push_back(10 + *str - 'A');
+		else if(*str == 'x' || *str == 'X')
+			digits.push_back(0xf0);
+		else if (*str == 'z' || *str == 'Z')
+			digits.push_back(0xf1);
+		str++;
+	}
+
+	// Either hex or binary for readmem[h/b]
+	int base = is_hex ? 16 : 2;
+	int bits_per_digit = is_hex ? 4 : 1;
+	
+	for (auto it = digits.rbegin(), e = digits.rend(); it != e; it++) {
+		if (*it > (base-1) && *it < 0xf0)
+			return 1;
+
+		for (int i = 0; i < bits_per_digit; i++) {
+			int bitmask = 1 << i;
+			if (*it == 0xf0)
+				data_word.push_back(RTLIL::Sx);
+			else if (*it == 0xf1)
+				data_word.push_back(RTLIL::Sz);
+			else
+				data_word.push_back((*it & bitmask) ? RTLIL::S1 : RTLIL::S0);
+		}
+	}
+
+	RTLIL::State msb = data_word.empty() ? RTLIL::S0 : data_word.back();
+
+	// Truncate/expand word to memory width
+	if (msb == RTLIL::S0 || msb == RTLIL::S1)
+		data_word.resize(mem_width, RTLIL::S0);
+	else
+		data_word.resize(mem_width, msb);
+
+	data.insert(data.end(), data_word.begin(), data_word.end());
+	return 0;
+}
+
+// clang-format on
+void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
+{
+	NetlistContext &netlist = context.netlist;
+	std::string mem_filename;
+
+	auto filename_arg = call.arguments()[0];
+	auto filename_result = filename_arg->eval(context.eval.const_);
+	if (filename_result.bad()) {
+		auto &diag = netlist.add_diag(diag::ErrorNonconstantArgument, filename_arg->sourceRange);
+		return;
+	}
+
+	if (!filename_arg->isImplicitString()) {
+		auto &diag = netlist.add_diag(diag::ArgumentTypeUnsupported, filename_arg->sourceRange);
+		diag << filename_arg->type->toString();
+		return;
+	} else {
+		auto constval = filename_result.convertToStr();
+		mem_filename = constval.str();
+	}
+
+	std::ifstream f;
+	f.open(mem_filename);
+
+	// Try to find memory file relative to the source file containing readmem
+	if (f.fail()) {
+		slang::SourceLocation loc = call.sourceRange.start();
+		slang::BufferID buf_id = loc.buffer();
+		std::filesystem::path file_path = global_sourcemgr->getFullPath(buf_id);
+		std::string parent_path = file_path.parent_path().string();
+
+		if (!parent_path.empty() &&
+				parent_path.back() != std::filesystem::path::preferred_separator)
+			parent_path += std::filesystem::path::preferred_separator;
+
+		f.open(parent_path + mem_filename);
+	}
+
+	if (f.fail() || mem_filename.size() == 0) {
+		auto &diag = netlist.add_diag(diag::ReadmemFileNotFound, filename_arg->sourceRange);
+		diag << mem_filename;
+		return;
+	}
+
+	ast_invariant(call, ast::AssignmentExpression::isKind(call.arguments()[1]->kind));
+	auto &assign = call.arguments()[1]->as<ast::AssignmentExpression>();
+	auto &target_type = *assign.left().type;
+
+	// Check the second argument matches an allowed target
+	if (!target_type.isUnpackedArray() ||
+			!ast::EmptyArgumentExpression::isKind(assign.right().kind)) {
+		netlist.add_diag(diag::UnsupportedLhs, assign.sourceRange);
+		return;
+	}
+
+	VariableBits target = context.eval.lhs(assign.left());
+	slang::ConstantRange target_range = target_type.getFixedRange();
+	int32_t start_addr = target_range.lower();
+	int32_t finish_addr = target_range.upper();
+
+	if (call.arguments().size() > 2) {
+		auto start_arg = call.arguments()[2];
+		auto start_result = start_arg->eval(context.eval.const_);
+		// Check that start_addr argument is a constant value
+		if (start_result.bad()) {
+			netlist.add_diag(diag::ErrorNonconstantArgument, start_arg->sourceRange);
+			return;
+		}
+		ast_invariant(call, start_result.isInteger());
+		start_addr = start_result.integer().as<int32_t>().value();
+		if (!target_range.containsPoint(start_addr)) {
+			auto &diag =
+					netlist.add_diag(diag::ReadmemAddressOutsideOfRange, start_arg->sourceRange);
+			diag << start_addr;
+			return;
+		}
+	}
+
+	if (call.arguments().size() > 3) {
+		auto finish_arg = call.arguments()[3];
+		auto finish_result = finish_arg->eval(context.eval.const_);
+		// Check that finish_addr argument is a constant value
+		if (finish_result.bad()) {
+			netlist.add_diag(diag::ErrorNonconstantArgument, finish_arg->sourceRange);
+			return;
+		}
+		ast_invariant(call, finish_result.isInteger());
+		finish_addr = finish_result.integer().as<int32_t>().value();
+		if (!target_range.containsPoint(finish_addr)) {
+			auto &diag =
+					netlist.add_diag(diag::ReadmemAddressOutsideOfRange, finish_arg->sourceRange);
+			diag << finish_addr;
+			return;
+		}
+	}
+
+	std::vector<RTLIL::State> data;
+	uint64_t word_size = target_type.getArrayElementType()->getBitstreamWidth();
+	bool in_comment = false;
+	bool no_jumps = true;
+	int num_words = 0;
+	int increment = start_addr < finish_addr ? 1 : -1;
+	int32_t cursor = start_addr;
+	int32_t data_first_address = start_addr;
+
+	slang::ConstantRange command_range(start_addr, finish_addr);
+
+	auto flush_data = [&]() {
+		RTLIL::Const const_(data);
+		assert(const_.size() % word_size == 0);
+
+		bool needs_reversal = (increment == -1 && target_range.isLittleEndian()) ||
+							  (increment == 1 && !target_range.isLittleEndian());
+
+		int nwords = const_.size() / word_size;
+		// HDL address corresponding to the base of const_ after reversal
+		int32_t hdl_base =
+				needs_reversal ? data_first_address + (nwords - 1) * increment : data_first_address;
+
+		uint32_t base = target_range.isLittleEndian() ? hdl_base - target_range.right
+													  : target_range.right - hdl_base;
+
+		context.do_simple_assign(call.sourceRange.start(),
+				target.extract(((uint64_t)base) * word_size, const_.size()),
+				needs_reversal ? reverse_data(const_, word_size) : const_,
+				/* blocking= */ true);
+		data.clear();
+	};
+
+	while (!f.eof()) {
+		std::string line, token;
+		std::getline(f, line);
+
+		// Remove multiline comments
+		for (int i = 0; i < line.size(); i++) {
+			if (in_comment && line.compare(i, 2, "*/") == 0) {
+				line[i] = ' ';
+				line[i + 1] = ' ';
+				in_comment = false;
+				continue;
+			}
+			if (!in_comment && line.compare(i, 2, "/*") == 0) {
+				in_comment = true;
+			}
+			if (in_comment)
+				line[i] = ' ';
+		}
+
+		std::istringstream iss(line);
+		while (iss >> token) {
+			if (token.compare(0, 2, "//") == 0)
+				break;
+
+			if (token[0] == '@') {
+				token = token.substr(1);
+				const char *nptr = token.c_str();
+				char *endptr;
+				int32_t next_addr = strtol(nptr, &endptr, 16);
+				if (!*nptr || *endptr) {
+					auto &diag = netlist.add_diag(diag::ReadmemInvalidAddress, call.sourceRange);
+					diag << std::string(nptr) << mem_filename;
+					return;
+				}
+
+				if (!command_range.containsPoint(next_addr)) {
+					auto &diag =
+							netlist.add_diag(diag::ReadmemAddressOutsideOfRange, call.sourceRange);
+					diag << token;
+					return;
+				}
+
+				// Flush data before jumping to the next address
+				if (next_addr != cursor) {
+					if (!data.empty())
+						flush_data();
+					cursor = next_addr;
+					data_first_address = next_addr;
+				}
+				no_jumps = false;
+				continue;
+			}
+
+			int res = str_to_state_vect(
+					data, token.c_str(), word_size, call.getSubroutineName() == "$readmemh");
+			if (res != 0) {
+				// Can only occur when digit is greater than 1 for $readmemb
+				auto &diag = netlist.add_diag(diag::ReadmemBadBinaryDigit, call.sourceRange);
+				diag << mem_filename;
+				return;
+			}
+			num_words++;
+
+			if ((cursor == finish_addr) || (increment > 0 && cursor > finish_addr) ||
+					(increment < 0 && cursor < finish_addr)) {
+				break;
+			}
+
+			cursor += increment;
+		}
+	}
+
+	if (!data.empty())
+		flush_data();
+
+	if (call.arguments().size() == 4 && no_jumps &&
+			num_words != std::abs(finish_addr - start_addr) + 1) {
+		auto &diag = netlist.add_diag(diag::ReadmemWordsRangeMismatch, call.sourceRange);
+		diag << mem_filename;
+	}
+}
+// clang-format off
+
 void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 {
 	NetlistContext &netlist = context.netlist;
@@ -1267,6 +1547,9 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				} else if (name == "$signed" || name == "$unsigned") {
 					require(expr, call.arguments().size() == 1);
 					ret = (*this)(*call.arguments()[0]);
+				} else if (name == "$readmemb" || name == "$readmemh") {
+					require(expr, !(call.arguments().size() < 2 || call.arguments().size() > 4));
+					handle_readmem(*procedural, call);
 				} else {
 					auto &d = netlist.add_diag(diag::UnsupportedSystemTask, expr.sourceRange);
 					d << name;

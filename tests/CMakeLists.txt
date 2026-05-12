@@ -57,6 +57,8 @@ set(ALL_TESTS
     various/mem_inference.ys
     various/meminit.ys
     various/pragmas.ys
+    various/readmem.ys
+    various/readmem_diag.ys
     various/regress.ys
     various/stringattrs.ys
     various/stringparams.ys
