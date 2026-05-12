@@ -801,6 +801,11 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 	return past_wire;
 }
 
+/*
+ * The following two functions contain parts adapted from Yosys
+ * Copyright (C) 2012  Claire Xenia Wolf <claire@yosyshq.com>
+ * Licensed under the ISC License
+ */
 int str_to_state_vect(std::vector<RTLIL::State> &data, const char *str, uint64_t mem_width, bool is_hex)
 {
 	// All digits in string (MSB at index 0)
