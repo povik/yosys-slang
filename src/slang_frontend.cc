@@ -967,6 +967,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 
 	std::vector<RTLIL::State> data;
 	uint64_t word_size = target_type.getArrayElementType()->getBitstreamWidth();
+	bool in_comment = false;
 	bool no_jumps = true;
 	int num_words = 0;
 	int increment = start_addr < finish_addr ? 1 : -1;
@@ -1005,7 +1006,6 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		std::getline(f, line);
 
 		// Remove multiline comments
-		bool in_comment = false;
 		for (int i = 0; i < line.size(); i++) {
 			if (in_comment && line.compare(i, 2, "*/") == 0) {
 				line[i] = ' ';
