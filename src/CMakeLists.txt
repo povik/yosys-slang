@@ -30,6 +30,7 @@ target_compile_definitions(slang_frontend PUBLIC
 target_include_directories(slang_frontend
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/hashlib/
     PRIVATE
         ${CMAKE_CURRENT_BINARY_DIR}
 )

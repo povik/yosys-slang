@@ -13,7 +13,24 @@
 #ifdef SLANG_NO_YOSYS
 #include <set>
 #include <unordered_set>
-#include "yosys_hashlib.h"
+
+// patch in hashlib types into the Yosys namespace so that code originally
+// written against Yosys compiles without pulling in the rest of Yosys
+#include "hashlib.h"
+namespace Yosys {
+namespace hashlib = ::hashlib;
+using hashlib::Hasher;
+using hashlib::run_hash;
+using hashlib::hash_ops;
+using hashlib::hash_ptr_ops;
+using hashlib::hash_obj_ops;
+using hashlib::mkhash_xorshift;
+using hashlib::dict;
+using hashlib::idict;
+using hashlib::pool;
+using hashlib::mfp;
+}  // namespace Yosys
+
 #include "log_stubs.h"
 #define YS_HASH_PTR_OPS
 #else

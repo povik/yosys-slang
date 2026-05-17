@@ -39,6 +39,13 @@
 #include "async_pattern.h"
 #include "variables.h"
 
+#ifdef SLANG_NO_YOSYS
+// Definition of hashlib static members
+namespace hashlib {
+uint32_t HasherDJB32::fudge = 0;
+}
+#endif
+
 namespace slang_frontend {
 static ValuePattern svint_to_pattern(
 		NetlistContext &netlist,
