@@ -80,8 +80,6 @@ using Yosys::log;
 using Yosys::log_flush;
 using Yosys::log_error;
 using Yosys::log_warning;
-using Yosys::log_id;
-using Yosys::log_signal;
 using Yosys::log_abort;
 using Yosys::ys_debug;
 using Yosys::ceil_log2;
@@ -90,6 +88,8 @@ using Yosys::stringf;
 using Yosys::log_debug;
 #endif
 #ifndef SLANG_NO_YOSYS
+using Yosys::log_id;
+using Yosys::log_signal;
 namespace RTLIL = ::Yosys::RTLIL;
 namespace ID = ::Yosys::RTLIL::ID;
 #endif
