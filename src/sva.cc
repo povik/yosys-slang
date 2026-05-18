@@ -16,6 +16,27 @@
 
 namespace slang_frontend {
 
+static const ast::Expression *get_simple_assertion_expr(
+		NetlistContext &netlist, const ast::AssertionExpr &assertion_expr,
+		slang::SourceRange fallback_source_range)
+{
+	slang::SourceRange source_range = assertion_expr.syntax ?
+		assertion_expr.syntax->sourceRange() : fallback_source_range;
+
+	if (!ast::SimpleAssertionExpr::isKind(assertion_expr.kind)) {
+		netlist.add_diag(diag::UnsupportedSVAFeature, source_range);
+		return nullptr;
+	}
+
+	auto &simple_expr = assertion_expr.as<ast::SimpleAssertionExpr>();
+	if (simple_expr.repetition.has_value()) {
+		netlist.add_diag(diag::RepetitionsUnsupported, source_range);
+		return nullptr;
+	}
+
+	return &simple_expr.expr;
+}
+
 // Process a 'concurrent assertion'
 //
 // Any top level clocking expressions have been stripped. Clocking is part
@@ -47,25 +68,43 @@ void process_sva_property(const ast::ConcurrentAssertionStatement &statement,
 		source_range = expr->syntax ? expr->syntax->sourceRange() : statement.sourceRange;
 	}
 
-	if (!ast::SimpleAssertionExpr::isKind(expr->kind)) {
-		netlist.add_diag(diag::UnsupportedSVAFeature, source_range);
-		return;
-	}
-
-	auto &simple_assertion = expr->as<ast::SimpleAssertionExpr>();
-
-	// We don't support repetition in simple assertions
-	if (simple_assertion.repetition.has_value()) {
-		netlist.add_diag(diag::RepetitionsUnsupported, source_range);
-		return;
-	}
-
 	std::string flavor;
 	switch (statement.assertionKind) {
 	case ast::AssertionKind::Assert:        flavor = "assert"; break;
 	case ast::AssertionKind::Assume:        flavor = "assume"; break;
 	case ast::AssertionKind::CoverProperty: flavor = "cover"; break;
 	default:                                netlist.add_diag(diag::AssertionUnsupported, statement.sourceRange); return;
+	}
+
+	RTLIL::SigSpec a;
+	if (ast::SimpleAssertionExpr::isKind(expr->kind)) {
+		auto simple_expr = get_simple_assertion_expr(netlist, *expr, source_range);
+		if (!simple_expr)
+			return;
+		a = netlist.ReduceBool(procedural.eval.sva(*simple_expr));
+	} else if (ast::BinaryAssertionExpr::isKind(expr->kind)) {
+		auto &binary_expr = expr->as<ast::BinaryAssertionExpr>();
+		if (binary_expr.op != ast::BinaryAssertionOperator::OverlappedImplication) {
+			netlist.add_diag(diag::UnsupportedSVAFeature, source_range);
+			return;
+		}
+
+		auto lhs_expr = get_simple_assertion_expr(netlist, binary_expr.left, source_range);
+		auto rhs_expr = get_simple_assertion_expr(netlist, binary_expr.right, source_range);
+		if (!lhs_expr || !rhs_expr)
+			return;
+
+		RTLIL::SigSpec antecedent = netlist.ReduceBool(procedural.eval.sva(*lhs_expr));
+		RTLIL::SigSpec consequent = netlist.ReduceBool(procedural.eval.sva(*rhs_expr));
+		if (statement.assertionKind == ast::AssertionKind::CoverProperty) {
+			// Cover only non-vacuous successes of the implication.
+			a = netlist.LogicAnd(antecedent, consequent);
+		} else {
+			a = netlist.LogicOr(netlist.LogicNot(antecedent), consequent);
+		}
+	} else {
+		netlist.add_diag(diag::UnsupportedSVAFeature, source_range);
+		return;
 	}
 
 	RTLIL::IdString cell_name;
@@ -76,8 +115,6 @@ void process_sva_property(const ast::ConcurrentAssertionStatement &statement,
 	} else {
 		cell_name = netlist.new_id();
 	}
-
-	RTLIL::SigSpec a = netlist.ReduceBool(procedural.eval.sva(simple_assertion.expr));
 
 	auto cell = netlist.canvas->addCell(cell_name, ID($check));
 	procedural.set_effects_trigger(cell);

@@ -1,7 +1,7 @@
 read_slang concurrent_assert.sv
 
 # Test basic concurrent assertions exist
-select -assert-count 10 t:$check
+select -assert-count 13 t:$check
 
 # Test m_concurrent_assert: posedge clk, no disable iff
 select -assert-count 1 m_concurrent_assert/t:$check
@@ -35,3 +35,20 @@ select -assert-count 1 m_multiple_concurrent/t:$check r:TRG_POLARITY=1'0 %i
 # Test m_labeled_concurrent: labeled assertion
 select -assert-count 1 m_labeled_concurrent/t:$check
 select -assert-count 1 m_labeled_concurrent/t:$check n:*my_concurrent_assert %i
+
+# Test m_overlapped_implication: a |-> b (assert, posedge clk)
+select -assert-count 1 m_overlapped_implication/t:$check
+select -assert-count 1 m_overlapped_implication/t:$check r:FLAVOR=assert %i
+select -assert-count 1 m_overlapped_implication/t:$check r:TRG_POLARITY=1'1 %i
+select -assert-count 1 m_overlapped_implication/t:$logic_or
+
+# Test m_overlapped_implication_disable_iff: a |-> b with disable iff
+select -assert-count 1 m_overlapped_implication_disable_iff/t:$check
+select -assert-count 1 m_overlapped_implication_disable_iff/t:$check r:FLAVOR=assert %i
+select -assert-count 1 m_overlapped_implication_disable_iff/t:$logic_or
+
+# Test m_overlapped_implication_cover: cover with non-vacuous a |-> b
+select -assert-count 1 m_overlapped_implication_cover/t:$check
+select -assert-count 1 m_overlapped_implication_cover/t:$check r:FLAVOR=cover %i
+select -assert-count 1 m_overlapped_implication_cover/t:$logic_and
+select -assert-count 0 m_overlapped_implication_cover/t:$logic_or
