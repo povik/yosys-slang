@@ -108,10 +108,11 @@ genrule(
         "slang/diagnostics/TypesDiags.h",
     ],
     cmd = """
+        SCRIPTS=$$(dirname $(location third_party/slang/scripts/diagnostic_gen.py)) && \
         $(PYTHON3) $(location third_party/slang/scripts/diagnostic_gen.py) \
             --outDir $(@D) \
-            --srcDir $$(dirname $(location third_party/slang/source/parsing/Parser.cpp))/.. \
-            --incDir $$(dirname $(location third_party/slang/include/slang/diagnostics/Diagnostics.h))/.. \
+            --srcDir $$SCRIPTS/../source \
+            --incDir $$SCRIPTS/../include/slang \
             --diagnostics $(location third_party/slang/scripts/diagnostics.txt)
     """,
     toolchains = ["@rules_python//python:current_py_toolchain"],
