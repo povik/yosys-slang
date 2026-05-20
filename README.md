@@ -1,4 +1,6 @@
-# yosys-slang: SystemVerilog frontend for Yosys
+# yosys-slang: SystemVerilog frontend
+
+Note: this tool will be renamed slang-elab soon and, as an option, it will be usable independent of Yosys.
 
 yosys-slang is a Yosys plugin providing a new command (`read_slang`) for elaborating SystemVerilog designs.
 
