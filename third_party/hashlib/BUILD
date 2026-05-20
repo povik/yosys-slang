@@ -6,10 +6,7 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "yosys-hashlib",
     srcs = ["hashlib.cc"],
-    hdrs = [
-        "hashlib.h",
-        "yosys_hashlib.h",
-    ],
+    hdrs = ["hashlib.h"],
     includes = ["."],
     visibility = ["//visibility:public"],
 )

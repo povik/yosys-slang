@@ -33,7 +33,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//src/syn/src/elab:elab_hdrs",
-        "//third-party/yosys-hashlib",
+        "//third-party/slang-elab/third_party/hashlib:yosys-hashlib",
         "@fmt",
         "@slang",
     ],
