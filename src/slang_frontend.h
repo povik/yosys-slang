@@ -447,6 +447,10 @@ public:
 SLANG_ENUM(UdpHandleMode, UDP_HANDL)
 #undef UDP_HANDL
 
+#define MODULE_UNIQUIFY(x) x(instance) x(param)
+SLANG_ENUM(ModuleUniquifyMode, MODULE_UNIQUIFY)
+#undef MODULE_UNIQUIFY
+
 struct SynthesisSettings {
 	std::optional<bool> dump_ast;
 	std::optional<bool> no_proc;
@@ -465,6 +469,8 @@ struct SynthesisSettings {
 	std::optional<bool> allow_dual_edge_ff;
 	std::optional<bool> no_synthesis_define;
 	std::optional<UdpHandleMode> udp_handling;
+	std::optional<std::string> ff_naming;
+	std::optional<ModuleUniquifyMode> module_uniquify;
 	// pass std::less<> to enable transparent lookup
 	std::set<std::string, std::less<>> blackboxed_modules;
 	bool disable_instance_caching = false;
@@ -487,6 +493,17 @@ struct SynthesisSettings {
 	int unroll_limit() {
 		return unroll_limit_.value_or(4000);
 	}
+
+	std::string ff_naming_mode() {
+		return ff_naming.value_or("legacy");
+	}
+
+	ModuleUniquifyMode module_uniquify_mode() {
+		return module_uniquify.value_or(ModuleUniquifyMode::instance);
+	}
+
+	bool is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox=nullptr);
+	bool should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved=nullptr);
 
 	void addOptions(slang::CommandLine &cmdLine);
 };
@@ -546,10 +563,12 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	NetlistContext(RTLIL::Design *design,
 		SynthesisSettings &settings,
 		ast::Compilation &compilation,
-		const ast::InstanceSymbol &instance);
+		const ast::InstanceSymbol &instance,
+		RTLIL::IdString module_name = {});
 
 	NetlistContext(NetlistContext &other,
-		const ast::InstanceSymbol &instance);
+		const ast::InstanceSymbol &instance,
+		RTLIL::IdString module_name = {});
 
 	~NetlistContext();
 
@@ -559,9 +578,6 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	Yosys::pool<const ast::Symbol *> detected_memories;
 	bool is_inferred_memory(const ast::Symbol &symbol);
 	bool is_inferred_memory(const ast::Expression &expr);
-
-	bool is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox=nullptr);
-	bool should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved=nullptr);
 
 	// Find the "realm" for the given symbol, i.e. the containing instance body
 	// which is not getting dissolved during netlist emission. If we are fully flattening
@@ -609,6 +625,10 @@ extern void export_blackbox_to_rtlil(NetlistContext &netlist, const ast::Instanc
 // naming.cc
 typedef std::pair<VariableChunk, std::string> NamedChunk;
 std::vector<NamedChunk> generate_subfield_names(VariableChunk chunk, const ast::Type *type);
+std::string format_scope_name_fragment(const ast::Scope *relative_to, const ast::Scope *scope,
+		std::string_view sep="_"sv);
+std::string format_signal_name_fragment(const ast::Scope *relative_to, const ast::ValueSymbol &symbol,
+		std::string_view suffix, std::string_view sep="_"sv);
 
 // initialization.cc
 void evaluate_decl_initializers(NetlistContext &netlist);

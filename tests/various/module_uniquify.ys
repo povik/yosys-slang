@@ -1,0 +1,111 @@
+read_slang --keep-hierarchy --module-uniquify param <<EOF
+module child #(parameter int WIDTH = 8) (output logic [WIDTH-1:0] y);
+	assign y = 0;
+endmodule
+
+module top(output logic [7:0] a, output logic [7:0] b);
+	child #(.WIDTH(8)) u0(a);
+	child #(.WIDTH(8)) u1(b);
+endmodule
+EOF
+
+cd child
+cd top
+
+design -reset
+
+read_slang --keep-hierarchy <<EOF
+module child #(parameter int WIDTH = 8) (output logic [WIDTH-1:0] y);
+	assign y = 0;
+endmodule
+
+module top(output logic [7:0] a, output logic [7:0] b);
+	child #(.WIDTH(8)) u0(a);
+	child #(.WIDTH(8)) u1(b);
+endmodule
+EOF
+
+cd child$top.u0
+cd child$top.u1
+cd top
+
+design -reset
+
+read_slang --keep-hierarchy --module-uniquify param <<EOF
+module child #(parameter int WIDTH = 8) (output logic [WIDTH-1:0] y);
+	assign y = 0;
+endmodule
+
+module top(output logic [7:0] a, output logic [15:0] b);
+	child #(.WIDTH(8)) u0(a);
+	child #(.WIDTH(16)) u1(b);
+endmodule
+EOF
+
+cd child__WIDTH_8
+cd child__WIDTH_16
+cd top
+
+design -reset
+
+read_slang --keep-hierarchy --module-uniquify param <<EOF
+module child_int #(parameter int VALUE = 0) (output logic y);
+	assign y = 0;
+endmodule
+
+module child_logic #(parameter logic [3:0] VALUE = 0) (output logic y);
+	assign y = 0;
+endmodule
+
+module top(output logic a, output logic b, output logic c, output logic d);
+	child_int #(.VALUE(32'd8)) u0(a);
+	child_int #(.VALUE(-1)) u1(b);
+	child_logic #(.VALUE(4'b1010)) u2(c);
+	child_logic #(.VALUE(4'b10x1)) u3(d);
+endmodule
+EOF
+
+cd child_int__VALUE_8
+cd child_int__VALUE_m1
+cd child_logic__VALUE_10
+cd child_logic__VALUE_b10x1
+cd top
+
+design -reset
+
+read_slang --keep-hierarchy --module-uniquify param <<EOF
+module child_type #(parameter type dtype = logic [3:0]) (output dtype y);
+	assign y = '0;
+endmodule
+
+module top(output logic [33:0] a, output logic [7:0] b);
+	child_type #(.dtype(logic [33:0])) u0(a);
+	child_type #(.dtype(logic [7:0])) u1(b);
+endmodule
+EOF
+
+cd child_type__dtype_logic_33downto0
+cd child_type__dtype_logic_7downto0
+cd top
+
+design -reset
+
+read_slang --best-effort-hierarchy --module-uniquify param <<EOF
+module leaf #(parameter int WIDTH = 8) (output logic [WIDTH-1:0] y);
+	assign y = 0;
+endmodule
+
+module wrap(output logic [7:0] a, output logic [15:0] b);
+	leaf #(.WIDTH(8)) u0(a);
+	leaf #(.WIDTH(16)) u1(b);
+endmodule
+
+module top(output logic [7:0] a, output logic [15:0] b);
+	wrap w(a, b);
+endmodule
+EOF
+
+cd wrap
+cd leaf__WIDTH_8
+cd leaf__WIDTH_16
+cd top

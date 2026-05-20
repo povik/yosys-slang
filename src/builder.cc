@@ -24,7 +24,9 @@ static IdString id(std::string_view sv)
 #else
 static IdString id(std::string_view sv)
 {
-	return sv;
+	if (sv.empty() || sv[0] == '$' || sv[0] == '\\')
+		return sv;
+	return RTLIL::escape_id(std::string(sv));
 }
 #endif
 

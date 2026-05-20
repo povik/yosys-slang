@@ -24,7 +24,7 @@ template <typename Func> void visit_netlist_variables(NetlistContext &netlist, F
 				}
 			},
 			[&](auto &visitor, const ast::InstanceSymbol &symbol) {
-				if (netlist.should_dissolve(symbol))
+				if (netlist.settings.should_dissolve(symbol))
 					visitor.visitDefault(symbol);
 			},
 			[&](auto &, const ast::ProceduralBlockSymbol &) {

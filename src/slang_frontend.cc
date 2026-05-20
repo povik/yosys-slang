@@ -8,9 +8,12 @@
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/EvalContext.h"
+#include "slang/ast/InstanceCacheKey.h"
 #include "slang/ast/SemanticFacts.h"
 #include "slang/ast/SystemSubroutine.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/ParameterSymbols.h"
+#include "slang/ast/types/TypePrinter.h"
 #include "slang/diagnostics/CompilationDiags.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/diagnostics/LookupDiags.h"
@@ -35,6 +38,9 @@
 #include "diag.h"
 #include "async_pattern.h"
 #include "variables.h"
+
+#include <cctype>
+#include <optional>
 
 namespace slang_frontend {
 
@@ -79,6 +85,15 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 			"--udp-handling", udp_handling, "Set the processing mode for user defined primitives."
 			" When set to 'blackboxes' the UDP is treated as a blackboxed instance."
 			" When set to 'error', an error is emitted if a UDP is encountered. By default, the frontend emits an error.");
+	cmdLine.add("--ff-naming", ff_naming,
+				"Set the naming scheme used for flip-flops inferred from always_ff blocks."
+				" Valid values: signal, auto, or a template using {sep=<separator>}, {scope}, {proc},"
+				" {signal}, and {proc_auto}. For example: '{sep=_}{scope}{proc_auto}_reg'."
+				" Example name: 'gen_gpios_0_capture_reg'.", "<scheme>");
+	cmdLine.addEnum<ModuleUniquifyMode, ModuleUniquifyMode_traits>(
+			"--module-uniquify", module_uniquify,
+			"Set how preserved modules are uniquified. 'instance' keeps the current instance-path based names."
+			" 'param' emits one module per unique parameterization and adds a parameter suffix only when needed.");
 
 	// Deprecated section
 	cmdLine.add("--compat-mode", compat_mode,
@@ -155,14 +170,193 @@ uint64_t bitstream_member_offset(const ast::FieldSymbol &member)
 	return bit_offset;
 }
 
-static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
+static std::string module_type_name(const ast::InstanceBodySymbol &sym)
 {
 	ast_invariant(sym, sym.parentInstance && sym.parentInstance->isModule());
 	std::string instance = sym.getHierarchicalPath();
 	if (instance == sym.name)
-		return RTLIL::escape_id(std::string(sym.name));
+		return std::string(sym.name);
 	else
-		return RTLIL::escape_id(std::string(sym.name) + "$" + instance);
+		return std::string(sym.name) + "$" + instance;
+}
+
+static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
+{
+	return RTLIL::escape_id(module_type_name(sym));
+}
+
+// Return the pre-prefix flip-flop base name used by the legacy scheme
+static std::string ff_naming_legacy_signal_name(NetlistContext &netlist, const ast::ValueSymbol &symbol,
+		std::string_view suffix)
+{
+	return Yosys::stringf("%s%s",
+			RTLIL::unescape_id(netlist.id(symbol)).c_str(), std::string(suffix).c_str());
+}
+
+// Find the named block that `--ff-naming auto` should prefer, if there is one
+static const ast::StatementBlockSymbol *ff_naming_auto_block(const ast::StatementBlockSymbol *prologue_block,
+		const ast::Statement &sync_body)
+{
+	if (prologue_block && !prologue_block->name.empty())
+		return prologue_block;
+
+	if (sync_body.kind != ast::StatementKind::Block)
+		return nullptr;
+
+	auto &block = sync_body.as<ast::BlockStatement>();
+	ast_invariant(sync_body, block.blockKind == ast::StatementBlockKind::Sequential);
+	if (block.blockSymbol && !block.blockSymbol->name.empty())
+		return block.blockSymbol;
+
+	return nullptr;
+}
+
+static std::string ff_naming_template_from_scheme(std::string_view scheme)
+{
+	if (scheme == "legacy")
+		return "legacy";
+	if (scheme == "signal")
+		return "{sep=_}{scope}{signal}_reg";
+	if (scheme == "auto")
+		return "{sep=_}{scope}{proc_auto}_reg";
+	return std::string(scheme);
+}
+
+static std::optional<std::string> ff_naming_template_error(std::string_view scheme)
+{
+	if (scheme == "legacy")
+		return std::nullopt;
+
+	bool saw_placeholder = false;
+	std::string tmpl = ff_naming_template_from_scheme(scheme);
+
+	for (size_t i = 0; i < tmpl.size(); i++) {
+		if (tmpl[i] != '{' && tmpl[i] != '}')
+			continue;
+
+		size_t close = tmpl.find('}', i);
+		if (tmpl[i] != '{' || close == std::string::npos)
+			return Yosys::stringf("Invalid --ff-naming template '%s'\n", std::string(scheme).c_str());
+
+		std::string_view placeholder(tmpl.data() + i + 1, close - i - 1);
+		if (placeholder != "scope" && placeholder != "proc" && placeholder != "signal" &&
+				placeholder != "proc_auto" && placeholder.compare(0, 4, "sep=") != 0)
+			return Yosys::stringf("Unknown --ff-naming placeholder '{%s}'\n", std::string(placeholder).c_str());
+
+		saw_placeholder = true;
+		i = close;
+	}
+
+	if (!saw_placeholder)
+		return Yosys::stringf("Unknown --ff-naming scheme '%s'\n", std::string(scheme).c_str());
+
+	return std::nullopt;
+}
+
+// Build the final inferred flip-flop base name from the active ff naming options
+static std::string ff_naming_base_name_from_options(SynthesisSettings &settings, NetlistContext &netlist,
+		const ast::StatementBlockSymbol *block_symbol, bool disambiguate_block_name,
+		const ast::ValueSymbol &symbol, std::string_view subfield_suffix)
+{
+	std::string tmpl = ff_naming_template_from_scheme(settings.ff_naming_mode());
+	if (tmpl == "legacy")
+		return std::string("\\$driver$") + ff_naming_legacy_signal_name(netlist, symbol, subfield_suffix);
+
+	std::string sep = "_";
+	std::optional<std::string> scope_name;
+	std::optional<std::string> proc_name;
+	std::optional<std::string> signal_name;
+	std::optional<std::string> proc_auto_name;
+
+	auto *symbol_scope = symbol.getParentScope();
+	ast_invariant(symbol, symbol_scope != nullptr);
+
+	auto get_scope_name = [&]() {
+		if (!scope_name)
+			scope_name = format_scope_name_fragment(&netlist.realm, symbol_scope, sep);
+		return scope_name.value();
+	};
+
+	auto get_proc_name = [&]() {
+		if (!proc_name) {
+			if (block_symbol)
+				proc_name = format_scope_name_fragment(symbol_scope, block_symbol, sep);
+			else
+				proc_name = "";
+		}
+		return proc_name.value();
+	};
+
+	auto get_signal_name = [&]() {
+		if (!signal_name)
+			signal_name = format_signal_name_fragment(symbol_scope, symbol, subfield_suffix, sep);
+		return signal_name.value();
+	};
+
+	auto get_proc_auto_name = [&]() {
+		if (proc_auto_name)
+			return proc_auto_name.value();
+
+		std::string block_name = get_proc_name();
+		if (!block_name.empty()) {
+			if (disambiguate_block_name)
+				proc_auto_name = block_name + sep + get_signal_name();
+			else
+				proc_auto_name = block_name;
+		} else {
+			proc_auto_name = get_signal_name();
+		}
+		return proc_auto_name.value();
+	};
+
+	auto reset_parts = [&]() {
+		scope_name.reset();
+		proc_name.reset();
+		signal_name.reset();
+		proc_auto_name.reset();
+	};
+
+	bool last_token_was_part = false;
+	auto append_part = [&](std::string_view part, std::string &ret) {
+		if (part.empty())
+			return;
+
+		if (last_token_was_part && !sep.empty())
+			ret += sep;
+		ret += part;
+		last_token_was_part = true;
+	};
+
+	std::string ret;
+	for (size_t i = 0; i < tmpl.size(); i++) {
+		if (tmpl[i] != '{') {
+			ret.push_back(tmpl[i]);
+			last_token_was_part = false;
+			continue;
+		}
+
+		size_t close = tmpl.find('}', i);
+		log_assert(close != std::string::npos);
+		std::string_view placeholder(tmpl.data() + i + 1, close - i - 1);
+
+		if (placeholder.compare(0, 4, "sep=") == 0) {
+			sep = std::string(placeholder.substr(4));
+			reset_parts();
+		} else if (placeholder == "scope")
+			append_part(get_scope_name(), ret);
+		else if (placeholder == "proc")
+			append_part(get_proc_name(), ret);
+		else if (placeholder == "signal")
+			append_part(get_signal_name(), ret);
+		else if (placeholder == "proc_auto")
+			append_part(get_proc_auto_name(), ret);
+		else
+			log_abort();
+
+		i = close;
+	}
+
+	return std::string("\\") + ret;
 }
 
 static const RTLIL::Const convert_svint(const slang::SVInt &svint)
@@ -1616,15 +1810,383 @@ EvalContext::EvalContext(ProceduralContext &procedural)
 {
 }
 
+bool SynthesisSettings::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)
+{
+	if (sym.cellDefine)
+		return true;
+
+	if (blackboxed_modules.contains(sym.name))
+		return true;
+
+	for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
+		if (attr->name == "blackbox"sv && !attr->getValue().isFalse()) {
+			if (why_blackbox) {
+				auto &note = why_blackbox->addNote(diag::NoteModuleBlackboxBecauseAttribute,
+													attr->location);
+				note << sym.name;
+			}
+			return true;
+		}
+	}
+
+	if (empty_blackboxes.value_or(false)) {
+		if (why_blackbox) {
+			auto &note = why_blackbox->addNote(diag::NoteModuleBlackboxBecauseEmpty, sym.location);
+			note << sym.name;
+		}
+		return is_decl_empty_module(*sym.getSyntax());
+	}
+
+	return false;
+}
+
+bool SynthesisSettings::should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved)
+{
+	if (sym.isModule() && is_blackbox(sym.body.getDefinition())) {
+		if (why_not_dissolved) {
+			auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseBlackbox, sym.location);
+			note << sym.body.name;
+			is_blackbox(sym.body.getDefinition(), why_not_dissolved);
+		}
+		return false;
+	}
+
+	if (sym.isInterface())
+		return true;
+
+	switch (hierarchy_mode()) {
+	case SynthesisSettings::NONE:
+		return true;
+	case SynthesisSettings::BEST_EFFORT: {
+		for (auto *conn : sym.getPortConnections()) {
+			switch (conn->port.kind) {
+			case ast::SymbolKind::Port:
+			case ast::SymbolKind::MultiPort:
+				break;
+			case ast::SymbolKind::InterfacePort:
+				if (!conn->getIfaceConn().second)
+					return true;
+				break;
+			default:
+				return true;
+			}
+		}
+
+		if (!sym.isModule())
+			return true;
+
+		return false;
+	}
+	case SynthesisSettings::ALL:
+		if (why_not_dissolved) {
+			auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseKeepHierarchy, sym.location);
+			note << sym.body.name;
+		}
+	default:
+		return false;
+	}
+}
+
+static std::string module_name_fragment(std::string_view raw)
+{
+	std::string ret;
+	bool last_sep = false;
+
+	for (size_t i = 0; i < raw.size(); i++) {
+		unsigned char ch = raw[i];
+		if (std::isalnum(ch) || ch == '_') {
+			ret.push_back(ch);
+			last_sep = false;
+		} else if (ch == ':' && i > 0 && i + 1 < raw.size() &&
+				std::isdigit((unsigned char)raw[i - 1]) && std::isdigit((unsigned char)raw[i + 1])) {
+			size_t lhs = i - 1;
+			while (lhs > 0 && std::isdigit((unsigned char)raw[lhs - 1]))
+				lhs--;
+			size_t rhs = i + 1;
+			while (rhs + 1 < raw.size() && std::isdigit((unsigned char)raw[rhs + 1]))
+				rhs++;
+
+			std::string_view left = raw.substr(lhs, i - lhs);
+			std::string_view right = raw.substr(i + 1, rhs - i);
+			while (left.size() > 1 && left.front() == '0')
+				left.remove_prefix(1);
+			while (right.size() > 1 && right.front() == '0')
+				right.remove_prefix(1);
+
+			bool descending = left.size() != right.size() ? left.size() > right.size() : left >= right;
+			ret += descending ? "downto" : "upto";
+			last_sep = false;
+		} else if (!ret.empty() && !last_sep) {
+			ret.push_back('_');
+			last_sep = true;
+		}
+	}
+
+	while (!ret.empty() && ret.back() == '_')
+		ret.pop_back();
+
+	return ret;
+}
+
+struct ModuleParamText {
+	std::string signature;
+	std::string suffix;
+};
+
+static std::string module_param_value_suffix(const slang::ConstantValue &value)
+{
+	if (value.isInteger()) {
+		auto &integer = value.integer();
+		std::string ret;
+		if (integer.hasUnknown()) {
+			ret = "b";
+			ret += integer.toString(slang::LiteralBase::Binary, false, slang::SVInt::MAX_BITS);
+		} else {
+			ret = integer.toString(slang::LiteralBase::Decimal, false, slang::SVInt::MAX_BITS);
+			if (!ret.empty() && ret.front() == '-')
+				ret.replace(0, 1, "m");
+		}
+		return ret;
+	}
+
+	return value.toString(slang::SVInt::MAX_BITS, true);
+}
+
+static ModuleParamText module_param_text(const ast::InstanceSymbol &instance)
+{
+	ModuleParamText ret;
+	ast::TypePrinter type_printer;
+	type_printer.options.skipScopedTypeNames = true;
+	type_printer.options.fullEnumType = true;
+
+	auto append_suffix_part = [&](std::string_view name, std::string_view value) {
+		std::string name_fragment = module_name_fragment(name);
+		std::string value_fragment = module_name_fragment(value);
+		if (name_fragment.empty() || value_fragment.empty())
+			return;
+
+		if (!ret.suffix.empty())
+			ret.suffix += "__";
+		ret.suffix += name_fragment;
+		ret.suffix += "_";
+		ret.suffix += value_fragment;
+	};
+
+	for (auto *param : instance.body.getParameters()) {
+		if (param->isLocalParam())
+			continue;
+
+		if (param->symbol.kind == ast::SymbolKind::Parameter) {
+			auto &symbol = param->symbol.as<ast::ParameterSymbol>();
+			auto &const_value = symbol.getValue();
+			std::string value = const_value.toString(slang::SVInt::MAX_BITS, true);
+			ret.signature += "param ";
+			ret.signature += symbol.name;
+			ret.signature += "=";
+			ret.signature += value;
+			ret.signature += "\n";
+			append_suffix_part(symbol.name, module_param_value_suffix(const_value));
+		} else {
+			auto &symbol = param->symbol.as<ast::TypeParameterSymbol>();
+			type_printer.append(symbol.targetType.getType().getCanonicalType());
+			std::string value = type_printer.toString();
+			ret.signature += "type ";
+			ret.signature += symbol.name;
+			ret.signature += "=";
+			ret.signature += value;
+			ret.signature += "\n";
+			append_suffix_part(symbol.name, value);
+			type_printer.clear();
+		}
+	}
+
+	return ret;
+}
+
+static std::string module_hash_fragment(std::string_view raw)
+{
+	uint32_t hash = 2166136261u;
+	for (unsigned char ch : raw) {
+		hash ^= ch;
+		hash *= 16777619u;
+	}
+	return Yosys::stringf("p%08x", hash);
+}
+
+struct ModuleNameResolver {
+	struct Variant {
+		const ast::InstanceBodySymbol *body;
+		std::string signature;
+		std::optional<ast::InstanceCacheKey> cache_key;
+		bool top = false;
+		RTLIL::IdString module_name;
+	};
+
+	SynthesisSettings &settings;
+	std::vector<Variant> variants;
+	std::map<const ast::InstanceBodySymbol *, size_t> variant_by_body;
+	std::map<std::string, int> param_variant_counts;
+
+	ModuleNameResolver(SynthesisSettings &settings) : settings(settings) {}
+
+	bool parameter_mode() const
+	{
+		return settings.module_uniquify_mode() != ModuleUniquifyMode::instance;
+	}
+
+	size_t add_variant(const ast::InstanceSymbol &instance, bool top)
+	{
+		const ast::InstanceBodySymbol *body = &get_instance_body(settings, instance);
+
+		if (!parameter_mode()) {
+			size_t index = variants.size();
+			variants.push_back(Variant{body, "", std::nullopt, top, module_type_id(*body)});
+			variant_by_body[body] = index;
+			return index;
+		}
+
+		if (top) {
+			if (variant_by_body.count(body))
+				return variant_by_body.at(body);
+
+			size_t index = variants.size();
+			variants.push_back(Variant{body, "", std::nullopt, true,
+					RTLIL::escape_id(std::string(body->name))});
+			variant_by_body[body] = index;
+			return index;
+		}
+
+		if (variant_by_body.count(body) && variants[variant_by_body.at(body)].top)
+			return variant_by_body.at(body);
+
+		bool valid = ast::InstanceCacheKey::isEligibleForCaching(instance);
+		slang::SmallSet<const ast::InstanceSymbol *, 2> visited;
+		std::optional<ast::InstanceCacheKey> cache_key;
+		if (valid)
+			cache_key.emplace(instance, valid, visited);
+
+		for (size_t index = 0; index < variants.size(); index++) {
+			auto &variant = variants[index];
+			if (variant.body->name != body->name)
+				continue;
+			if (variant.top || !variant.cache_key)
+				continue;
+			if (valid && variant.cache_key && *variant.cache_key == *cache_key) {
+				variant_by_body[body] = index;
+				return index;
+			}
+		}
+
+		size_t index = variants.size();
+		if (valid) {
+			auto text = module_param_text(instance);
+			variants.push_back(Variant{body, std::move(text.signature), std::move(cache_key), false, {}});
+		} else {
+			variants.push_back(Variant{body, "", std::nullopt, false, {}});
+		}
+		variant_by_body[body] = index;
+		if (valid)
+			param_variant_counts[std::string(body->name)]++;
+		return index;
+	}
+
+	void scan_instance(const ast::InstanceSymbol &instance, bool top=false)
+	{
+		if (instance.getDefinition().definitionKind == ast::DefinitionKind::Program)
+			return;
+
+		if (instance.isModule() && settings.is_blackbox(instance.body.getDefinition()))
+			return;
+
+		bool preserved = top || (instance.isModule() && !settings.should_dissolve(instance));
+		const ast::InstanceBodySymbol *body = &get_instance_body(settings, instance);
+		if (preserved)
+			add_variant(instance, top);
+
+		body->visit(ast::makeVisitor([&](auto&, const ast::InstanceSymbol &child) {
+			scan_instance(child);
+		}));
+	}
+
+	void finalize()
+	{
+		std::set<std::string> used_names;
+		for (auto &variant : variants) {
+			if (variant.top) {
+				used_names.insert(std::string(variant.module_name.str()));
+				continue;
+			}
+			if (!parameter_mode())
+				used_names.insert(std::string(variant.module_name.str()));
+		}
+
+		for (auto &variant : variants) {
+			if (variant.top || !parameter_mode())
+				continue;
+
+			if (!variant.cache_key) {
+				// If slang cannot form an InstanceCacheKey, keep the old instance-path uniquification.
+				std::string name = module_type_name(*variant.body);
+				variant.module_name = RTLIL::escape_id(name);
+				used_names.insert(std::string(variant.module_name.str()));
+				continue;
+			}
+
+			std::string name = std::string(variant.body->name);
+			// In param mode, plain names are used unless they would be ambiguous.
+			bool needs_suffix = param_variant_counts[name] > 1 || used_names.count(RTLIL::escape_id(name));
+
+			if (needs_suffix) {
+				std::string suffix = module_param_text(*variant.body->parentInstance).suffix;
+				if (suffix.empty() || suffix.size() > 80)
+					suffix = module_hash_fragment(variant.signature);
+				name += "__" + suffix;
+			}
+
+			RTLIL::IdString id = RTLIL::escape_id(name);
+			if (used_names.count(id.str())) {
+				// Parameter text is not the whole InstanceCacheKey; interface-keyed variants can still collide.
+				name += "__" + module_hash_fragment(module_type_name(*variant.body));
+				id = RTLIL::escape_id(name);
+			}
+
+			variant.module_name = id;
+			used_names.insert(id.str());
+		}
+	}
+
+	RTLIL::IdString module_name(const ast::InstanceBodySymbol &body) const
+	{
+		auto it = variant_by_body.find(&body);
+		ast_invariant(body, it != variant_by_body.end());
+		return variants.at(it->second).module_name;
+	}
+
+	std::string parameter_signature(const ast::InstanceBodySymbol &body) const
+	{
+		auto it = variant_by_body.find(&body);
+		ast_invariant(body, it != variant_by_body.end());
+		return variants.at(it->second).signature;
+	}
+};
+
 struct HierarchyQueue {
+	ModuleNameResolver &module_names;
+
+	HierarchyQueue(ModuleNameResolver &module_names) : module_names(module_names) {}
+
 	template<class... Args>
 	std::pair<NetlistContext&, bool> get_or_emplace(const ast::InstanceBodySymbol *symbol, Args&&... args)
 	{
-		if (netlists.count(symbol)) {
-			return {*netlists.at(symbol), false};
+		RTLIL::IdString name = module_names.module_name(*symbol);
+		if (netlists.count(name)) {
+			return {*netlists.at(name), false};
 		} else {
-			NetlistContext *ref = new NetlistContext(args...);
-			netlists[symbol] = ref;
+			NetlistContext *ref = new NetlistContext(args..., name);
+			std::string signature = module_names.parameter_signature(*symbol);
+			if (!signature.empty())
+				ref->canvas->set_string_attribute(RTLIL::escape_id("slang_parameterization"), signature);
+			netlists[name] = ref;
 			queue.push_back(ref);
 			return {*ref, true};
 		}
@@ -1636,7 +2198,7 @@ struct HierarchyQueue {
 			delete netlist;
 	}
 
-	std::map<const ast::InstanceBodySymbol *, NetlistContext *> netlists;
+	std::map<RTLIL::IdString, NetlistContext *> netlists;
 	std::vector<NetlistContext *> queue;
 };
 
@@ -1651,7 +2213,9 @@ public:
 	PopulateNetlist(HierarchyQueue &queue, NetlistContext &netlist)
 		: TimingPatternInterpretor(netlist.settings, (DiagnosticIssuer&) netlist, netlist.eval),
 		  queue(queue), netlist(netlist), settings(netlist.settings),
-		  mem_detect(settings, std::bind(&NetlistContext::should_dissolve, &netlist, std::placeholders::_1, nullptr), netlist.eval) {}
+		  mem_detect(settings, [&](const ast::InstanceSymbol &sym) {
+			  return settings.should_dissolve(sym);
+		  }, netlist.eval) {}
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
@@ -1803,6 +2367,41 @@ public:
 
 			// FIXME: ignores variables not driven from the sync procedure
 			VariableBits driven = sync_procedure.all_driven();
+			const ast::StatementBlockSymbol *block_symbol = ff_naming_auto_block(prologue_block, sync_body);
+			auto count_emitted_ff_names = [&]() {
+				int emitted_ff_names = 0;
+				auto add_chunk_names = [&](VariableChunk chunk) {
+					const ast::Type *type = &chunk.variable.get_symbol()->getType();
+					emitted_ff_names += generate_subfield_names(chunk, type).size();
+				};
+
+				if (aloads.empty()) {
+					for (VariableChunk driven_chunk : driven.chunks())
+						add_chunk_names(driven_chunk);
+				} else {
+					for (VariableChunk driven_chunk : driven.chunks()) {
+						VariableBits aldff_q;
+						VariableBits dffe_q;
+
+						for (uint64_t i = 0; i < driven_chunk.bitwidth(); i++) {
+							if (aloads[0].values.visible_assignments.count(driven_chunk[i]))
+								aldff_q.append(driven_chunk[i]);
+							else
+								dffe_q.append(driven_chunk[i]);
+						}
+
+						for (auto chunk : aldff_q.chunks())
+							add_chunk_names(chunk);
+						for (auto chunk : dffe_q.chunks())
+							add_chunk_names(chunk);
+					}
+				}
+
+				return emitted_ff_names;
+			};
+			int emitted_ff_names = count_emitted_ff_names();
+			bool disambiguate_block_name = emitted_ff_names > 1;
+
 			for (VariableChunk driven_chunk : driven.chunks()) {
 				const ast::Type *type = &driven_chunk.variable.get_symbol()->getType();
 				RTLIL::SigSpec assigned = sync_procedure.vstate.evaluate(netlist, driven_chunk);
@@ -1813,9 +2412,10 @@ public:
 				if (aloads.empty()) {
 
 					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
-						log_assert(named_chunk.variable.get_symbol() != nullptr);
-						std::string base_name = Yosys::stringf("$driver$%s%s",
-							RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+						auto *named_symbol = named_chunk.variable.get_symbol();
+						log_assert(named_symbol != nullptr);
+						std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+								disambiguate_block_name, *named_symbol, name);
 
 						if (clock.edge == ast::EdgeKind::BothEdges) {
 							netlist.add_dual_edge_aldff(base_name,
@@ -1849,9 +2449,10 @@ public:
 					if (!aldff_q.empty()) {
 						for (auto driven_chunk2 : aldff_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							log_assert(named_chunk.variable.get_symbol() != nullptr);
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							auto *named_symbol = named_chunk.variable.get_symbol();
+							log_assert(named_symbol != nullptr);
+							std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+									disambiguate_block_name, *named_symbol, name);
 
 							if (clock.edge == ast::EdgeKind::BothEdges) {
 								netlist.add_dual_edge_aldff(base_name,
@@ -1883,11 +2484,13 @@ public:
 
 						for (auto driven_chunk2 : dffe_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							auto *named_symbol = named_chunk.variable.get_symbol();
+							log_assert(named_symbol != nullptr);
+							std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+									disambiguate_block_name, *named_symbol, name);
 
 							netlist.add_dffe(base_name,
-											 timing.triggers[0].signal,
+										 timing.triggers[0].signal,
 											 aloads[0].trigger,
 											 assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 											 netlist.convert_static(named_chunk),
@@ -2072,7 +2675,7 @@ public:
 		}
 
 		// blackboxes get special handling no matter the hierarchy mode
-		if (sym.isModule() && netlist.is_blackbox(sym.body.getDefinition())) {
+		if (sym.isModule() && settings.is_blackbox(sym.body.getDefinition())) {
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), RTLIL::escape_id(std::string(sym.body.name)));
 			cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 
@@ -2138,7 +2741,7 @@ public:
 			return;
 		}
 
-		if (netlist.should_dissolve(sym)) {
+		if (settings.should_dissolve(sym)) {
 			sym.body.visit(*this);
 
 			for (auto *conn : sym.getPortConnections()) {
@@ -2240,7 +2843,7 @@ public:
 			ast_invariant(sym, ref_body->parentInstance != nullptr);
 			auto [submodule, inserted] = queue.get_or_emplace(ref_body, netlist, *ref_body->parentInstance);
 
-			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(*ref_body));
+			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), queue.module_names.module_name(*ref_body));
 			cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
 			for (auto *conn : sym.getPortConnections()) {
 				slang::SourceLocation loc;
@@ -2497,7 +3100,7 @@ public:
 				netlist.add_wire(sym);
 			}
 		}, [&](auto& visitor, const ast::InstanceSymbol& sym) {
-			if (netlist.should_dissolve(sym))
+			if (netlist.settings.should_dissolve(sym))
 				visitor.visitDefault(sym);
 		}, [&](auto& visitor, const ast::CallExpression &call) {
 			if (call.isSystemCall())
@@ -3045,88 +3648,6 @@ void finalize_special_nets(NetlistContext &netlist)
 	}
 }
 
-bool NetlistContext::is_blackbox(const ast::DefinitionSymbol &sym, slang::Diagnostic *why_blackbox)
-{
-	if (sym.cellDefine)
-		return true;
-
-	if (settings.blackboxed_modules.contains(sym.name))
-		return true;
-
-	for (auto attr : sym.getParentScope()->getCompilation().getAttributes(sym)) {
-		if (attr->name == "blackbox"sv && !attr->getValue().isFalse()) {
-			if (why_blackbox) {
-				auto &note = why_blackbox->addNote(diag::NoteModuleBlackboxBecauseAttribute,
-													attr->location);
-				note << sym.name;
-			}
-			return true;
-		}
-	}
-
-	if (settings.empty_blackboxes.value_or(false)) {
-		if (why_blackbox) {
-			auto &note = why_blackbox->addNote(diag::NoteModuleBlackboxBecauseEmpty, sym.location);
-			note << sym.name;
-		}
-		return is_decl_empty_module(*sym.getSyntax());
-	}
-
-	return false;
-}
-
-bool NetlistContext::should_dissolve(const ast::InstanceSymbol &sym, slang::Diagnostic *why_not_dissolved)
-{
-	// blackboxes are never dissolved
-	if (sym.isModule() && is_blackbox(sym.body.getDefinition())) {
-		if (why_not_dissolved) {
-			auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseBlackbox, sym.location);
-			note << sym.body.name;
-			// insert note about blackbox reason
-			is_blackbox(sym.body.getDefinition(), why_not_dissolved);
-		}
-		return false;
-	}
-
-	// interfaces are always dissolved
-	if (sym.isInterface())
-		return true;
-
-	// the rest depends on the hierarchy mode
-	switch (settings.hierarchy_mode()) {
-	case SynthesisSettings::NONE:
-		return true;
-	case SynthesisSettings::BEST_EFFORT: {
-		for (auto *conn : sym.getPortConnections()) {
-			switch (conn->port.kind) {
-			case ast::SymbolKind::Port:
-			case ast::SymbolKind::MultiPort:
-				break;
-			case ast::SymbolKind::InterfacePort:
-				if (!conn->getIfaceConn().second)
-					return true;
-				break;
-			default:
-				return true;
-				break;
-			}
-		}
-
-		if (!sym.isModule())
-			return true;
-
-		return false;
-		}
-	case SynthesisSettings::ALL:
-		if (why_not_dissolved) {
-			auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseKeepHierarchy, sym.location);
-			note << sym.body.name;
-		}
-	default:
-		return false;
-	}
-}
-
 const ast::InstanceBodySymbol &NetlistContext::find_symbol_realm(const ast::Symbol &symbol)
 {
 	const ast::Scope *scope = symbol.getParentScope();
@@ -3137,7 +3658,7 @@ const ast::InstanceBodySymbol &NetlistContext::find_symbol_realm(const ast::Symb
 			auto parent = scope_symbol.as<ast::InstanceBodySymbol>().parentInstance;
 			log_assert(parent->getParentScope());
 			if (parent->getParentScope()->asSymbol().kind == ast::SymbolKind::Root
-					|| !should_dissolve(*parent)) {
+					|| !settings.should_dissolve(*parent)) {
 				return scope_symbol.as<ast::InstanceBodySymbol>();
 			} else {
 				scope = parent->getParentScope();
@@ -3187,10 +3708,10 @@ bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::Sourc
 		if (!silent) {
 			if (&symbol_realm != &common) {
 				// emit diagnostic for boundary on the hierarchical path to the symbol
-				(void) should_dissolve(*symbol_realm.parentInstance, &diag);
+				(void) settings.should_dissolve(*symbol_realm.parentInstance, &diag);
 			} else {
 				// emit diagnostic for boundary on the hierarchical path to the expression
-				(void) should_dissolve(*realm.parentInstance, &diag);
+				(void) settings.should_dissolve(*realm.parentInstance, &diag);
 			}			
 		}
 		return false;
@@ -3231,17 +3752,21 @@ NetlistContext::NetlistContext(
 		RTLIL::Design *design,
 		SynthesisSettings &settings,
 		ast::Compilation &compilation,
-		const ast::InstanceSymbol &instance)
+		const ast::InstanceSymbol &instance,
+		RTLIL::IdString module_name)
 	: settings(settings), compilation(compilation), realm(instance.body), eval(*this)
 {
-	canvas = design->addModule(module_type_id(instance.body));
+	if (module_name.empty())
+		module_name = module_type_id(instance.body);
+	canvas = design->addModule(module_name);
 	transfer_attrs(*this, instance.body.getDefinition(), canvas);
 }
 
 NetlistContext::NetlistContext(
 		NetlistContext &other,
-		const ast::InstanceSymbol &instance)
-	: NetlistContext(other.canvas->design, other.settings, other.compilation, instance)
+		const ast::InstanceSymbol &instance,
+		RTLIL::IdString module_name)
+	: NetlistContext(other.canvas->design, other.settings, other.compilation, instance, module_name)
 {
 }
 
@@ -3297,6 +3822,11 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 
 	if (!settings.no_synthesis_define.value_or(false)) {
 		driver.options.defines.push_back("SYNTHESIS=1");
+	}
+
+	if (settings.ff_naming.has_value()) {
+		if (auto error = ff_naming_template_error(settings.ff_naming_mode()))
+			log_cmd_error("%s", error->c_str());
 	}
 
 	if (!settings.no_default_translate_off.value_or(false)) {
@@ -3514,7 +4044,12 @@ struct SlangFrontend : Frontend {
 			global_compilation = &(*compilation);
 			global_sourcemgr = compilation->getSourceManager();
 
-			HierarchyQueue hqueue;
+			ModuleNameResolver module_names(settings);
+			for (auto instance : compilation->getRoot().topInstances)
+				module_names.scan_instance(*instance, true);
+			module_names.finalize();
+
+			HierarchyQueue hqueue(module_names);
 			for (auto instance : compilation->getRoot().topInstances) {
 				if (instance->getDefinition().definitionKind == ast::DefinitionKind::Program) {
 					slang::Diagnostic program_diag(diag::ProgramUnsupported, instance->location);
@@ -3758,8 +4293,12 @@ struct TestSlangExprPass : Pass {
 		global_compilation = &(*compilation);
 		global_sourcemgr = compilation->getSourceManager();
 
-		HierarchyQueue dummy_queue;
-		NetlistContext netlist(d, settings, *compilation, *top);
+		ModuleNameResolver module_names(settings);
+		module_names.scan_instance(*top, true);
+		module_names.finalize();
+
+		HierarchyQueue dummy_queue(module_names);
+		NetlistContext netlist(d, settings, *compilation, *top, module_names.module_name(top->body));
 		PopulateNetlist populate(dummy_queue, netlist);
 		populate.add_internal_wires(top->body);
 
