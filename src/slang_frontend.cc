@@ -3092,6 +3092,31 @@ bool NetlistContext::should_dissolve(const ast::InstanceSymbol &sym, slang::Diag
 	if (sym.isInterface())
 		return true;
 
+	if (sym.isModule()) {
+		for (auto *conn : sym.getPortConnections()) {
+			if (conn->port.kind == ast::SymbolKind::Port) {
+				auto &port = conn->port.as<ast::PortSymbol>();
+				if (port.direction != ast::ArgumentDirection::InOut)
+					continue;
+				if (why_not_dissolved) {
+					auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseInOut, port.location);
+					note << sym.body.name;
+				}
+				return false;
+			}
+			if (conn->port.kind == ast::SymbolKind::MultiPort) {
+				auto &port = conn->port.as<ast::MultiPortSymbol>();
+				if (port.direction != ast::ArgumentDirection::InOut)
+					continue;
+				if (why_not_dissolved) {
+					auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseInOut, port.location);
+					note << sym.body.name;
+				}
+				return false;
+			}
+		}
+	}
+
 	// the rest depends on the hierarchy mode
 	switch (settings.hierarchy_mode()) {
 	case SynthesisSettings::NONE:
