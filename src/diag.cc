@@ -105,6 +105,7 @@ DiagCode NoteModuleBlackboxBecauseAttribute(DiagSubsystem::Netlist, 1051);
 DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1052);
 DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1053);
 DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1054);
+DiagCode NoteModuleNotDissolvedBecauseInOut(DiagSubsystem::Netlist, 1084);
 DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1055);
 DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1056);
 DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1057);
@@ -273,6 +274,8 @@ void setup_messages(slang::DiagnosticEngine &engine)
 	engine.setSeverity(NoteModuleNotDissolvedBecauseBlackbox, DiagnosticSeverity::Note);
 	engine.setMessage(NoteModuleNotDissolvedBecauseKeepHierarchy, "instance of module '{}' will not dissolve because of '--keep-hierarchy' option");
 	engine.setSeverity(NoteModuleNotDissolvedBecauseKeepHierarchy, DiagnosticSeverity::Note);
+	engine.setMessage(NoteModuleNotDissolvedBecauseInOut, "instance of module '{}' will not dissolve because the module has an inout port");
+	engine.setSeverity(NoteModuleNotDissolvedBecauseInOut, DiagnosticSeverity::Note);
 
 	engine.setMessage(BlockingAssignmentAfterNonblocking, "blocking assignment to variable '{}' is not supported after previous non-blocking assignment");
 	engine.setSeverity(BlockingAssignmentAfterNonblocking, DiagnosticSeverity::Error);

@@ -61,6 +61,7 @@ extern slang::DiagCode NoteModuleBlackboxBecauseAttribute;
 extern slang::DiagCode NoteModuleBlackboxBecauseEmpty;
 extern slang::DiagCode NoteModuleNotDissolvedBecauseBlackbox;
 extern slang::DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy;
+extern slang::DiagCode NoteModuleNotDissolvedBecauseInOut;
 extern slang::DiagCode BlockingAssignmentAfterNonblocking;
 extern slang::DiagCode NonblockingAssignmentAfterBlocking;
 extern slang::DiagCode NotePreviousAssignment;

@@ -1,0 +1,26 @@
+read_slang <<EOF
+module iocell_opendrain (
+  inout  wire  pad,
+  input  logic oe,
+  output logic in
+);
+  assign in  = pad;
+  assign pad = oe ? 1'b0 : 1'bz;
+endmodule
+
+module top (
+  inout  wire  scl,
+  input  logic drive_low,
+  output logic sampled
+);
+  iocell_opendrain io_scl (
+    .pad(scl),
+    .oe (drive_low),
+    .in (sampled)
+  );
+endmodule
+EOF
+
+hierarchy -top top
+proc
+check
