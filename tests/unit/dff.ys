@@ -76,3 +76,34 @@ async2sync
 equiv_make dff_iff02_gold dff_iff02_gate dff_iff02_equiv
 equiv_induct dff_iff02_equiv
 equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module dff_iff03_gate(input logic clk, input logic rst, input logic en,
+					  input logic [3:0] d, output logic [3:0] q);
+	always_ff @(posedge clk iff en or posedge rst) begin
+		if (rst)
+			q <= 4'b0;
+		else
+			q <= d;
+	end
+endmodule
+EOF
+
+read_verilog <<EOF
+module dff_iff03_gold(input clk, input rst, input en,
+					  input [3:0] d, output reg [3:0] q);
+	always @(posedge clk or posedge rst) begin
+		if (rst)
+			q <= 4'b0;
+		else if (en)
+			q <= d;
+	end
+endmodule
+EOF
+
+proc
+async2sync
+equiv_make dff_iff03_gold dff_iff03_gate dff_iff03_equiv
+equiv_induct dff_iff03_equiv
+equiv_status -assert
