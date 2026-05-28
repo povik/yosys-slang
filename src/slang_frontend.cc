@@ -5,6 +5,8 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 // clang-format off
+#include <vector>
+
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/EvalContext.h"
@@ -692,8 +694,11 @@ RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression cons
 {
 	require(expr, expr.isFixedSize());
 	RTLIL::SigSpec cat;
+	std::vector<RTLIL::SigSpec> parts;
 
-	for (auto stream : expr.streams()) {
+	auto streams = expr.streams();
+	parts.reserve(streams.size());
+	for (auto stream : streams) {
 		require(*stream.operand, !stream.withExpr);
 		auto& op = *stream.operand;
 		RTLIL::SigSpec item;
@@ -703,8 +708,13 @@ RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression cons
 		else
 			item = (*this)(*stream.operand);
 
-		cat = {cat, item};
+		parts.push_back(item);
 	}
+
+	// SigSpec appends LSB-first; streams were evaluated left-to-right above,
+	// so append them in reverse to preserve SystemVerilog ordering.
+	for (auto part_it = parts.rbegin(); part_it != parts.rend(); ++part_it)
+		cat.append(*part_it);
 
 	require(expr, expr.getSliceSize() <= std::numeric_limits<int>::max());
 	int slice = expr.getSliceSize();
@@ -712,8 +722,12 @@ RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression cons
 		return cat;
 	} else {
 		RTLIL::SigSpec reorder;
+		std::vector<RTLIL::SigSpec> slices;
 		for (int i = 0; i < cat.size(); i += slice)
-			reorder = {reorder, cat.extract(i, std::min(slice, cat.size() - i))};
+			slices.push_back(cat.extract(i, std::min(slice, cat.size() - i)));
+		// Slice extraction also walks LSB-first, so rebuild in reverse order.
+		for (auto part_it = slices.rbegin(); part_it != slices.rend(); ++part_it)
+			reorder.append(*part_it);
 		return reorder;
 	}
 }
@@ -1469,8 +1483,15 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Concatenation:
 		{
 			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
-			for (auto op : concat.operands())
-				ret = {ret, (*this)(*op)};
+			auto operands = concat.operands();
+			std::vector<RTLIL::SigSpec> parts;
+			parts.reserve(operands.size());
+			for (auto op : operands)
+				parts.push_back((*this)(*op));
+			// SigSpec appends LSB-first; operands are evaluated in source order
+			// above and appended in reverse to preserve concatenation order.
+			for (auto part_it = parts.rbegin(); part_it != parts.rend(); ++part_it)
+				ret.append(*part_it);
 		}
 		break;
 	case ast::ExpressionKind::SimpleAssignmentPattern:
@@ -1485,10 +1506,16 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			}
 
 			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
+			auto elements = pattern_expr.elements();
 
 			ret = {};
-			for (auto elem : pattern_expr.elements())
-				ret = {ret, (*this)(*elem)};
+			std::vector<RTLIL::SigSpec> parts;
+			parts.reserve(elements.size());
+			for (auto elem : elements)
+				parts.push_back((*this)(*elem));
+			// Assignment patterns use the same bit ordering as concatenations.
+			for (auto part_it = parts.rbegin(); part_it != parts.rend(); ++part_it)
+				ret.append(*part_it);
 			ret = ret.repeat(repl_count);
 		}
 		break;
