@@ -69,3 +69,221 @@ endmodule
 EOF
 memory_collect
 select -assert-none t:$mem_v2
+
+design -reset
+read_slang <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst) begin
+			q <= 8'hxx;
+			x[0] <= 8'hxx;
+			x[1] <= 8'hxx;
+			x[2] <= 8'hxx;
+			x[3] <= 8'hxx;
+		end else begin
+			q <= x[a];
+			x[a][3] <= data[3];
+		end
+	end
+endmodule
+EOF
+select -assert-count 5 t:$memwr_v2
+memory_collect
+select -assert-count 1 t:$mem_v2 r:WR_PORTS=5 %i
+
+design -reset
+read_slang <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [1:0] b,
+	input [7:0] reset_data,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst) begin
+			q <= 8'hxx;
+			x[a] <= reset_data;
+		end else begin
+			q <= x[b];
+			x[b] <= data;
+		end
+	end
+endmodule
+EOF
+select -assert-count 2 t:$memwr_v2
+memory_collect
+select -assert-count 1 t:$mem_v2 r:WR_PORTS=2 %i
+select -assert-count 1 t:$mem_v2 r:RD_PORTS=1 %i
+
+design -reset
+read_slang <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [1:0] b,
+	input reset_bit,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst) begin
+			q <= 8'hxx;
+			x[a][3] <= reset_bit;
+		end else begin
+			q <= x[b];
+			x[b] <= data;
+		end
+	end
+endmodule
+EOF
+select -assert-count 2 t:$memwr_v2
+memory_collect
+select -assert-count 1 t:$mem_v2 r:WR_PORTS=2 %i
+select -assert-count 1 t:$mem_v2 r:RD_PORTS=1 %i
+
+design -reset
+read_slang <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst)
+			x[0] = 8'h00;
+		else begin
+			q <= x[a];
+			x[a] <= data;
+		end
+	end
+endmodule
+EOF
+memory_collect
+select -assert-none t:$mem_v2
+
+design -reset
+read_slang <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst)
+			x <= '{default:8'h00};
+		else begin
+			q <= x[a];
+			x[a] <= data;
+		end
+	end
+endmodule
+EOF
+memory_collect
+select -assert-none t:$mem_v2
+
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst) begin
+			x[0] <= 8'h00;
+			x[1] <= 8'h00;
+			x[2] <= 8'h00;
+			x[3] <= 8'h00;
+		end else begin
+			q <= x[a];
+			x[a] <= data;
+		end
+	end
+endmodule
+EOF
+memory_collect
+select -assert-none t:$mem_v2
+
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	(* ram_block *)
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst) begin
+			x[0] <= 8'h00;
+			x[1] <= 8'h00;
+			x[2] <= 8'h00;
+			x[3] <= 8'h00;
+		end else begin
+			q <= x[a];
+			x[a] <= data;
+		end
+	end
+endmodule
+EOF
+memory_collect
+select -assert-count 1 t:$mem_v2 r:WR_PORTS=5 %i
+select -assert-count 1 t:$mem_v2 r:RD_PORTS=1 %i
+memory_dff
+memory_share
+select -assert-count 1 t:$mem_v2
+
+design -reset
+test_slangdiag -expect "cannot infer memory from a variable despite 'ram_block' attribute"
+read_slang <<EOF
+module top(
+	input clk,
+	input rst,
+	input [1:0] a,
+	input [7:0] data,
+	output reg [7:0] q
+);
+	(* ram_block *)
+	reg [7:0] x[0:3];
+
+	always @(posedge clk or posedge rst) begin
+		if (rst)
+			x <= '{default:8'h00};
+		else begin
+			q <= x[a];
+			x[a] <= data;
+		end
+	end
+endmodule
+EOF
