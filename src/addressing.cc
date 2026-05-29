@@ -210,8 +210,6 @@ RTLIL::SigSpec AddressingResolver::raw_demux(RTLIL::SigSpec val, int from, int t
 
 		RTLIL::SigSpec val_gated = netlist.Mux(RTLIL::SigSpec(RTLIL::S0, stride), val, valid);
 
-		RTLIL::SigSpec demux_result = netlist.Demux(val_gated, sel);
-
 		positive = netlist.Demux(val_gated, sel).extract(0, to * stride);
 		log_assert(positive.size() == to * stride);
 	}
