@@ -16,7 +16,25 @@
 #include "slang_frontend.h"
 #include "variables.h"
 
+#include <limits>
+
 namespace slang_frontend {
+
+static int64_t min_signed_value_for_width(int width)
+{
+	log_assert(width > 0);
+	if (width >= 63)
+		return std::numeric_limits<int64_t>::min();
+	return -(1ll << (width - 1));
+}
+
+static int64_t max_signed_value_for_width(int width)
+{
+	log_assert(width > 0);
+	if (width >= 63)
+		return std::numeric_limits<int64_t>::max();
+	return (1ll << (width - 1)) - 1;
+}
 
 void AddressingResolver::interpret_index(RTLIL::SigSpec signal, int width_down, int width_up)
 {
@@ -225,6 +243,33 @@ RTLIL::SigSpec AddressingResolver::demux(RTLIL::SigSpec val, int output_len)
 			val, -std::max(0, base_offset), std::max(0, output_len / stride - base_offset));
 
 	return demuxed.extract(std::max(0, -stride * base_offset), output_len);
+}
+
+RTLIL::SigSpec AddressingResolver::demux_window(
+		RTLIL::SigSpec val, uint64_t first_element, uint64_t element_count)
+{
+	log_assert(val.size() == stride);
+	log_assert(element_count > 0);
+	log_assert(element_count < (1u << 23));
+	log_assert(element_count <=
+			(uint64_t)std::numeric_limits<int>::max() / (uint64_t)std::max(1, stride));
+
+	__int128 requested_first = (__int128)first_element - base_offset;
+	__int128 requested_last = requested_first + element_count - 1;
+	__int128 valid_first = std::max(requested_first, (__int128)min_signed_value_for_width(raw_signal.size()));
+	__int128 valid_last = std::min(requested_last, (__int128)max_signed_value_for_width(raw_signal.size()));
+	if (valid_first > valid_last)
+		return RTLIL::SigSpec(RTLIL::S0, (int)(element_count * stride));
+
+	uint64_t prefix_zeros = (uint64_t)(valid_first - requested_first);
+	uint64_t valid_count = (uint64_t)(valid_last - valid_first + 1);
+	uint64_t suffix_zeros = element_count - prefix_zeros - valid_count;
+
+	RTLIL::SigSpec ret;
+	ret.append(RTLIL::SigSpec(RTLIL::S0, (int)(prefix_zeros * stride)));
+	ret.append(netlist.DemuxWindow(val, raw_signal, (int64_t)valid_first, valid_count, true));
+	ret.append(RTLIL::SigSpec(RTLIL::S0, (int)(suffix_zeros * stride)));
+	return ret;
 }
 
 RTLIL::SigSpec AddressingResolver::raw_mux(RTLIL::SigSpec val, int from, int to, int stride)

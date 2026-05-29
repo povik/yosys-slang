@@ -4,7 +4,14 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include <algorithm>
 #include <limits>
+
+// Fix for Yosys declaring ceil_log2 as both inline and non-inline
+// but not defining the non-inline one; be sure to include utils.h
+// with the inline definition to prevent linkage errors on some
+// platforms
+#include "kernel/utils.h"
 
 #include "slang_frontend.h"
 #include "variables.h"
@@ -70,6 +77,8 @@ SigSpec RTLILBuilder::Demux(SigSpec a, SigSpec s)
 {
 	log_assert(s.size() < 24);
 	SigSpec zeropad(RTLIL::S0, a.size());
+	if (a.is_fully_zero())
+		return SigSpec(RTLIL::S0, a.size() << s.size());
 	if (s.is_fully_const()) {
 		int idx_const = s.as_const().as_int();
 		return {zeropad.repeat((1 << s.size()) - 1 - idx_const), a, zeropad.repeat(idx_const)};
@@ -77,6 +86,58 @@ SigSpec RTLILBuilder::Demux(SigSpec a, SigSpec s)
 	auto [id, y] = add_y_wire(a.size() << s.size());
 	bless_cell(canvas->addDemux(id, a, s, y));
 	return y;
+}
+
+SigSpec RTLILBuilder::DemuxWindow(
+		SigSpec a, SigSpec s, int64_t first_branch, uint64_t branch_count, bool s_signed)
+{
+	log_assert(branch_count > 0);
+	log_assert(branch_count < (1u << 23));
+	log_assert((uint64_t)std::max(1, a.size()) <=
+			(uint64_t)std::numeric_limits<int>::max() / branch_count);
+
+	int output_width = a.size() * (int)branch_count;
+	if (a.is_fully_zero())
+		return SigSpec(RTLIL::S0, output_width);
+
+	if (s.is_fully_const()) {
+		int64_t idx_const = s.as_const().as_int(s_signed);
+		int64_t branch = idx_const - first_branch;
+		if (branch < 0 || branch >= (int64_t)branch_count)
+			return SigSpec(RTLIL::S0, output_width);
+
+		SigSpec ret(RTLIL::S0, output_width);
+		ret.replace((int)branch * a.size(), a);
+		return ret;
+	}
+
+	if (branch_count == 1) {
+		SigSpec expected(RTLIL::Const(first_branch, s.size()));
+		SigSpec guard = Eq(s, expected);
+		SigSpec bit_guards(guard[0], a.size());
+		if (a.is_fully_ones())
+			return bit_guards;
+		return Bwmux(SigSpec(RTLIL::S0, a.size()), a, bit_guards);
+	}
+
+	int demux_width = 1 << ceil_log2((int)branch_count);
+	int select_width = ceil_log2(demux_width);
+	int relative_width = std::max(s.size() + 1, select_width + 1);
+
+	SigSpec first_const(RTLIL::Const(first_branch, s.size()));
+	SigSpec relative = Biop(ID($sub), s, first_const, s_signed, s_signed, relative_width);
+	SigSpec in_range = Eq(relative.extract(select_width, relative_width - select_width),
+			SigSpec(RTLIL::S0, relative_width - select_width));
+	SigSpec guards = Demux(in_range, relative.extract(0, select_width)).extract(0, branch_count);
+
+	SigSpec bit_guards;
+	for (uint64_t i = 0; i < branch_count; i++)
+		bit_guards.append(SigSpec(guards[(int)i], a.size()));
+
+	if (a.is_fully_ones())
+		return bit_guards;
+
+	return Bwmux(SigSpec(RTLIL::S0, output_width), a.repeat((int)branch_count), bit_guards);
 }
 
 SigSpec RTLILBuilder::Le(SigSpec a, SigSpec b, bool is_signed)
@@ -175,6 +236,8 @@ SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s)
 		return a;
 	if (s[0] == RTLIL::S1)
 		return b;
+	if (a == b)
+		return a;
 	auto [id, y] = add_y_wire(a.size());
 	bless_cell(canvas->addMux(id, a, b, s, y));
 	return y;
@@ -184,6 +247,8 @@ SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s)
 {
 	log_assert(a.size() == b.size());
 	log_assert(a.size() == s.size());
+	if (a == b)
+		return a;
 	if (s.is_fully_const()) {
 		SigSpec result(RTLIL::Sx, a.size());
 		for (int i = 0; i < a.size(); i++) {

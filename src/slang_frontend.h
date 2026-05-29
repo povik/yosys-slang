@@ -432,6 +432,10 @@ struct RTLILBuilder {
 	SigSpec ReduceBool(SigSpec a);
 
 	SigSpec Demux(SigSpec a, SigSpec s);
+	// Return only the contiguous branch window
+	// [first_branch, first_branch + branch_count) from a demux.
+	SigSpec DemuxWindow(SigSpec a, SigSpec s, int64_t first_branch, uint64_t branch_count,
+			bool s_signed=false);
 	SigSpec Le(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Ge(SigSpec a, SigSpec b, bool is_signed);
 	SigSpec Lt(SigSpec a, SigSpec b, bool is_signed);
@@ -726,6 +730,11 @@ public:
 
 	RTLIL::SigSpec shift_up(RTLIL::SigSpec val, bool oor_undef, int output_len);
 	RTLIL::SigSpec demux(RTLIL::SigSpec val, int output_len);
+	// Like demux(), but returns only the mask bits for zero-based elements
+	// [first_element, first_element + element_count). The input val is one
+	// element wide, and the result is element_count elements wide.
+	RTLIL::SigSpec demux_window(
+			RTLIL::SigSpec val, uint64_t first_element, uint64_t element_count);
 	RTLIL::SigSpec mux(RTLIL::SigSpec val, int output_len);
 	RTLIL::SigSpec shift_down(RTLIL::SigSpec val, int output_len);
 	template <typename Bundle> Bundle extract(Bundle val, uint64_t width);

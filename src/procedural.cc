@@ -5,6 +5,8 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 
+#include <algorithm>
+
 #include "slang/ast/Statement.h"
 #include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
@@ -27,6 +29,10 @@
 #include "variables.h"
 
 namespace slang_frontend {
+
+// Bound dynamic element-select updates by target bits. A single lane can be
+// wider than this cap, so block sizing still allows one element per update.
+static constexpr uint64_t max_dynamic_lhs_block_bits = 1024;
 
 EnterAutomaticScopeGuard::EnterAutomaticScopeGuard(EvalContext &context, const ast::Scope *scope)
 	: context(context), scope(scope)
@@ -187,6 +193,45 @@ void crop_undef_mask(const RTLIL::SigSpec &mask, VariableBits &target)
 	}
 }
 
+// Keep dynamic element-like writes bounded without materializing a full-width
+// repeated RHS and mask before update_variable_state() can crop them.
+static bool try_assign_dynamic_element_with_masking(const ast::AssignmentExpression &assign,
+		ProceduralContext &context, AddressingResolver &resolver, LValue &inner,
+		uint64_t element_width, const RTLIL::SigSpec &rvalue, const RTLIL::SigSpec &mask,
+		bool blocking)
+{
+	if (resolver.is_static() || resolver.stride != (int)element_width || !inner.is_static())
+		return false;
+	if (context.timing.kind == ProcessTiming::Initial)
+		return false;
+
+	VariableBits inner_vbits = inner.evaluate_vbits();
+	if (inner_vbits.bitwidth() % element_width != 0)
+		return false;
+
+	uint64_t element_count = inner_vbits.bitwidth() / element_width;
+	if (mask.is_fully_zero())
+		return true;
+
+	uint64_t max_block_elements =
+			std::max<uint64_t>(1, max_dynamic_lhs_block_bits / element_width);
+	uint64_t elements_per_block = std::min(element_count, max_block_elements);
+
+	for (uint64_t first = 0; first < element_count; first += elements_per_block) {
+		uint64_t block_elements = std::min(elements_per_block, element_count - first);
+		RTLIL::SigSpec block_mask = resolver.demux_window(mask, first, block_elements);
+		if (block_mask.is_fully_zero())
+			continue;
+
+		VariableBits target =
+			inner_vbits.extract(first * element_width, block_elements * element_width);
+		context.update_variable_state(assign.sourceRange.start(), std::move(target),
+				rvalue.repeat(block_elements), std::move(block_mask), blocking);
+	}
+
+	return true;
+}
+
 void ProceduralContext::update_variable_state(slang::SourceLocation loc, VariableBits lvalue,
 		RTLIL::SigSpec unmasked_rvalue, RTLIL::SigSpec mask, bool blocking)
 {
@@ -284,18 +329,20 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 		// shortcut path to support initialization of automatic variables
 		// (evaluating the background value is unavailable on the first
 		// assignment)
-		vstate.set(lvalue, unmasked_rvalue);
+		vstate.set(std::move(lvalue), std::move(unmasked_rvalue));
 	} else {
 		RTLIL::SigSpec rvalue_background = vstate.evaluate(netlist, lvalue);
 		RTLIL::SigSpec rvalue = netlist.Bwmux(rvalue_background, unmasked_rvalue, mask);
-		vstate.set(lvalue, rvalue);
+		vstate.set(std::move(lvalue), std::move(rvalue));
 	}
 }
 
 void ProceduralContext::do_simple_assign(
 		slang::SourceLocation loc, VariableBits lvalue, RTLIL::SigSpec rvalue, bool blocking)
 {
-	update_variable_state(loc, lvalue, rvalue, RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
+	int width = rvalue.size();
+	update_variable_state(loc, std::move(lvalue), std::move(rvalue),
+			RTLIL::SigSpec(RTLIL::S1, width), blocking);
 }
 
 RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
@@ -359,6 +406,11 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 		log_assert(base == 0);
 	} else if (auto range_sel = std::get_if<LValue::RangeSelect>(&lvalue.descriptor)) {
 		if (range_sel->resolver->stride == lvalue.bitsize) {
+			if (try_assign_dynamic_element_with_masking(
+						assign, context, *range_sel->resolver, *range_sel->inner, lvalue.bitsize,
+						rvalue, mask, blocking))
+				return;
+
 			// Effectively an element select
 			assign_to_lvalue_with_masking(assign, context, *range_sel->inner,
 					rvalue.repeat(range_sel->resolver->range.width()),
