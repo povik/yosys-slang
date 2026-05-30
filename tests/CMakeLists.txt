@@ -24,6 +24,7 @@ if (WITH_COVERAGE)
 endif()
 
 set(ALL_TESTS
+    sva/seqequiv.tcl
     unit/async.ys
     unit/dualedge.ys
     unit/function_call.ys

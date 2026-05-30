@@ -12,6 +12,7 @@ else()
 endif()
 
 add_library(yosys-slang ${LIBRARY_TYPE}
+    yosys_plugin/sva_testutils.cc
     abort_helpers.cc
     addressing.cc
     async_pattern.cc
