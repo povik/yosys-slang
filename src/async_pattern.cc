@@ -125,6 +125,15 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 	const auto &timed = symbol.getBody().as<ast::TimedStatement>();
 	const ast::Statement *stmt = &body;
 
+	if (triggers.size() == 1) {
+		// Fast track the process if this is a plain process with edge sensitivity
+		// on the clock only. Not trying to infer any preamble improves metadata
+		// preservation, notably `containing_block` tracked by StatementExecutor,
+		// ultimately making sure we don't miss block names for assertion naming.
+		handle_ff_process(symbol, *triggers[0], nullptr, {}, body, {});
+		return;
+	}
+
 	std::vector<AsyncBranch> found_async;
 	const ast::StatementBlockSymbol *prologue_block = nullptr;
 	std::vector<const ast::Statement *> prologue;
