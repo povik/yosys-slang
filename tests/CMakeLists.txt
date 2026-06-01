@@ -29,6 +29,7 @@ set(ALL_TESTS
     unit/function_call.ys
     unit/expression_attrs.ys
     unit/latch.ys
+    unit/expr_bitwise_z_simplification.tcl
     unit/selftests.tcl
     unit/switchhelper_rank1_order.tcl
     various/assign_mixing.ys

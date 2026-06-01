@@ -323,6 +323,27 @@ int convert(RTLIL::SigBit bit)
 }
 }; // namespace ThreeValued
 
+static SigSpec bitwise_identity_result(SigSpec sig)
+{
+	std::vector<int> z_offsets;
+	int offset = 0;
+
+	for (const RTLIL::SigChunk &chunk : sig.chunks()) {
+		if (!chunk.is_wire()) {
+			for (int i = 0; i < chunk.width; i++) {
+				if (chunk.data[i] == RTLIL::Sz)
+					z_offsets.push_back(offset + i);
+			}
+		}
+		offset += chunk.width;
+	}
+
+	for (int z_offset : z_offsets)
+		sig[z_offset] = RTLIL::Sx;
+
+	return sig;
+}
+
 SigSpec RTLILBuilder::Biop(
 		IdString op, SigSpec a, SigSpec b, bool a_signed, bool b_signed, int y_width)
 {
@@ -396,6 +417,27 @@ SigSpec RTLILBuilder::Biop(
 			SigSpec ret = {RTLIL::S1};
 			ret.extend_u0(y_width);
 			return ret;
+		}
+	}
+
+	if (op.in(ID($and), ID($or)) && a.size() == y_width && b.size() == y_width) {
+		if (a == b)
+			return bitwise_identity_result(a);
+
+		if (op == ID($and)) {
+			if (a.is_fully_zero() || b.is_fully_zero())
+				return SigSpec(RTLIL::S0, y_width);
+			if (a.is_fully_ones())
+				return bitwise_identity_result(b);
+			if (b.is_fully_ones())
+				return bitwise_identity_result(a);
+		} else {
+			if (a.is_fully_ones() || b.is_fully_ones())
+				return SigSpec(RTLIL::S1, y_width);
+			if (a.is_fully_zero())
+				return bitwise_identity_result(b);
+			if (b.is_fully_zero())
+				return bitwise_identity_result(a);
 		}
 	}
 
