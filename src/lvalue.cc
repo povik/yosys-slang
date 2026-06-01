@@ -71,7 +71,7 @@ std::optional<LValue> LValue::analyze(
 				expr, rse.value().type->isBitstreamType() && rse.value().type->hasFixedRange());
 		AddressingResolver resolver(context, rse);
 
-		std::optional<LValue> inner = analyze(context, rse.value());
+		std::optional<LValue> inner = analyze(context, rse.value(), silent);
 		if (!inner)
 			return std::nullopt;
 
@@ -84,7 +84,7 @@ std::optional<LValue> LValue::analyze(
 		ast_invariant(
 				expr, ese.value().type->isBitstreamType() && ese.value().type->hasFixedRange());
 
-		if (context.netlist.is_inferred_memory(ese.value()) &&
+		if (context.netlist.is_inferred_memory(ese.value()) && context.procedural &&
 				context.procedural->timing.kind != ProcessTiming::Initial) {
 			RTLIL::SigSpec address = context(ese.selector());
 			auto variable =
@@ -92,7 +92,7 @@ std::optional<LValue> LValue::analyze(
 			return LValue::memoryWrite(variable, address, ese.type->getBitstreamWidth());
 		}
 
-		std::optional<LValue> inner = analyze(context, ese.value());
+		std::optional<LValue> inner = analyze(context, ese.value(), silent);
 		if (!inner)
 			return std::nullopt;
 
@@ -115,7 +115,7 @@ std::optional<LValue> LValue::analyze(
 	case ast::ExpressionKind::MemberAccess: {
 		const auto &acc = expr.as<ast::MemberAccessExpression>();
 
-		std::optional<LValue> inner = analyze(context, acc.value());
+		std::optional<LValue> inner = analyze(context, acc.value(), silent);
 		if (!inner)
 			return std::nullopt;
 

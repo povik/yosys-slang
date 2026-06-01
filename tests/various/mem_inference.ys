@@ -69,3 +69,24 @@ endmodule
 EOF
 memory_collect
 select -assert-none t:$mem_v2
+
+design -reset
+read_slang <<EOF
+module top(
+	input clk,
+	input [1:0] a,
+	input [7:0] data,
+	output [7:0] q_const,
+	output [7:0] q_dyn
+);
+	reg [7:0] x[0:3];
+
+	assign q_const = x[2];
+	assign q_dyn = x[a];
+
+	always @(posedge clk)
+		x[a] <= data;
+endmodule
+EOF
+memory_collect
+select -assert-count 1 t:$mem_v2 r:RD_PORTS=2 %i

@@ -101,6 +101,9 @@ namespace parsing = slang::parsing;
 ast::Compilation *global_compilation;
 const slang::SourceManager *global_sourcemgr;
 
+static constexpr size_t static_rvalue_cache_max_entries = 65536;
+static constexpr uint64_t static_rvalue_cache_max_cost = 4 * 1024 * 1024;
+
 slang::SourceRange source_location(const ast::Symbol &obj)			{ return slang::SourceRange(obj.location, obj.location); }
 slang::SourceRange source_location(const ast::Expression &expr)		{ return expr.sourceRange; }
 slang::SourceRange source_location(const ast::Statement &stmt)		{ return stmt.sourceRange; }
@@ -1451,6 +1454,113 @@ RTLIL::SigSpec EvalContext::sva(ast::Expression const &expr)
 	return ret;
 }
 
+static bool evaluates_to_defined_integer(
+		const ast::Expression &expr, ast::EvalContext &context)
+{
+	auto value = expr.eval(context);
+	return value && value.isInteger() && !value.integer().hasUnknown();
+}
+
+static bool has_static_rvalue_shape(EvalContext &context, const ast::Expression &expr)
+{
+	if (!expr.type || !expr.type->isFixedSize() || expr.type->isVoid())
+		return false;
+
+	// Keep this prefilter cheaper and stricter than LValue::analyze(), which
+	// may evaluate selectors and construct addressing state before rejecting.
+	switch (expr.kind) {
+	case ast::ExpressionKind::HierarchicalValue:
+	case ast::ExpressionKind::NamedValue: {
+		const ast::Symbol &symbol = expr.as<ast::ValueExpressionBase>().symbol;
+		return ast::ValueSymbol::isKind(symbol.kind) &&
+				!ast::ParameterSymbol::isKind(symbol.kind) &&
+				!context.netlist.is_inferred_memory(symbol);
+	}
+	case ast::ExpressionKind::MemberAccess:
+		return has_static_rvalue_shape(
+				context, expr.as<ast::MemberAccessExpression>().value());
+	case ast::ExpressionKind::ElementSelect: {
+		const auto &select = expr.as<ast::ElementSelectExpression>();
+		if (!select.value().type->isBitstreamType() || !select.value().type->hasFixedRange() ||
+				context.netlist.is_inferred_memory(select.value()))
+			return false;
+		return evaluates_to_defined_integer(select.selector(), context.const_) &&
+				has_static_rvalue_shape(context, select.value());
+	}
+	case ast::ExpressionKind::RangeSelect: {
+		const auto &select = expr.as<ast::RangeSelectExpression>();
+		if (!select.value().type->isBitstreamType() || !select.value().type->hasFixedRange())
+			return false;
+
+		if (!evaluates_to_defined_integer(select.left(), context.const_) ||
+				!evaluates_to_defined_integer(select.right(), context.const_))
+			return false;
+
+		return has_static_rvalue_shape(context, select.value());
+	}
+	case ast::ExpressionKind::Conversion: {
+		const auto &conversion = expr.as<ast::ConversionExpression>();
+		if (conversion.operand().kind == ast::ExpressionKind::Streaming)
+			return false;
+		const ast::Type &from = conversion.operand().type->getCanonicalType();
+		const ast::Type &to = conversion.type->getCanonicalType();
+		return to.isBitstreamType() && from.isBitstreamType() &&
+				from.getBitstreamWidth() == to.getBitstreamWidth() &&
+				has_static_rvalue_shape(context, conversion.operand());
+	}
+	case ast::ExpressionKind::Concatenation: {
+		const auto &concat = expr.as<ast::ConcatenationExpression>();
+		for (auto operand : concat.operands()) {
+			if (!has_static_rvalue_shape(context, *operand))
+				return false;
+		}
+		return true;
+	}
+	default:
+		return false;
+	}
+}
+
+static uint64_t variable_bits_cache_cost(const VariableBits &bits)
+{
+	uint64_t cost = bits.bitwidth();
+	for (auto chunk : bits.chunks()) {
+		(void)chunk;
+		cost += 16;
+	}
+	return cost;
+}
+
+std::optional<RTLIL::SigSpec> EvalContext::static_rvalue_signal(ast::Expression const &expr)
+{
+	if (procedural || in_sva_expression || !has_static_rvalue_shape(*this, expr))
+		return std::nullopt;
+
+	auto cached = netlist.static_rvalue_cache.find(&expr);
+	if (cached != netlist.static_rvalue_cache.end())
+		return cached->second;
+
+	auto lvalue = LValue::analyze(*this, expr, true);
+	if (!lvalue || !lvalue->is_static())
+		return std::nullopt;
+
+	VariableBits bits = lvalue->evaluate_vbits();
+	if (bits.bitwidth() != expr.type->getBitstreamWidth() || bits.has_dummy_bits())
+		return std::nullopt;
+
+	// Store only fully validated static RHS expressions; any rejected shape
+	// falls back to the normal expression lowering path.
+	uint64_t cost = variable_bits_cache_cost(bits);
+	RTLIL::SigSpec signal = netlist.convert_static(bits);
+	if (netlist.static_rvalue_cache.size() < static_rvalue_cache_max_entries &&
+			netlist.static_rvalue_cache_cost + cost <= static_rvalue_cache_max_cost) {
+		netlist.static_rvalue_cache[&expr] = signal;
+		netlist.static_rvalue_cache_cost += cost;
+	}
+
+	return signal;
+}
+
 RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 {
 	RTLIL::Module *mod = netlist.canvas;
@@ -1487,6 +1597,11 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				goto error;
 			}
 		}
+	}
+
+	if (auto static_signal = static_rvalue_signal(expr)) {
+		ret = *static_signal;
+		goto done;
 	}
 
 	switch (expr.kind) {

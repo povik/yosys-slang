@@ -18,6 +18,7 @@
 
 template<> struct Yosys::hashlib::hash_ops<const slang::ast::Symbol*> : Yosys::hashlib::hash_ptr_ops {};
 template<> struct Yosys::hashlib::hash_ops<const slang::ast::Scope*> : Yosys::hashlib::hash_ptr_ops {};
+template<> struct Yosys::hashlib::hash_ops<const slang::ast::Expression*> : Yosys::hashlib::hash_ptr_ops {};
 template<> struct Yosys::hashlib::hash_ops<void*> : Yosys::hashlib::hash_ptr_ops {};
 
 namespace slang {
@@ -140,6 +141,7 @@ struct EvalContext {
 
 	RTLIL::SigSpec apply_conversion(const ast::ConversionExpression &conv, RTLIL::SigSpec op);
 	RTLIL::SigSpec apply_nested_conversion(const ast::Expression &expr, RTLIL::SigSpec val);
+	std::optional<RTLIL::SigSpec> static_rvalue_signal(ast::Expression const &expr);
 	VariableBits streaming_lhs(ast::StreamingConcatenationExpression const &expr);
 	RTLIL::SigSpec streaming(ast::StreamingConcatenationExpression const &expr);
 
@@ -609,6 +611,10 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	const RTLIL::SigSpec& add_wire(const ast::ValueSymbol &sym);
 	const RTLIL::SigSpec& wire(const ast::Symbol &sym);
 	RTLIL::SigSpec convert_static(VariableBits bits);
+
+	// Cache successful static RHS expression analyses after all shape checks.
+	Yosys::dict<const ast::Expression*, RTLIL::SigSpec> static_rvalue_cache;
+	uint64_t static_rvalue_cache_cost = 0;
 
 	struct Memory {
 		int num_wr_ports = 0;
