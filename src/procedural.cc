@@ -135,18 +135,12 @@ void ProceduralContext::copy_case_tree_into(RTLIL::CaseRule &rule)
 VariableBits ProceduralContext::all_driven()
 {
 	VariableBits all_driven;
-	for (auto pair : vstate.visible_assignments) {
-		all_driven.append(pair.first);
+	for (auto chunk : vstate.assigned_chunks()) {
+		if (chunk.variable.kind == Variable::Static)
+			all_driven.append(VariableBits(chunk));
 	}
 
-	all_driven.sort_and_unify();
-
-	VariableBits all_driven_filtered;
-	for (auto chunk : all_driven.chunks())
-		if (chunk.variable.kind == Variable::Static)
-			all_driven_filtered.append(VariableBits(chunk));
-
-	return all_driven_filtered;
+	return all_driven;
 }
 
 RTLIL::SigBit ProceduralContext::case_enable()

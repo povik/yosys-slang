@@ -296,16 +296,40 @@ private:
 
 public:
 	struct VariableState {
-		using Map = Yosys::dict<VariableBit, RTLIL::SigBit>;
+		// Procedural assignments are stored as sorted, non-overlapping
+		// per-variable segments. Branch save/restore uses the same structure
+		// to log the first parent value seen for each touched segment.
+		// Undo segments use Sm bits to mark positions that had no assignment
+		// and should be erased when the saved state is restored.
+		struct Segment {
+			uint64_t base;
+			RTLIL::SigSpec value;
 
-		Map visible_assignments;
-		Map revert;
+			uint64_t end() const { return base + value.size(); }
+			uint64_t bitwidth() const { return value.size(); }
+		};
+
+		struct SegmentStore {
+			Yosys::dict<Variable, std::vector<Segment>> by_variable;
+
+			void clear() { by_variable.clear(); }
+			void swap(SegmentStore &other) { by_variable.swap(other.by_variable); }
+		};
+
+		using SaveState = SegmentStore;
+
+		SegmentStore visible_assignments;
+		SaveState revert;
 
 		void set(VariableBits lhs, RTLIL::SigSpec value);
 		RTLIL::SigSpec evaluate(NetlistContext &netlist, VariableBits vbits);
 		RTLIL::SigSpec evaluate(NetlistContext &netlist, VariableChunk vchunk);
-		void save(Map &save);
-		std::pair<VariableBits, RTLIL::SigSpec> restore(Map &save);
+		void save(SaveState &save);
+		std::pair<VariableBits, RTLIL::SigSpec> restore(SaveState &save);
+		bool has_assignment(VariableBit bit) const;
+		bool has_overlap(VariableChunk chunk) const;
+		RTLIL::SigBit assignment(VariableBit bit) const;
+		std::vector<VariableChunk> assigned_chunks() const;
 	};
 
 	VariableState vstate;

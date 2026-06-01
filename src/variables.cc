@@ -162,7 +162,7 @@ bool Variable::operator<(const Variable &other) const
 			else
 				return order_symbols_within_scope(symbol, other.symbol);
 		}
-		return false;
+		return depth < other.depth;
 	} else if (kind == EscapeFlag) {
 		return id < other.id;
 	} else if (kind == Dummy) {

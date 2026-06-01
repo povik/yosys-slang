@@ -13,7 +13,117 @@
 #include "slang_frontend.h"
 #include "variables.h"
 
+#include <algorithm>
+#include <map>
+
 namespace slang_frontend {
+
+// Collect the ranges touched by any switch branch without flattening them to
+// individual bits. The map keeps variables deterministic, and chunks() merges
+// overlapping per-variable intervals before placeholder creation.
+struct SwitchUpdatedChunks
+{
+	struct Interval
+	{
+		uint64_t base;
+		uint64_t end;
+	};
+
+	std::map<Variable, std::vector<Interval>> by_variable;
+
+	void add(const VariableChunk &chunk)
+	{
+		by_variable[chunk.variable].push_back({chunk.base, chunk.base + chunk.length});
+	}
+
+	void add(const VariableBits &bits)
+	{
+		for (auto chunk : bits.chunks())
+			add(chunk);
+	}
+
+	std::vector<VariableChunk> chunks()
+	{
+		std::vector<VariableChunk> ret;
+
+		for (auto &[variable, intervals] : by_variable) {
+			std::sort(intervals.begin(), intervals.end(), [](const Interval &lhs, const Interval &rhs) {
+				return std::make_tuple(lhs.base, lhs.end) < std::make_tuple(rhs.base, rhs.end);
+			});
+
+			uint64_t base = 0, end = 0;
+			for (auto interval : intervals) {
+				if (base == end) {
+					base = interval.base;
+					end = interval.end;
+					continue;
+				}
+
+				if (interval.base <= end) {
+					end = std::max(end, interval.end);
+					continue;
+				}
+
+				ret.push_back({variable, base, end - base});
+				base = interval.base;
+				end = interval.end;
+			}
+			if (base != end)
+				ret.push_back({variable, base, end - base});
+		}
+
+		return ret;
+	}
+};
+
+// Side table from merged update chunks to their switch-output placeholders.
+// Branch updates can ask for any sub-range of a merged chunk and get the
+// matching placeholder slice in VariableBits order.
+struct SwitchPlaceholderSignals
+{
+	struct Range
+	{
+		VariableChunk chunk;
+		RTLIL::SigSpec signal;
+	};
+
+	std::map<Variable, std::vector<Range>> by_variable;
+
+	void add(const VariableChunk &chunk, const RTLIL::SigSpec &signal)
+	{
+		by_variable[chunk.variable].push_back({chunk, signal});
+	}
+
+	RTLIL::SigSpec signal_for(const VariableChunk &chunk) const
+	{
+		RTLIL::SigSpec ret;
+		auto ranges_it = by_variable.find(chunk.variable);
+		log_assert(ranges_it != by_variable.end());
+		const auto &ranges = ranges_it->second;
+
+		uint64_t done = 0;
+		while (done < chunk.length) {
+			uint64_t bit = chunk.base + done;
+			auto range_it = std::upper_bound(
+					ranges.begin(), ranges.end(), bit,
+					[](uint64_t value, const Range &range) { return value < range.chunk.base; });
+			log_assert(range_it != ranges.begin());
+			range_it--;
+
+			uint64_t range_end = range_it->chunk.base + range_it->chunk.length;
+			log_assert(bit >= range_it->chunk.base);
+			log_assert(bit < range_end);
+			log_assert(range_it->signal.size() == (int)range_it->chunk.length);
+
+			uint64_t range_offset = bit - range_it->chunk.base;
+			uint64_t width = std::min(chunk.length - done, range_it->chunk.length - range_offset);
+			ret.append(range_it->signal.extract((int)range_offset, (int)width));
+			done += width;
+		}
+
+		return ret;
+	}
+};
 
 struct SwitchHelper
 {
@@ -24,7 +134,7 @@ struct SwitchHelper
 	using VariableState = ProceduralContext::VariableState;
 
 	VariableState &vstate;
-	VariableState::Map save_map;
+	VariableState::SaveState save_map;
 	std::vector<std::tuple<Case *, VariableBits, RTLIL::SigSpec>> branch_updates;
 	bool entered = false, finished = false;
 
@@ -89,23 +199,31 @@ struct SwitchHelper
 
 	void finish(NetlistContext &netlist)
 	{
-		VariableBits updated_anybranch;
+		SwitchUpdatedChunks updated_anybranch;
 		for (auto &branch : branch_updates)
-			updated_anybranch.append(std::get<1>(branch));
-		updated_anybranch.sort_and_unify();
+			updated_anybranch.add(std::get<1>(branch));
+		auto updated_chunks = updated_anybranch.chunks();
 
-		// end-of-scope variables
+		// Automatic variables that were created only inside a branch have no
+		// parent-scope value to merge into, so they do not get placeholders.
 		Yosys::pool<Variable> eos_variables;
 
-		auto &va = vstate.visible_assignments;
-		for (auto bit : updated_anybranch)
-			if (bit.variable.kind != Variable::Static && !va.count(bit))
-				eos_variables.insert(bit.variable);
+		for (auto chunk : updated_chunks) {
+			if (chunk.variable.kind == Variable::Static)
+				continue;
+			for (uint64_t i = 0; i < chunk.bitwidth(); i++)
+				if (!vstate.has_assignment(chunk[i]))
+					eos_variables.insert(chunk.variable);
+		}
 
-		for (auto chunk : updated_anybranch.chunks()) {
+		SwitchPlaceholderSignals placeholder_signals;
+
+		// Create one placeholder per merged chunk and publish it as the
+		// visible value after the switch.
+		for (auto chunk : updated_chunks) {
 			if (chunk.variable.kind != Variable::Static && eos_variables.count(chunk.variable)) {
 				for (uint64_t i = 0; i < chunk.bitwidth(); i++)
-					log_assert(!va.count(chunk[i]));
+					log_assert(!vstate.has_assignment(chunk[i]));
 
 				continue;
 			}
@@ -121,9 +239,12 @@ struct SwitchHelper
 			RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
 			RTLIL::SigSpec w = netlist.add_placeholder_signal(chunk.bitwidth(), name_suggestion);
 			parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
+			placeholder_signals.add(chunk, w);
 			vstate.set(chunk, w);
 		}
 
+		// Re-target each branch's original updates onto slices of the merged
+		// placeholders created above.
 		for (auto &branch : branch_updates) {
 			Case *rule;
 			VariableBits target;
@@ -137,12 +258,7 @@ struct SwitchHelper
 					continue;
 				}
 
-				// get the wire (or some part of it) which we created up above
-				RTLIL::SigSpec target_w;
-				for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
-					log_assert(va.count(chunk[i]));
-					target_w.append(va.at(chunk[i]));
-				}
+				RTLIL::SigSpec target_w = placeholder_signals.signal_for(chunk);
 
 				rule->aux_actions.push_back(
 						RTLIL::SigSig(target_w, source.extract(done, (int)chunk.bitwidth())));

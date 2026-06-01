@@ -5,6 +5,7 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 // clang-format off
+#include <algorithm>
 #include <vector>
 
 #include "slang/ast/ASTVisitor.h"
@@ -461,37 +462,263 @@ const ast::InstanceBodySymbol &get_instance_body(SynthesisSettings &settings, co
 }
 
 using VariableState = ProceduralContext::VariableState;
+using StateSegment = VariableState::Segment;
+using StateSegmentStore = VariableState::SegmentStore;
+
+// Segment helpers maintain sorted, non-overlapping per-variable ranges.
+// append_segment() also coalesces adjacent ranges after callers split or
+// overwrite existing segments.
+static void append_segment(std::vector<StateSegment> &segments, StateSegment segment)
+{
+	if (segment.bitwidth() == 0)
+		return;
+
+	if (!segments.empty() && segments.back().end() == segment.base) {
+		segments.back().value.append(segment.value);
+		return;
+	}
+
+	log_assert(segments.empty() || segments.back().end() < segment.base);
+	segments.push_back(segment);
+}
+
+static std::vector<StateSegment>::const_iterator first_possible_segment(
+		const std::vector<StateSegment> &segments, uint64_t base)
+{
+	return std::lower_bound(segments.begin(), segments.end(), base,
+			[](const StateSegment &segment, uint64_t value) { return segment.end() <= value; });
+}
+
+static void set_segment(std::vector<StateSegment> &segments, uint64_t base, RTLIL::SigSpec value)
+{
+	if (value.empty())
+		return;
+
+	uint64_t end = base + value.size();
+
+	if (segments.empty() || segments.back().end() <= base) {
+		append_segment(segments, {base, value});
+		return;
+	}
+
+	std::vector<StateSegment> updated;
+	updated.reserve(segments.size() + 1);
+	bool inserted = false;
+
+	for (const auto &segment : segments) {
+		if (segment.end() <= base) {
+			append_segment(updated, segment);
+			continue;
+		}
+
+		if (segment.base >= end) {
+			if (!inserted) {
+				append_segment(updated, {base, value});
+				inserted = true;
+			}
+			append_segment(updated, segment);
+			continue;
+		}
+
+		if (segment.base < base) {
+			append_segment(updated, {
+					segment.base,
+					segment.value.extract(0, (int)(base - segment.base))
+			});
+		}
+
+		if (!inserted) {
+			append_segment(updated, {base, value});
+			inserted = true;
+		}
+
+		if (segment.end() > end) {
+			append_segment(updated, {
+					end,
+					segment.value.extract((int)(end - segment.base), (int)(segment.end() - end))
+			});
+		}
+	}
+
+	if (!inserted)
+		append_segment(updated, {base, value});
+
+	segments.swap(updated);
+}
+
+static void erase_segment(std::vector<StateSegment> &segments, uint64_t base, uint64_t width)
+{
+	if (width == 0 || segments.empty())
+		return;
+
+	uint64_t end = base + width;
+	if (segments.back().end() <= base)
+		return;
+
+	std::vector<StateSegment> updated;
+	updated.reserve(segments.size());
+
+	for (const auto &segment : segments) {
+		if (segment.end() <= base || segment.base >= end) {
+			append_segment(updated, segment);
+			continue;
+		}
+
+		if (segment.base < base) {
+			append_segment(updated, {
+					segment.base,
+					segment.value.extract(0, (int)(base - segment.base))
+			});
+		}
+
+		if (segment.end() > end) {
+			append_segment(updated, {
+					end,
+					segment.value.extract((int)(end - segment.base), (int)(segment.end() - end))
+			});
+		}
+	}
+
+	segments.swap(updated);
+}
+
+static RTLIL::SigSpec value_from_store(const StateSegmentStore &store,
+		Variable variable, uint64_t base, uint64_t width, bool require_present)
+{
+	RTLIL::SigSpec ret;
+	uint64_t end = base + width;
+	auto segments_it = store.by_variable.find(variable);
+	if (segments_it == store.by_variable.end()) {
+		log_assert(!require_present);
+		return RTLIL::SigSpec(RTLIL::Sm, (int)width);
+	}
+
+	const auto &segments = segments_it->second;
+	auto segment_it = first_possible_segment(segments, base);
+	uint64_t pos = base;
+
+	while (pos < end) {
+		if (segment_it == segments.end() || segment_it->base >= end) {
+			log_assert(!require_present);
+			ret.append(RTLIL::SigSpec(RTLIL::Sm, (int)(end - pos)));
+			break;
+		}
+
+		if (pos < segment_it->base) {
+			log_assert(!require_present);
+			ret.append(RTLIL::SigSpec(RTLIL::Sm, (int)(segment_it->base - pos)));
+			pos = segment_it->base;
+			continue;
+		}
+
+		log_assert(pos < segment_it->end());
+		uint64_t width_here = std::min(end - pos, segment_it->end() - pos);
+		ret.append(segment_it->value.extract((int)(pos - segment_it->base), (int)width_here));
+		pos += width_here;
+
+		if (pos == segment_it->end())
+			segment_it++;
+	}
+
+	log_assert(ret.size() == (int)width);
+	return ret;
+}
+
+static void append_static_value(
+		RTLIL::SigSpec &ret, NetlistContext &netlist, Variable variable,
+		uint64_t base, uint64_t width)
+{
+	if (width == 0)
+		return;
+
+	if (variable.kind == Variable::Dummy) {
+		ret.append(RTLIL::SigSpec(RTLIL::Sx, (int)width));
+		return;
+	}
+
+	log_assert(variable.kind == Variable::Static);
+	ret.append(netlist.wire(*variable.get_symbol()).extract((int)base, (int)width));
+}
+
+static void record_undo(VariableState &state, const VariableChunk &chunk)
+{
+	auto &undo_segments = state.revert.by_variable[chunk.variable];
+	std::vector<std::pair<uint64_t, uint64_t>> gaps;
+
+	// Save only spans not already in the undo log. Branch restore is
+	// first-touch based, so later writes must not replace the parent value.
+	uint64_t end = chunk.base + chunk.length;
+	uint64_t pos = chunk.base;
+	auto segment_it = first_possible_segment(undo_segments, chunk.base);
+
+	while (pos < end) {
+		if (segment_it == undo_segments.end() || segment_it->base >= end) {
+			gaps.push_back({pos, end - pos});
+			break;
+		}
+
+		if (pos < segment_it->base) {
+			uint64_t gap_end = std::min(end, segment_it->base);
+			gaps.push_back({pos, gap_end - pos});
+			pos = gap_end;
+			continue;
+		}
+
+		log_assert(pos < segment_it->end());
+		pos = std::min(end, segment_it->end());
+		segment_it++;
+	}
+
+	for (auto [gap_base, gap_width] : gaps) {
+		set_segment(undo_segments, gap_base,
+				value_from_store(state.visible_assignments, chunk.variable, gap_base, gap_width, false));
+	}
+}
+
+static void restore_previous_segment(VariableState &state, Variable variable, StateSegment previous)
+{
+	int pos = 0;
+	auto &segments = state.visible_assignments.by_variable[variable];
+
+	// Undo values use Sm for bits that were absent in the parent state. Split
+	// those runs so restore erases them instead of writing sentinel bits back.
+	while (pos < previous.value.size()) {
+		bool absent = previous.value[pos] == RTLIL::Sm;
+		int start = pos;
+		while (pos < previous.value.size() && (previous.value[pos] == RTLIL::Sm) == absent)
+			pos++;
+
+		uint64_t base = previous.base + start;
+		int width = pos - start;
+		if (absent)
+			erase_segment(segments, base, width);
+		else
+			set_segment(segments, base, previous.value.extract(start, width));
+	}
+
+	if (segments.empty())
+		state.visible_assignments.by_variable.erase(variable);
+}
 
 void VariableState::set(VariableBits lhs, RTLIL::SigSpec value)
 {
 	log_assert(lhs.bitwidth() == (uint64_t)value.size());
 
-	for (uint64_t i = 0; i < lhs.bitwidth(); i++) {
-		VariableBit bit = lhs[i];
-
-		if (!revert.count(bit)) {
-			if (visible_assignments.count(bit))
-				revert[bit] = visible_assignments.at(bit);
-			else
-				revert[bit] = RTLIL::Sm;
-		}
-
-		visible_assignments[bit] = value[i];
+	for (auto [base, size, chunk] : lhs.chunk_spans()) {
+		record_undo(*this, chunk);
+		set_segment(visible_assignments.by_variable[chunk.variable], chunk.base,
+				value.extract((int)base, (int)size));
 	}
 }
 
 RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableBits vbits)
 {
 	RTLIL::SigSpec ret;
-	for (auto vbit : vbits) {
-		if (vbit.variable.kind == Variable::Dummy) {
-			ret.append(RTLIL::Sx);
-		} else if (visible_assignments.count(vbit)) {
-			ret.append(visible_assignments.at(vbit));
-		} else {
-			log_assert(vbit.variable.kind == Variable::Static);
-			ret.append(netlist.wire(*vbit.variable.get_symbol())[(int)vbit.offset]);
-		}
+	for (auto chunk : vbits.chunks()) {
+		if (chunk.variable.kind == Variable::Dummy)
+			ret.append(RTLIL::SigSpec(RTLIL::Sx, (int)chunk.length));
+		else
+			ret.append(evaluate(netlist, chunk));
 	}
 	return ret;
 }
@@ -499,44 +726,115 @@ RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableBits vbi
 RTLIL::SigSpec VariableState::evaluate(NetlistContext &netlist, VariableChunk vchunk)
 {
 	RTLIL::SigSpec ret;
-	for (uint64_t i = 0; i < vchunk.bitwidth(); i++) {
-		if (visible_assignments.count(vchunk[i])) {
-			ret.append(visible_assignments.at(vchunk[i]));
-		} else {
-			log_assert(vchunk.variable.kind == Variable::Static);
-			ret.append(netlist.wire(*vchunk.variable.get_symbol())[(int)(vchunk.base + i)]);
-		}
+
+	if (!has_overlap(vchunk)) {
+		append_static_value(ret, netlist, vchunk.variable, vchunk.base, vchunk.length);
+		return ret;
 	}
+
+	uint64_t end = vchunk.base + vchunk.length;
+	uint64_t pos = vchunk.base;
+	const auto &segments = visible_assignments.by_variable.at(vchunk.variable);
+	auto segment_it = first_possible_segment(segments, vchunk.base);
+
+	while (pos < end) {
+		if (segment_it == segments.end() || segment_it->base >= end) {
+			append_static_value(ret, netlist, vchunk.variable, pos, end - pos);
+			break;
+		}
+
+		if (pos < segment_it->base) {
+			append_static_value(ret, netlist, vchunk.variable, pos, segment_it->base - pos);
+			pos = segment_it->base;
+			continue;
+		}
+
+		log_assert(pos < segment_it->end());
+		uint64_t width_here = std::min(end - pos, segment_it->end() - pos);
+		ret.append(segment_it->value.extract((int)(pos - segment_it->base), (int)width_here));
+		pos += width_here;
+
+		if (pos == segment_it->end())
+			segment_it++;
+	}
+
+	log_assert(ret.size() == (int)vchunk.length);
 	return ret;
 }
 
-void VariableState::save(Map &save)
+void VariableState::save(SaveState &save)
 {
 	revert.swap(save);
 }
 
-std::pair<VariableBits, RTLIL::SigSpec> VariableState::restore(Map &save)
+std::pair<VariableBits, RTLIL::SigSpec> VariableState::restore(SaveState &save)
 {
 	VariableBits lreverted;
 	RTLIL::SigSpec rreverted;
 
-	for (auto pair : revert)
-		lreverted.append(pair.first);
-	lreverted.sort();
+	// Return branch-final values before rolling visible state back to the
+	// parent branch. The sorted chunk list keeps switch merge output stable.
+	std::vector<VariableChunk> chunks;
+	for (const auto &pair : revert.by_variable) {
+		for (const auto &segment : pair.second)
+			chunks.push_back({pair.first, segment.base, segment.bitwidth()});
+	}
 
-	//rreverted.reserve(lreverted.bitwidth());
-	for (auto bit : lreverted)
-		rreverted.append(visible_assignments.at(bit));
+	std::sort(chunks.begin(), chunks.end(), [](const VariableChunk &lhs, const VariableChunk &rhs) {
+		return std::make_tuple(lhs.variable, lhs.base, lhs.length) <
+			   std::make_tuple(rhs.variable, rhs.base, rhs.length);
+	});
 
-	for (auto pair : revert) {
-		if (pair.second == RTLIL::Sm)
-			visible_assignments.erase(pair.first);
-		else
-			visible_assignments[pair.first] = pair.second;
+	for (auto chunk : chunks) {
+		lreverted.append(VariableBits(chunk));
+		rreverted.append(value_from_store(
+				visible_assignments, chunk.variable, chunk.base, chunk.length, true));
+	}
+
+	for (const auto &pair : revert.by_variable) {
+		for (const auto &segment : pair.second)
+			restore_previous_segment(*this, pair.first, segment);
 	}
 
 	save.swap(revert);
 	return {lreverted, rreverted};
+}
+
+bool VariableState::has_assignment(VariableBit bit) const
+{
+	return has_overlap({bit.variable, bit.offset, 1});
+}
+
+bool VariableState::has_overlap(VariableChunk chunk) const
+{
+	auto segments_it = visible_assignments.by_variable.find(chunk.variable);
+	if (segments_it == visible_assignments.by_variable.end())
+		return false;
+
+	const auto &segments = segments_it->second;
+	auto segment_it = first_possible_segment(segments, chunk.base);
+	return segment_it != segments.end() && segment_it->base < chunk.base + chunk.length;
+}
+
+RTLIL::SigBit VariableState::assignment(VariableBit bit) const
+{
+	RTLIL::SigSpec value = value_from_store(visible_assignments, bit.variable, bit.offset, 1, true);
+	return value[0];
+}
+
+std::vector<VariableChunk> VariableState::assigned_chunks() const
+{
+	std::vector<VariableChunk> chunks;
+	for (const auto &pair : visible_assignments.by_variable) {
+		for (const auto &segment : pair.second)
+			chunks.push_back({pair.first, segment.base, segment.bitwidth()});
+	}
+
+	std::sort(chunks.begin(), chunks.end(), [](const VariableChunk &lhs, const VariableChunk &rhs) {
+		return std::make_tuple(lhs.variable, lhs.base, lhs.length) <
+			   std::make_tuple(rhs.variable, rhs.base, rhs.length);
+	});
+	return chunks;
 }
 
 int EvalContext::find_nest_level(const ast::Scope *scope)
@@ -1706,7 +2004,7 @@ public:
 			if (!dangling.count(driven_bit)) {
 				// No latch inferred
 				cl.append(driven_bit);
-				cr.append(procedure.vstate.visible_assignments.at(driven_bit));
+				cr.append(procedure.vstate.assignment(driven_bit));
 			} else {
 				latch_driven.append(driven_bit);
 			}
@@ -1869,7 +2167,7 @@ public:
 					for (uint64_t i = 0; i < driven_chunk.bitwidth(); i++) {
 						// Is this variable bit assigned to from the async branch?
 						// Depending on this we either use $aldff or $dffe to drive it
-						if (aloads[0].values.visible_assignments.count(driven_chunk[i]))
+						if (aloads[0].values.has_assignment(driven_chunk[i]))
 							aldff_q.append(driven_chunk[i]);
 						else
 							dffe_q.append(driven_chunk[i]);
@@ -2030,6 +2328,21 @@ public:
 			return;
 
 		netlist.add_diag(diag::MultiportUnsupported, sym.location);
+	}
+
+	void assign_module_port_ids(const ast::InstanceBodySymbol &body)
+	{
+		int port_id = 1;
+		for (const ast::Symbol *symbol : body.getPortList()) {
+			if (ast::PortSymbol::isKind(symbol->kind)) {
+				auto &port = symbol->as<ast::PortSymbol>();
+				if (port.internalSymbol && port.internalSymbol->name == port.name) {
+					RTLIL::Wire *wire = netlist.wire(*port.internalSymbol).as_wire();
+					wire->port_id = port_id;
+				}
+			}
+			port_id++;
+		}
 	}
 
 	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec connection, slang::SourceRange range)
@@ -2563,6 +2876,7 @@ public:
 			// onto RTLIL wires
 			finalize_variable_initialization(netlist);
 			finalize_special_nets(netlist);
+			assign_module_port_ids(body);
 		} else {
 			visitDefault(body);
 		}
