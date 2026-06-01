@@ -362,12 +362,65 @@ private:
 struct RTLILBuilder {
 	using SigSpec = RTLIL::SigSpec;
 
+	struct BinaryCellKey {
+		RTLIL::IdString op;
+		SigSpec a;
+		SigSpec b;
+		bool a_signed = false;
+		bool b_signed = false;
+		int y_width = 0;
+
+		bool operator==(const BinaryCellKey &other) const
+		{
+			return op == other.op && a == other.a && b == other.b &&
+				   a_signed == other.a_signed && b_signed == other.b_signed &&
+				   y_width == other.y_width;
+		}
+
+		[[nodiscard]] Yosys::Hasher hash_into(Yosys::Hasher h) const
+		{
+			h.eat(op);
+			h.eat(a);
+			h.eat(b);
+			h.eat(a_signed);
+			h.eat(b_signed);
+			h.eat(y_width);
+			return h;
+		}
+	};
+
+	struct UnaryCellKey {
+		RTLIL::IdString op;
+		SigSpec a;
+		bool a_signed = false;
+		int y_width = 0;
+
+		bool operator==(const UnaryCellKey &other) const
+		{
+			return op == other.op && a == other.a &&
+				   a_signed == other.a_signed && y_width == other.y_width;
+		}
+
+		[[nodiscard]] Yosys::Hasher hash_into(Yosys::Hasher h) const
+		{
+			h.eat(op);
+			h.eat(a);
+			h.eat(a_signed);
+			h.eat(y_width);
+			return h;
+		}
+	};
+
 	RTLIL::Module *canvas;
 	Yosys::dict<RTLIL::IdString, RTLIL::Const> staged_attributes;
 	// Source ranges are kept unformatted until bless_cell() actually emits a
 	// cell; many expression leaves never need an `src` string.
 	slang::SourceRange staged_source_range;
 	bool staged_source_range_valid = false;
+	// Source-only one-bit expression CSE. These caches are used only when no
+	// staged user attributes would be lost by reusing an existing cell result.
+	Yosys::dict<BinaryCellKey, SigSpec> binary_cell_cache;
+	Yosys::dict<UnaryCellKey, SigSpec> unary_cell_cache;
 
 	unsigned next_id = 0;
 	std::string new_id(std::string base = std::string());
@@ -616,6 +669,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	void add_continuous_driver(VariableBits lhs, RTLIL::SigSpec rhs);
 
 	const std::optional<RTLIL::Const> convert_const(const slang::ConstantValue &constval, slang::SourceLocation loc);
+
 };
 
 // slang_frontend.cc
