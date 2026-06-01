@@ -301,9 +301,9 @@ RTLIL::SigSpec AddressingResolver::shift_down_bitwise(RTLIL::SigSpec val, int ou
 
 RTLIL::SigSpec AddressingResolver::shift_down(RTLIL::SigSpec val, int output_len)
 {
-	if (raw_signal.is_fully_def()) {
+	if (raw_signal.is_fully_def())
 		return extract(val, output_len);
-	} else if (stride == 1) {
+	else if (stride == 1) {
 		return shift_down_bitwise(val, output_len);
 	} else {
 		RTLIL::SigSpec ret(RTLIL::Sm, output_len);
