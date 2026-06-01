@@ -3266,10 +3266,15 @@ RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 
 	for (auto vchunk : bits.chunks()) {
 		switch (vchunk.variable.kind) {
-		case Variable::Static:
-			ret.append(wire(*vchunk.variable.get_symbol())
-					.extract((int)vchunk.base, (int)vchunk.length));
+		case Variable::Static: {
+			const RTLIL::SigSpec &signal = wire(*vchunk.variable.get_symbol());
+			// Avoid per-bit SigSpec::extract() work for the normal one-chunk wire case.
+			if (signal.is_chunk())
+				ret.append(signal.as_chunk().extract((int)vchunk.base, (int)vchunk.length));
+			else
+				ret.append(signal.extract((int)vchunk.base, (int)vchunk.length));
 			break;
+		}
 		case Variable::Dummy:
 			ret.append(add_placeholder_signal(vchunk.length, "dummy"));
 			break;
