@@ -274,6 +274,8 @@ RTLIL::SigSpec AddressingResolver::mux(RTLIL::SigSpec val, int output_len)
 {
 	log_assert(output_len == stride);
 	log_assert(val.size() % stride == 0);
+	if (raw_signal.is_fully_def())
+		return extract(val, output_len);
 	return raw_mux({RTLIL::SigSpec(RTLIL::Sx, std::max(0, base_offset * stride - val.size())), val,
 						   RTLIL::SigSpec(RTLIL::Sx, std::max(0, stride * -base_offset))},
 			-std::max(0, base_offset), std::max(0, -base_offset + val.size() / stride), output_len);
