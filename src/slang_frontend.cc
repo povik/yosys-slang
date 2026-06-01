@@ -1547,14 +1547,16 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				require(valsym, valsym.getInitializer());
 				auto exprconst = valsym.getInitializer()->eval(this->const_);
 				require(valsym, exprconst.isInteger());
-				return convert_svint(exprconst.integer());
+				ret = convert_svint(exprconst.integer());
+				goto done;
 			}
 
 			if (ast::ModportPortSymbol::isKind(symbol.kind) &&
 					!netlist.scopes_remap.count(symbol.getParentScope())) {
 				auto &modport_port = symbol.as<ast::ModportPortSymbol>();
 				ast_invariant(symbol, modport_port.getConnectionExpr() != nullptr);
-				return (*this)(*modport_port.getConnectionExpr());
+				ret = (*this)(*modport_port.getConnectionExpr());
+				goto done;
 			}
 
 			ast_invariant(symbol, ast::ValueSymbol::isKind(symbol.kind));
@@ -1646,13 +1648,14 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 				if (!right.is_fully_const()) {
 					netlist.add_diag(diag::NonconstWildcardEq, expr.sourceRange);
 					ret = netlist.add_placeholder_signal(expr.type->getBitstreamWidth());
-					return ret;
+					goto done;
 				}
-				return netlist.Unop(
+				ret = netlist.Unop(
 					invert ? ID($logic_not) : ID($reduce_bool),
 					netlist.EqWildcard(left, right),
 					false, expr.type->getBitstreamWidth()
 				);
+				goto done;
 			default:
 				break;
 			}
@@ -3577,7 +3580,6 @@ const RTLIL::SigSpec& NetlistContext::wire(const ast::Symbol &symbol)
 RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 {
 	RTLIL::SigSpec ret;
-
 	for (auto vchunk : bits.chunks()) {
 		switch (vchunk.variable.kind) {
 		case Variable::Static: {
