@@ -419,10 +419,12 @@ struct RTLILBuilder {
 	// cell; many expression leaves never need an `src` string.
 	slang::SourceRange staged_source_range;
 	bool staged_source_range_valid = false;
-	// Source-only one-bit expression CSE. These caches are used only when no
-	// staged user attributes would be lost by reusing an existing cell result.
+	// Source-only expression CSE is used only when no staged user attributes
+	// would be lost. The wider unary cache is separate so it cannot evict the
+	// original high-hit one-bit working set.
 	Yosys::dict<BinaryCellKey, SigSpec> binary_cell_cache;
 	Yosys::dict<UnaryCellKey, SigSpec> unary_cell_cache;
+	Yosys::dict<SigSpec, SigSpec> wide_unary_cell_cache;
 
 	unsigned next_id = 0;
 	std::string new_id(std::string base = std::string());

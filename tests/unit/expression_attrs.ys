@@ -3,16 +3,23 @@ module expression_attrs(
 	input logic a,
 	input logic b,
 	input logic c,
+	input logic [3:0] a4,
+	input logic [3:0] b4,
 	output logic y,
 	output logic z,
-	output logic w
+	output logic w,
+	output logic [3:0] wide_and_src,
+	output logic [3:0] wide_xor_src
 );
 	assign y = a & b;
 	assign z = a ? b : c;
 	assign w = ~a;
+	assign wide_and_src = a4 & b4;
+	assign wide_xor_src = a4 ^ b4;
 endmodule
 EOF
 
-select -assert-count 1 t:$and A:src %i
+select -assert-count 2 t:$and A:src %i
 select -assert-count 1 t:$mux A:src %i
 select -assert-count 1 t:$not A:src %i
+select -assert-count 1 t:$xor A:src %i
