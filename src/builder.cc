@@ -45,6 +45,11 @@ std::pair<std::string, SigSpec> RTLILBuilder::add_y_wire(int width)
 void RTLILBuilder::bless_cell(RTLIL::Cell *cell)
 {
 	cell->attributes = staged_attributes;
+	if (staged_source_range_valid && !cell->attributes.count(ID::src)) {
+		auto src = format_src(staged_source_range);
+		if (!src.empty())
+			cell->attributes[ID::src] = src;
+	}
 }
 
 SigSpec RTLILBuilder::ReduceBool(SigSpec a)

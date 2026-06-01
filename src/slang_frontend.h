@@ -340,6 +340,10 @@ struct RTLILBuilder {
 
 	RTLIL::Module *canvas;
 	Yosys::dict<RTLIL::IdString, RTLIL::Const> staged_attributes;
+	// Source ranges are kept unformatted until bless_cell() actually emits a
+	// cell; many expression leaves never need an `src` string.
+	slang::SourceRange staged_source_range;
+	bool staged_source_range_valid = false;
 
 	unsigned next_id = 0;
 	std::string new_id(std::string base = std::string());
@@ -411,11 +415,16 @@ public:
 		: builder(builder)
 	{
 		save.swap(builder.staged_attributes);
+		save_source_range = builder.staged_source_range;
+		save_source_range_valid = builder.staged_source_range_valid;
+		builder.staged_source_range_valid = false;
 	}
 
 	~AttributeGuard()
 	{
 		save.swap(builder.staged_attributes);
+		builder.staged_source_range = save_source_range;
+		builder.staged_source_range_valid = save_source_range_valid;
 	}
 
 	void set(RTLIL::IdString id, RTLIL::Const value)
@@ -423,9 +432,17 @@ public:
 		builder.staged_attributes[id] = value;
 	}
 
+	void set_source(slang::SourceRange source_range)
+	{
+		builder.staged_source_range = source_range;
+		builder.staged_source_range_valid = true;
+	}
+
 private:
 	RTLILBuilder &builder;
 	Yosys::dict<RTLIL::IdString, RTLIL::Const> save;
+	slang::SourceRange save_source_range;
+	bool save_source_range_valid = false;
 };
 
 class DiagnosticIssuer {
@@ -580,6 +597,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 // slang_frontend.cc
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
+std::string format_src(slang::SourceRange source_range);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard);
 template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);

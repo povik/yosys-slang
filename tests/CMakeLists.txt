@@ -27,6 +27,7 @@ set(ALL_TESTS
     unit/async.ys
     unit/dualedge.ys
     unit/function_call.ys
+    unit/expression_attrs.ys
     unit/latch.ys
     unit/selftests.tcl
     various/assign_mixing.ys

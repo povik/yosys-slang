@@ -105,11 +105,9 @@ slang::SourceRange source_location(const ast::Expression &expr)		{ return expr.s
 slang::SourceRange source_location(const ast::Statement &stmt)		{ return stmt.sourceRange; }
 slang::SourceRange source_location(const ast::TimingControl &stmt)	{ return stmt.sourceRange; }
 
-template<typename T>
-std::string format_src(const T &obj)
+std::string format_src(slang::SourceRange sr)
 {
 	auto sm = global_sourcemgr;
-	auto sr = source_location(obj);
 
 	if (!sm->isFileLoc(sr.start()) || !sm->isFileLoc(sr.end()))
 		return "";
@@ -125,6 +123,12 @@ std::string format_src(const T &obj)
 			(int) sm->getLineNumber(sr.start()), (int) sm->getColumnNumber(sr.start()),
 			(int) sm->getLineNumber(sr.end()), (int) sm->getColumnNumber(sr.end()));
 	}
+}
+
+template<typename T>
+std::string format_src(const T &obj)
+{
+	return format_src(source_location(obj));
 }
 
 };
@@ -270,9 +274,7 @@ template void transfer_attrs<const ast::Symbol>(NetlistContext &netlist, const a
 template<typename T>
 void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard)
 {
-	auto src = format_src(from);
-	if (!src.empty())
-		guard.set(ID::src, src);
+	guard.set_source(source_location(from));
 
 	for (auto attr : global_compilation->getAttributes(from)) {
 		if (auto value = convert_attr_value(netlist, attr)) {
