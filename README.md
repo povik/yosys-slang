@@ -98,6 +98,8 @@ While the above rules govern the project's public forums, the primary maintainer
 
 The following organizations have supported the project and contributed to yosys-slang development:
 
+ * [Precision Innovations Inc](https://precisioninno.com/)
+
  * [Microelectronics Design Center of ETH Zürich](https://dz.ethz.ch/)
 
  * [PULP platform](https://pulp-platform.org/)
