@@ -65,6 +65,7 @@ set(ALL_TESTS
     various/stringattrs.ys
     various/stringparams.ys
     various/timescale.ys
+    various/tranif.ys
     various/top_attr.ys
     various/unknown_cells.ys
     various/toplevel_intf_unsupported.ys
