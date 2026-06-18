@@ -2650,7 +2650,7 @@ public:
 		auto id = (!sym.name.compare("")) ? netlist.new_id() : netlist.id(sym);
 		RTLIL::IdString op;
 		bool inv_y = false;
-		RTLIL::Cell *cell;
+		RTLIL::Cell *cell = nullptr;
 		ast_invariant(sym, ports.front()->kind == ast::ExpressionKind::Assignment);
 		auto &assign = ports.front()->as<ast::AssignmentExpression>();
 		auto y = netlist.eval.connection_lhs(assign);
@@ -2795,10 +2795,16 @@ public:
 					cell = pmos; // transfer_attrs to pmos after switch block
 				} else {
 					// bidir (tran/rtran/tranif0/rtranif0/tranif1/rtranif1) are unsupported
-					netlist.add_diag(diag::PrimTypeUnsupported, sym.location);
+					netlist.add_diag(diag::PrimTypeUnsupported, sym.location) << type;
 				}
 			}
 		}
+
+		if (!cell) {
+			// We've encountered an error - let's stop right here
+			return;
+		}
+
 		cell->fixup_parameters();
 		transfer_attrs(netlist, sym, cell);
 		if (inv_y) {
