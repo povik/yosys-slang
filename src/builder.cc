@@ -533,7 +533,6 @@ void RTLILBuilder::add_aldff(std::string_view name, const RTLIL::SigSpec &clk,
 SigSpec RTLILBuilder::CountOnes(SigSpec sig, int result_width)
 {
 	SigSpec ret;
-	int x = 1, y = 0;
 	auto width = sig.size();
 	if (width == 0) {
 		ret = RTLIL::Const(0, 1);

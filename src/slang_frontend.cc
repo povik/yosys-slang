@@ -893,7 +893,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 	auto filename_arg = call.arguments()[0];
 	auto filename_result = filename_arg->eval(context.eval.const_);
 	if (filename_result.bad()) {
-		auto &diag = netlist.add_diag(diag::ErrorNonconstantArgument, filename_arg->sourceRange);
+		netlist.add_diag(diag::ErrorNonconstantArgument, filename_arg->sourceRange);
 		return;
 	}
 
@@ -1155,7 +1155,6 @@ RTLIL::SigSpec EvalContext::sva(ast::Expression const &expr)
 
 RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 {
-	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
 	size_t repl_count;
 
@@ -2324,6 +2323,7 @@ public:
 						log_abort();
 						break;
 					}
+					(void)iface_scope;
 
 					std::string hierpath_suffix = "";
 					int array_level = 0;

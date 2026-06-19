@@ -332,7 +332,6 @@ public:
 
 private:
 	ProceduralContext &context;
-	const ast::Scope *scope;
 };
 
 struct RTLILBuilder {

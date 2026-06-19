@@ -124,7 +124,6 @@ struct Case
 		std::set<VariableBit> has_mask_switches;
 
 		for (auto &action : actions) {
-			bool raise_complex = false;
 			VariableBits lvalue;
 			RTLIL::SigSpec enables, lstaging, rvalue;
 
