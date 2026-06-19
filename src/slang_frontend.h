@@ -70,10 +70,10 @@ class ProceduralContext;
 class RegisterEscapeConstructGuard;
 class EnterAutomaticScopeGuard;
 class VariableBits;
-class VariableBit;
-class VariableChunk;
+struct VariableBit;
+struct VariableChunk;
 struct ProcessTiming;
-class Case;
+struct Case;
 class LValue;
 
 class Variable {
@@ -713,9 +713,9 @@ private:
 	};
 
 	std::variant<Variable, Concatenation, RangeSelect, MemberAccess, MemoryWrite> descriptor;
-	bool contiguous_slice_;
-	bool static_;
 	uint64_t bitsize;
+	bool static_;
+	bool contiguous_slice_;
 
 	LValue(decltype(descriptor) descriptor, uint64_t bitsize, bool static_, bool contiguous_slice_)
 		: descriptor(std::move(descriptor)), bitsize(bitsize), static_(static_), contiguous_slice_(contiguous_slice_) {}
