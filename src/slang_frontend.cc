@@ -893,7 +893,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 	auto filename_arg = call.arguments()[0];
 	auto filename_result = filename_arg->eval(context.eval.const_);
 	if (filename_result.bad()) {
-		auto &diag = netlist.add_diag(diag::ErrorNonconstantArgument, filename_arg->sourceRange);
+		netlist.add_diag(diag::ErrorNonconstantArgument, filename_arg->sourceRange);
 		return;
 	}
 
@@ -1019,7 +1019,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		std::getline(f, line);
 
 		// Remove multiline comments
-		for (int i = 0; i < line.size(); i++) {
+		for (size_t i = 0; i < line.size(); i++) {
 			if (in_comment && line.compare(i, 2, "*/") == 0) {
 				line[i] = ' ';
 				line[i + 1] = ' ';
@@ -1155,7 +1155,6 @@ RTLIL::SigSpec EvalContext::sva(ast::Expression const &expr)
 
 RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 {
-	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
 	size_t repl_count;
 
@@ -2032,7 +2031,7 @@ public:
 		netlist.add_diag(diag::MultiportUnsupported, sym.location);
 	}
 
-	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec connection, slang::SourceRange range)
+	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -2049,7 +2048,7 @@ public:
 		netlist.add_continuous_driver(internal_signal, connection);
 	}
 
-	void inline_port_connection(const ast::PortSymbol &port, VariableBits connection, slang::SourceRange range)
+	void inline_port_connection(const ast::PortSymbol &port, VariableBits connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -2076,7 +2075,7 @@ public:
 		}
 	}
 
-	void inline_port_connection_driver(const ast::PortSymbol &port, RTLIL::SigSpec connection, slang::SourceRange range)
+	void inline_port_connection_driver(const ast::PortSymbol &port, RTLIL::SigSpec connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -2324,6 +2323,7 @@ public:
 						log_abort();
 						break;
 					}
+					(void)iface_scope;
 
 					std::string hierpath_suffix = "";
 					int array_level = 0;
@@ -2721,7 +2721,7 @@ public:
 					transfer_attrs(netlist, sym, cell);
 					const auto& ports = sym.primitiveType.ports;
 
-					for (int i = 0; i < sym.getPortConnections().size(); ++i) {
+					for (size_t i = 0; i < sym.getPortConnections().size(); ++i) {
 						const auto *conn= sym.getPortConnections()[i];
 						if (!conn)
 							continue;
@@ -3228,7 +3228,7 @@ const ast::InstanceBodySymbol &NetlistContext::find_common_ancestor(const ast::I
 	auto pa = path(&a);
 	auto pb = path(&b);
 
-	int i = 0;
+	size_t i = 0;
 	for (; i < std::min(pa.size(), pb.size()); i++) {
 		if (pa[i] != pb[i])
 			break;
