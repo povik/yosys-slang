@@ -14,13 +14,13 @@
 
 namespace slang_frontend {
 
-template <typename Func> void visit_netlist_variables(NetlistContext &netlist, Func &&visit)
+template <typename Func> void visit_netlist_variables(NetlistContext &netlist, Func &&visit_fn)
 {
 	netlist.realm.visit(ast::makeVisitor(
 			[&](auto &, const ast::VariableSymbol &symbol) {
 				if (symbol.getType().isFixedSize() &&
 						symbol.lifetime == ast::VariableLifetime::Static) {
-					visit(symbol);
+					visit_fn(symbol);
 				}
 			},
 			[&](auto &visitor, const ast::InstanceSymbol &symbol) {
@@ -65,7 +65,7 @@ template <typename Func> void visit_netlist_variables(NetlistContext &netlist, F
 							ast_invariant(
 									port, port.internalSymbol->as<ast::VariableSymbol>().lifetime ==
 												  ast::VariableLifetime::Static);
-							visit(port);
+							visit_fn(port);
 						}
 					}));
 		}
