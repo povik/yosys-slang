@@ -364,7 +364,7 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 		}
 		log_assert(base == 0);
 	} else if (auto range_sel = std::get_if<LValue::RangeSelect>(&lvalue.descriptor)) {
-		if (range_sel->resolver->stride == lvalue.bitsize) {
+		if ((uint64_t)range_sel->resolver->stride == lvalue.bitsize) {
 			// Effectively an element select
 			assign_to_lvalue_with_masking(assign, context, *range_sel->inner,
 					rvalue.repeat(range_sel->resolver->range.width()),
