@@ -2031,7 +2031,7 @@ public:
 		netlist.add_diag(diag::MultiportUnsupported, sym.location);
 	}
 
-	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec connection, slang::SourceRange range)
+	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -2048,7 +2048,7 @@ public:
 		netlist.add_continuous_driver(internal_signal, connection);
 	}
 
-	void inline_port_connection(const ast::PortSymbol &port, VariableBits connection, slang::SourceRange range)
+	void inline_port_connection(const ast::PortSymbol &port, VariableBits connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -2075,7 +2075,7 @@ public:
 		}
 	}
 
-	void inline_port_connection_driver(const ast::PortSymbol &port, RTLIL::SigSpec connection, slang::SourceRange range)
+	void inline_port_connection_driver(const ast::PortSymbol &port, RTLIL::SigSpec connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
