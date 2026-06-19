@@ -5,7 +5,17 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #pragma once
+#include <optional>
+#include <string>
+#include <string_view>
+
+#include "async_pattern.h"
+#include "diag.h"
+#include "slang/ast/ASTVisitor.h"
+#include "slang/ast/Compilation.h"
 #include "slang_frontend.h"
+
+extern slang::ast::Compilation *global_compilation;
 
 namespace slang_frontend {
 
