@@ -1019,7 +1019,7 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		std::getline(f, line);
 
 		// Remove multiline comments
-		for (int i = 0; i < line.size(); i++) {
+		for (size_t i = 0; i < line.size(); i++) {
 			if (in_comment && line.compare(i, 2, "*/") == 0) {
 				line[i] = ' ';
 				line[i + 1] = ' ';
@@ -2721,7 +2721,7 @@ public:
 					transfer_attrs(netlist, sym, cell);
 					const auto& ports = sym.primitiveType.ports;
 
-					for (int i = 0; i < sym.getPortConnections().size(); ++i) {
+					for (size_t i = 0; i < sym.getPortConnections().size(); ++i) {
 						const auto *conn= sym.getPortConnections()[i];
 						if (!conn)
 							continue;
@@ -3228,7 +3228,7 @@ const ast::InstanceBodySymbol &NetlistContext::find_common_ancestor(const ast::I
 	auto pa = path(&a);
 	auto pb = path(&b);
 
-	int i = 0;
+	size_t i = 0;
 	for (; i < std::min(pa.size(), pb.size()); i++) {
 		if (pa[i] != pb[i])
 			break;

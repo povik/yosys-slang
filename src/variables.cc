@@ -115,7 +115,7 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 	case ast::SymbolKind::CheckerInstance: {
 		auto &linst = lhs->as<ast::InstanceSymbolBase>();
 		auto &rinst = rhs->as<ast::InstanceSymbolBase>();
-		for (int i = 0; i < linst.arrayPath.size() && i < rinst.arrayPath.size(); i++) {
+		for (size_t i = 0; i < linst.arrayPath.size() && i < rinst.arrayPath.size(); i++) {
 			if (linst.arrayPath[i] != rinst.arrayPath[i])
 				return linst.arrayPath[i] < rinst.arrayPath[i];
 		}
@@ -141,7 +141,7 @@ bool order_scopes(const ast::Scope *lhs, const ast::Scope *rhs)
 	bool stop_at_inst = lhs->getContainingInstance() == rhs->getContainingInstance();
 	std::vector<const ast::Scope *> lhs_path = scope_path(lhs, stop_at_inst);
 	std::vector<const ast::Scope *> rhs_path = scope_path(rhs, stop_at_inst);
-	for (int i = 0; i < lhs_path.size() && i < rhs_path.size(); i++) {
+	for (size_t i = 0; i < lhs_path.size() && i < rhs_path.size(); i++) {
 		if (lhs_path[i] != rhs_path[i])
 			return order_symbols_within_scope(&lhs_path[i]->asSymbol(), &rhs_path[i]->asSymbol());
 	}
