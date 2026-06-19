@@ -81,6 +81,11 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 			"--udp-handling", udp_handling, "Set the processing mode for user defined primitives."
 			" When set to 'blackboxes' the UDP is treated as a blackboxed instance."
 			" When set to 'error', an error is emitted if a UDP is encountered. By default, the frontend emits an error.");
+	cmdLine.add("--ff-naming", ff_naming,
+				"Set the naming scheme used for flip-flops inferred from always_ff blocks."
+				" Valid values: signal, auto, or a template using {sep=<separator>}, {scope}, {proc},"
+				" {signal}, and {proc_auto}. For example: '{sep=_}{scope}{proc_auto}_reg'."
+				" Example name: 'gen_gpios_0_capture_reg'.", "<scheme>");
 
 	// Deprecated section
 	cmdLine.add("--compat-mode", compat_mode,
@@ -169,6 +174,180 @@ static const RTLIL::IdString module_type_id(const ast::InstanceBodySymbol &sym)
 		return RTLIL::escape_id(std::string(sym.name));
 	else
 		return RTLIL::escape_id(std::string(sym.name) + "$" + instance);
+}
+
+// Return the pre-prefix flip-flop base name used by the legacy scheme
+static std::string ff_naming_legacy_signal_name(NetlistContext &netlist, const ast::ValueSymbol &symbol,
+		std::string_view suffix)
+{
+	return Yosys::stringf("%s%s",
+			RTLIL::unescape_id(netlist.id(symbol)).c_str(), std::string(suffix).c_str());
+}
+
+// Find the named block that `--ff-naming auto` should prefer, if there is one
+static const ast::StatementBlockSymbol *ff_naming_auto_block(const ast::StatementBlockSymbol *prologue_block,
+		const ast::Statement &sync_body)
+{
+	if (prologue_block && !prologue_block->name.empty())
+		return prologue_block;
+
+	if (sync_body.kind != ast::StatementKind::Block)
+		return nullptr;
+
+	auto &block = sync_body.as<ast::BlockStatement>();
+	ast_invariant(sync_body, block.blockKind == ast::StatementBlockKind::Sequential);
+	if (block.blockSymbol && !block.blockSymbol->name.empty())
+		return block.blockSymbol;
+
+	return nullptr;
+}
+
+static std::string ff_naming_template_from_scheme(std::string_view scheme)
+{
+	if (scheme == "legacy")
+		return "legacy";
+	if (scheme == "signal")
+		return "{sep=_}{scope}{signal}_reg";
+	if (scheme == "auto")
+		return "{sep=_}{scope}{proc_auto}_reg";
+	return std::string(scheme);
+}
+
+static std::optional<std::string> ff_naming_template_error(std::string_view scheme)
+{
+	if (scheme == "legacy")
+		return std::nullopt;
+
+	bool saw_placeholder = false;
+	std::string tmpl = ff_naming_template_from_scheme(scheme);
+
+	for (size_t i = 0; i < tmpl.size(); i++) {
+		if (tmpl[i] != '{' && tmpl[i] != '}')
+			continue;
+
+		size_t close = tmpl.find('}', i);
+		if (tmpl[i] != '{' || close == std::string::npos)
+			return Yosys::stringf("Invalid --ff-naming template '%s'\n", std::string(scheme).c_str());
+
+		std::string_view placeholder(tmpl.data() + i + 1, close - i - 1);
+		if (placeholder != "scope" && placeholder != "proc" && placeholder != "signal" &&
+				placeholder != "proc_auto" && placeholder.compare(0, 4, "sep=") != 0)
+			return Yosys::stringf("Unknown --ff-naming placeholder '{%s}'\n", std::string(placeholder).c_str());
+
+		saw_placeholder = true;
+		i = close;
+	}
+
+	if (!saw_placeholder)
+		return Yosys::stringf("Unknown --ff-naming scheme '%s'\n", std::string(scheme).c_str());
+
+	return std::nullopt;
+}
+
+// Build the final inferred flip-flop base name from the active ff naming options
+static std::string ff_naming_base_name_from_options(SynthesisSettings &settings, NetlistContext &netlist,
+		const ast::StatementBlockSymbol *block_symbol, bool disambiguate_block_name,
+		const ast::ValueSymbol &symbol, std::string_view subfield_suffix)
+{
+	std::string tmpl = ff_naming_template_from_scheme(settings.ff_naming_mode());
+	if (tmpl == "legacy")
+		return std::string("\\$driver$") + ff_naming_legacy_signal_name(netlist, symbol, subfield_suffix);
+
+	std::string sep = "_";
+	std::optional<std::string> scope_name;
+	std::optional<std::string> proc_name;
+	std::optional<std::string> signal_name;
+	std::optional<std::string> proc_auto_name;
+
+	auto *symbol_scope = symbol.getParentScope();
+	ast_invariant(symbol, symbol_scope != nullptr);
+
+	auto get_scope_name = [&]() {
+		if (!scope_name)
+			scope_name = format_scope_name_fragment(&netlist.realm, symbol_scope, sep);
+		return scope_name.value();
+	};
+
+	auto get_proc_name = [&]() {
+		if (!proc_name) {
+			if (block_symbol)
+				proc_name = format_scope_name_fragment(symbol_scope, block_symbol, sep);
+			else
+				proc_name = "";
+		}
+		return proc_name.value();
+	};
+
+	auto get_signal_name = [&]() {
+		if (!signal_name)
+			signal_name = format_signal_name_fragment(symbol_scope, symbol, subfield_suffix, sep);
+		return signal_name.value();
+	};
+
+	auto get_proc_auto_name = [&]() {
+		if (proc_auto_name)
+			return proc_auto_name.value();
+
+		std::string block_name = get_proc_name();
+		if (!block_name.empty()) {
+			if (disambiguate_block_name)
+				proc_auto_name = block_name + sep + get_signal_name();
+			else
+				proc_auto_name = block_name;
+		} else {
+			proc_auto_name = get_signal_name();
+		}
+		return proc_auto_name.value();
+	};
+
+	auto reset_parts = [&]() {
+		scope_name.reset();
+		proc_name.reset();
+		signal_name.reset();
+		proc_auto_name.reset();
+	};
+
+	bool last_token_was_part = false;
+	auto append_part = [&](std::string_view part, std::string &ret) {
+		if (part.empty())
+			return;
+
+		if (last_token_was_part && !sep.empty())
+			ret += sep;
+		ret += part;
+		last_token_was_part = true;
+	};
+
+	std::string ret;
+	for (size_t i = 0; i < tmpl.size(); i++) {
+		if (tmpl[i] != '{') {
+			ret.push_back(tmpl[i]);
+			last_token_was_part = false;
+			continue;
+		}
+
+		size_t close = tmpl.find('}', i);
+		log_assert(close != std::string::npos);
+		std::string_view placeholder(tmpl.data() + i + 1, close - i - 1);
+
+		if (placeholder.compare(0, 4, "sep=") == 0) {
+			sep = std::string(placeholder.substr(4));
+			reset_parts();
+		} else if (placeholder == "scope")
+			append_part(get_scope_name(), ret);
+		else if (placeholder == "proc")
+			append_part(get_proc_name(), ret);
+		else if (placeholder == "signal")
+			append_part(get_signal_name(), ret);
+		else if (placeholder == "proc_auto")
+			append_part(get_proc_auto_name(), ret);
+		else
+			log_abort();
+
+		i = close;
+	}
+
+	return std::string("\\") + ret;
 }
 
 static const RTLIL::Const convert_svint(const slang::SVInt &svint)
@@ -1831,6 +2010,41 @@ public:
 
 			// FIXME: ignores variables not driven from the sync procedure
 			VariableBits driven = sync_procedure.all_driven();
+			const ast::StatementBlockSymbol *block_symbol = ff_naming_auto_block(prologue_block, sync_body);
+			auto count_emitted_ff_names = [&]() {
+				int emitted_ff_names = 0;
+				auto add_chunk_names = [&](VariableChunk chunk) {
+					const ast::Type *type = &chunk.variable.get_symbol()->getType();
+					emitted_ff_names += generate_subfield_names(chunk, type).size();
+				};
+
+				if (aloads.empty()) {
+					for (VariableChunk driven_chunk : driven.chunks())
+						add_chunk_names(driven_chunk);
+				} else {
+					for (VariableChunk driven_chunk : driven.chunks()) {
+						VariableBits aldff_q;
+						VariableBits dffe_q;
+
+						for (uint64_t i = 0; i < driven_chunk.bitwidth(); i++) {
+							if (aloads[0].values.visible_assignments.count(driven_chunk[i]))
+								aldff_q.append(driven_chunk[i]);
+							else
+								dffe_q.append(driven_chunk[i]);
+						}
+
+						for (auto chunk : aldff_q.chunks())
+							add_chunk_names(chunk);
+						for (auto chunk : dffe_q.chunks())
+							add_chunk_names(chunk);
+					}
+				}
+
+				return emitted_ff_names;
+			};
+			int emitted_ff_names = count_emitted_ff_names();
+			bool disambiguate_block_name = emitted_ff_names > 1;
+
 			for (VariableChunk driven_chunk : driven.chunks()) {
 				const ast::Type *type = &driven_chunk.variable.get_symbol()->getType();
 				RTLIL::SigSpec assigned = sync_procedure.vstate.evaluate(netlist, driven_chunk);
@@ -1841,9 +2055,10 @@ public:
 				if (aloads.empty()) {
 
 					for (auto [named_chunk, name] : generate_subfield_names(driven_chunk, type)) {
-						log_assert(named_chunk.variable.get_symbol() != nullptr);
-						std::string base_name = Yosys::stringf("$driver$%s%s",
-							RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+						auto *named_symbol = named_chunk.variable.get_symbol();
+						log_assert(named_symbol != nullptr);
+						std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+								disambiguate_block_name, *named_symbol, name);
 
 						if (clock.edge == ast::EdgeKind::BothEdges) {
 							netlist.add_dual_edge_aldff(base_name,
@@ -1877,9 +2092,10 @@ public:
 					if (!aldff_q.empty()) {
 						for (auto driven_chunk2 : aldff_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							log_assert(named_chunk.variable.get_symbol() != nullptr);
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							auto *named_symbol = named_chunk.variable.get_symbol();
+							log_assert(named_symbol != nullptr);
+							std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+									disambiguate_block_name, *named_symbol, name);
 
 							if (clock.edge == ast::EdgeKind::BothEdges) {
 								netlist.add_dual_edge_aldff(base_name,
@@ -1911,11 +2127,13 @@ public:
 
 						for (auto driven_chunk2 : dffe_q.chunks())
 						for (auto [named_chunk, name] : generate_subfield_names(driven_chunk2, type)) {
-							std::string base_name = Yosys::stringf("$driver$%s%s",
-								RTLIL::unescape_id(netlist.id(*named_chunk.variable.get_symbol())).c_str(), name.c_str());
+							auto *named_symbol = named_chunk.variable.get_symbol();
+							log_assert(named_symbol != nullptr);
+							std::string base_name = ff_naming_base_name_from_options(settings, netlist, block_symbol,
+									disambiguate_block_name, *named_symbol, name);
 
 							netlist.add_dffe(base_name,
-											 timing.triggers[0].signal,
+										 timing.triggers[0].signal,
 											 aloads[0].trigger,
 											 assigned.extract((int)(named_chunk.base - driven_chunk.base), (int)named_chunk.bitwidth()),
 											 netlist.convert_static(named_chunk),
@@ -3362,6 +3580,11 @@ void fixup_options(SynthesisSettings &settings, slang::driver::Driver &driver)
 
 	if (!settings.no_synthesis_define.value_or(false)) {
 		driver.options.defines.push_back("SYNTHESIS=1");
+	}
+
+	if (settings.ff_naming.has_value()) {
+		if (auto error = ff_naming_template_error(settings.ff_naming_mode()))
+			log_cmd_error("%s", error->c_str());
 	}
 
 	if (!settings.no_default_translate_off.value_or(false)) {
