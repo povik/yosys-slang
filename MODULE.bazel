@@ -12,3 +12,7 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "rules_python", version = "2.0.0")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "rules_license", version = "1.0.0")
+bazel_dep(name = "fmt", version = "12.1.0")
+
+slang_ext = use_extension("//:dependency_support/slang_ext.bzl", "vendored_slang_extension")
+use_repo(slang_ext, "vendored-slang")
