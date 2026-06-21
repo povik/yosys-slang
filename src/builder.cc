@@ -4,8 +4,15 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <string>
+#include <string_view>
+#include <utility>
 
+#include "kernel/log.h"
+#include "kernel/rtlil.h"
 #include "slang_frontend.h"
 #include "variables.h"
 

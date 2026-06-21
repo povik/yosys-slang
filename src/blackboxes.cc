@@ -6,15 +6,26 @@
 //
 #include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Compilation.h"
+#include "slang/ast/SemanticFacts.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/ParameterSymbols.h"
+#include "slang/ast/types/DeclaredType.h"
+#include "slang/parsing/Token.h"
+#include "slang/parsing/TokenKind.h"
 #include "slang/syntax/AllSyntax.h"
+#include "slang/syntax/SyntaxKind.h"
+#include "slang/syntax/SyntaxNode.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
+#include <memory>
+#include <string>
 
 #include "kernel/rtlil.h"
 
 #include "diag.h"
+#include "slang/util/BumpAllocator.h"
+#include "slang/util/SmallVector.h"
 #include "slang_frontend.h"
 
 namespace slang_frontend {

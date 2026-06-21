@@ -4,13 +4,20 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
+#include "kernel/rtlil.h"
+#include "slang/ast/Expression.h"
+#include "slang/ast/Symbol.h"
 #include "slang/ast/expressions/ConversionExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/OperatorExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/symbols/MemberSymbols.h"
+#include "slang/ast/symbols/ValueSymbol.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/Type.h"
+#include <cstdint>
+#include <optional>
 
 #include "diag.h"
 #include "slang_frontend.h"

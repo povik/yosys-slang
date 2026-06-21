@@ -6,10 +6,26 @@
 //
 #pragma once
 
+#include "diag.h"
+#include "kernel/log.h"
 #include "kernel/rtlil.h"
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <string>
 
 #include "cases.h"
 #include "slang/ast/ASTVisitor.h"
+#include "slang/ast/SemanticFacts.h"
+#include "slang/ast/Statement.h"
+#include "slang/ast/expressions/CallExpression.h"
+#include "slang/ast/statements/ConditionalStatements.h"
+#include "slang/ast/statements/LoopStatements.h"
+#include "slang/ast/statements/MiscStatements.h"
+#include "slang/ast/symbols/ValueSymbol.h"
+#include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
 #include "variables.h"
 
