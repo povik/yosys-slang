@@ -4,12 +4,19 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
+#include "slang/ast/Scope.h"
+#include "slang/ast/SemanticFacts.h"
+#include "slang/ast/Symbol.h"
 #include "slang/ast/symbols/BlockSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/ValueSymbol.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/NetType.h"
 #include "slang/ast/types/Type.h"
+#include <cstddef>
+#include <cstdint>
+#include <string>
 
 #include "slang_frontend.h"
 #include "variables.h"

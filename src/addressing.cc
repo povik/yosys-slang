@@ -4,8 +4,12 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
+#include "kernel/rtlil.h"
+#include "slang/ast/Expression.h"
 #include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/types/Type.h"
+#include <cstdint>
 
 // Fix for Yosys declaring ceil_log2 as both inline and non-inline
 // but not defining the non-inline one; be sure to include utils.h

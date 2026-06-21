@@ -5,6 +5,8 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #include "diag.h"
+#include "slang/diagnostics/Diagnostics.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
 
 namespace slang_frontend {

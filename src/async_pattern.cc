@@ -4,21 +4,27 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
 #include "slang/ast/Expression.h"
+#include "slang/ast/SemanticFacts.h"
+#include "slang/ast/Statement.h"
 #include "slang/ast/TimingControl.h"
 #include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
+#include "slang/ast/expressions/Operator.h"
 #include "slang/ast/expressions/OperatorExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/statements/ConditionalStatements.h"
 #include "slang/ast/statements/MiscStatements.h"
 #include "slang/ast/symbols/BlockSymbols.h"
 #include "slang/ast/types/Type.h"
+#include <cstddef>
 
 #include "async_pattern.h"
 #include "diag.h"
 #include "slang/syntax/AllSyntax.h"
+#include "variables.h"
 
 namespace slang_frontend {
 

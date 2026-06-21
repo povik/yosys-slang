@@ -5,22 +5,66 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 // clang-format off
+#include <string.h>
+#include <cstdlib>
+#include <cstdio>
+#include <cassert>
+#include <fstream>
+#include <limits>
+#include <sstream>
+#include <exception>
+#include <cmath>
+#include <iostream>
+#include <cstdint>
+#include <string_view>
+#include <string>
+#include <cstddef>
+#include <utility>
+#include <filesystem>
+#include <optional>
 #include <vector>
 
 #include "slang/ast/ASTVisitor.h"
+#include "kernel/yosys_common.h"
+#include "kernel/log.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/EvalContext.h"
+#include "slang/ast/Expression.h"
 #include "slang/ast/SemanticFacts.h"
+#include "slang/ast/Statement.h"
+#include "slang/ast/Symbol.h"
 #include "slang/ast/SystemSubroutine.h"
+#include "slang/ast/expressions/AssertionExpr.h"
+#include "slang/ast/expressions/AssignmentExpressions.h"
+#include "slang/ast/expressions/CallExpression.h"
+#include "slang/ast/expressions/LiteralExpressions.h"
+#include "slang/ast/expressions/MiscExpressions.h"
+#include "slang/ast/expressions/Operator.h"
+#include "slang/ast/expressions/OperatorExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
+#include "slang/ast/statements/MiscStatements.h"
+#include "slang/ast/symbols/BlockSymbols.h"
+#include "slang/ast/symbols/CheckerSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/MemberSymbols.h"
+#include "slang/ast/symbols/ParameterSymbols.h"
+#include "slang/ast/symbols/SpecifySymbols.h"
+#include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/ast/types/AllTypes.h"
 #include "slang/diagnostics/CompilationDiags.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/Diagnostics.h"
 #include "slang/diagnostics/LookupDiags.h"
 #include "slang/driver/Driver.h"
+#include "slang/numeric/ConstantValue.h"
+#include "slang/numeric/SVInt.h"
+#include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/text/Json.h"
+#include "slang/text/SourceLocation.h"
+#include "slang/util/SmallVector.h"
 #include "slang/util/Util.h"
 
 #include "kernel/bitpattern.h"

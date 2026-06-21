@@ -4,6 +4,7 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/Expression.h"
 #include "slang/ast/Statement.h"
@@ -13,7 +14,11 @@
 #include "slang/ast/symbols/ParameterSymbols.h"
 #include "slang/ast/types/Type.h"
 #include "slang/text/Json.h"
+#include "slang/text/SourceLocation.h"
 #include "slang/text/SourceManager.h"
+#include <iostream>
+#include <string>
+#include <string_view>
 
 #include "slang_frontend.h"
 

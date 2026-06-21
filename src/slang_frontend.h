@@ -6,7 +6,23 @@
 //
 // clang-format off
 #pragma once
+#include <variant>
+#include <tuple>
+#include <cstdint>
+#include <string_view>
+#include <string>
+#include <utility>
+#include <optional>
+#include "kernel/log.h"
+#include "kernel/yosys_common.h"
 #include "slang/ast/EvalContext.h"
+#include "slang/ast/Scope.h"
+#include "slang/ast/SemanticFacts.h"
+#include "slang/ast/symbols/CompilationUnitSymbols.h"
+#include "slang/diagnostics/Diagnostics.h"
+#include "slang/numeric/ConstantValue.h"
+#include "slang/text/SourceLocation.h"
+#include "slang/util/Enum.h"
 #include "kernel/rtlil.h"
 
 // work around yosys PR #4524 changing the way you ask for pointer hashing

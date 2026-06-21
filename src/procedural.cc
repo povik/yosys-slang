@@ -5,6 +5,9 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 
+#include "kernel/log.h"
+#include "slang/ast/Expression.h"
+#include "slang/ast/Scope.h"
 #include "slang/ast/Statement.h"
 #include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
@@ -14,6 +17,8 @@
 #include "slang/ast/symbols/SubroutineSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/Type.h"
+#include <cstdint>
+#include <string>
 
 // Fix for Yosys declaring ceil_log2 as both inline and non-inline
 // but not defining the non-inline one; be sure to include utils.h
@@ -23,6 +28,7 @@
 
 #include "cases.h"
 #include "diag.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
 #include "variables.h"
 

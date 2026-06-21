@@ -6,9 +6,11 @@
 //
 #pragma once
 
+#include "kernel/rtlil.h"
 #include "slang/ast/symbols/ValueSymbol.h"
 
 #include "diag.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
 #include "variables.h"
 
