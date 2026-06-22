@@ -33,6 +33,7 @@ set(ALL_TESTS
     various/assign_mixing.ys
     various/assignment_pattern_lhs.ys
     various/bb_detect.ys
+    various/bb_nettype_port.ys
     various/blackbox_scenarios.ys
     various/bus_range.ys
     various/concurrent_assert.ys
