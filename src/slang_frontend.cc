@@ -3368,6 +3368,8 @@ USING_YOSYS_NAMESPACE
 struct SlangVersionPass : Pass {
 	SlangVersionPass() : Pass("slang_version", "display revision of slang frontend") {}
 
+	bool replace_existing_pass() const override { return true; }
+
 	void help() override
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
@@ -3468,6 +3470,8 @@ void catch_forbidden_options(slang::driver::Driver &driver) {
 
 struct SlangFrontend : Frontend {
 	SlangFrontend() : Frontend("slang", "read SystemVerilog (slang)") {}
+
+	bool replace_existing_pass() const override { return true; }
 
 	void help() override
 	{
@@ -3707,6 +3711,8 @@ struct SlangFrontend : Frontend {
 struct SlangDefaultsPass : Pass {
 	SlangDefaultsPass() : Pass("slang_defaults", "set default options for read_slang") {}
 
+	bool replace_existing_pass() const override { return true; }
+
 	void help() override
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
@@ -3760,6 +3766,8 @@ struct SlangDefaultsPass : Pass {
 struct TestSlangDiagPass : Pass {
 	TestSlangDiagPass() : Pass("test_slangdiag", "test diagnostics emission by the slang frontend") {}
 
+	bool replace_existing_pass() const override { return true; }
+
 	void help() override
 	{
 		log("Perform internal test of the slang frontend.\n");
@@ -3807,6 +3815,8 @@ public:
 
 struct TestSlangExprPass : Pass {
 	TestSlangExprPass() : Pass("test_slangexpr", "test expression evaluation within slang frontend") {}
+
+	bool replace_existing_pass() const override { return true; }
 
 	void help() override
 	{
