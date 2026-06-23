@@ -54,7 +54,7 @@ template <typename T>
 	auto loc = source_location(obj);
 	log_assert(loc.start().buffer() == loc.end().buffer());
 
-	if (auto sm = global_compilation->getSourceManager()) {
+	if (auto sm = global_compilation->getSourceManager(); sm && loc != slang::SourceRange::NoLocation) {
 		std::string_view source_text = sm->getSourceText(loc.start().buffer());
 		int col_no = sm->getColumnNumber(loc.start());
 		const char *line_start = source_text.data() + loc.start().offset() - col_no + 1;
