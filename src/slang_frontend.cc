@@ -1336,6 +1336,52 @@ struct HierarchyQueue {
 	std::vector<NetlistContext *> queue;
 };
 
+// Helper for visiting the elements of a connected interface array
+// and assigning them generated names
+template <typename Func> void visit_interface_elements(const ast::PortConnection *conn, Func &&visit)
+{
+	assert(conn->getIfaceConn().second != nullptr);
+	const ast::Symbol &if_instance = *conn->getIfaceConn().first;
+	const ast::ModportSymbol &ref_modport = *conn->getIfaceConn().second;
+	ast_invariant(if_instance, ast::InstanceArraySymbol::isKind(if_instance.kind) ||
+					ast::InstanceSymbol::isKind(if_instance.kind));
+
+	std::span<const slang::ConstantRange> array_range;
+	if (ast::InstanceArraySymbol::isKind(if_instance.kind)) {
+		auto range1 = conn->port.as<ast::InterfacePortSymbol>().getDeclaredRange();
+		ast_invariant(conn->port, range1.has_value());
+		array_range = range1.value();
+	}
+
+	std::string hierpath_suffix = "";
+	int array_level = 0;
+	if_instance.visit(ast::makeVisitor(
+		[&](auto &visitor, const ast::InstanceArraySymbol &symbol) {
+			// Mock instance array symbols made up by slang don't contain
+			// the instances as members, but they do contain them as elements
+			std::string save = hierpath_suffix;
+			int i = 0;
+			for (auto &elem : symbol.elements) {
+				auto dim = array_range[array_level];
+				int hdl_index = dim.lower() + i;
+				i++;
+				hierpath_suffix += "[" + std::to_string(hdl_index) + "]";
+				array_level++;
+				elem->visit(visitor);
+				array_level--;
+				hierpath_suffix = save;
+			}
+		},
+		[&](auto &visitor, const ast::ModportSymbol &modport) {
+			// To support interface arrays, we need to match all modports
+			// with the same name as ref_modport
+			if (!modport.name.compare(ref_modport.name)) {
+				visit(modport, hierpath_suffix);
+			}
+		}
+	));
+}
+
 struct PopulateNetlist : public TimingPatternInterpretor, public ast::ASTVisitor<PopulateNetlist, ast::VisitFlags::Statements> {
 public:
 	HierarchyQueue &queue;
@@ -1944,61 +1990,13 @@ public:
 						continue;
 					}
 
-					const ast::Symbol &iface_instance = *conn->getIfaceConn().first;
-					const ast::ModportSymbol &ref_modport = *conn->getIfaceConn().second;
-					std::span<const slang::ConstantRange> array_range;
+					visit_interface_elements(conn, [&](const ast::ModportSymbol &modport, std::string &hierpath_suffix) {
+						if (inserted) {
+							submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
+								submodule.id(conn->port) + hierpath_suffix;
+						}
 
-					const ast::Scope *iface_scope;
-					switch (iface_instance.kind) {
-					case ast::SymbolKind::InstanceArray: {
-						iface_scope = static_cast<const ast::Scope *>(
-										&iface_instance.as<ast::InstanceArraySymbol>());
-						auto range1 = conn->port.as<ast::InterfacePortSymbol>().getDeclaredRange();
-						ast_invariant(conn->port, range1.has_value());
-						array_range = range1.value();
-						break;
-					}
-					case ast::SymbolKind::Instance:
-						iface_scope = static_cast<const ast::Scope *>(
-										&iface_instance.as<ast::InstanceSymbol>().body);
-						break;
-					default:
-						log_abort();
-						break;
-					}
-
-					std::string hierpath_suffix = "";
-					int array_level = 0;
-
-					iface_instance.visit(ast::makeVisitor(
-						[&](auto &visitor, const ast::InstanceArraySymbol &symbol) {
-							// Mock instance array symbols made up by slang don't contain
-							// the instances as members, but they do contain them as elements
-							std::string save = hierpath_suffix;
-							int i = 0;
-							for (auto &elem : symbol.elements) {
-								auto dim = array_range[array_level];
-								int hdl_index = dim.lower() + i;
-								i++;
-								hierpath_suffix += "[" + std::to_string(hdl_index) + "]";
-								array_level++;
-								elem->visit(visitor);
-								array_level--;
-								hierpath_suffix = save;
-							}
-						},
-						[&](auto &visitor, const ast::ModportSymbol &modport) {
-							// To support interface arrays, we need to match all modports
-							// with the same name as ref_modport
-							if (!modport.name.compare(ref_modport.name)) {
-								if (inserted) {
-									submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
-															submodule.id(conn->port) + hierpath_suffix;
-								}
-								visitor.visitDefault(modport);
-							}
-						},
-						[&](auto&, const ast::ModportPortSymbol &port) {
+						modport.visit(ast::makeVisitor([&](auto&, const ast::ModportPortSymbol &port) {
 							RTLIL::SigSpec port_sig;
 							if (inserted) {
 								port_sig = submodule.add_wire(port);
@@ -2042,8 +2040,8 @@ public:
 								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
 									netlist.register_driven(*port.internalSymbol);
 							}
-						}
-					));
+						}));
+					});
 					break;
 				}
 				case ast::SymbolKind::MultiPort: {
