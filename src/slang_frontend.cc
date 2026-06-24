@@ -2201,7 +2201,16 @@ public:
 					cell->setParam(RTLIL::escape_id(std::string(symbol.name)), *converted);
 				}
 			}, [&](auto&, const ast::TypeParameterSymbol &symbol) {
-				netlist.add_diag(diag::BboxTypeParameter, symbol.location);
+				// Pwrtaur Phase 76 — Bug #2 patch.
+				// Type parameters on blackboxed modules are compile-
+				// time only; yosys's RTL representation doesn't need
+				// them. Silently ignore instead of erroring so that
+				// type-parametric stubs (e.g. cva6_hpdcache_subsystem
+				// for CVA6 corpus-validate) can act as blackboxes
+				// without yosys-slang refusing the module. The real
+				// downstream Cell carries only value parameters via
+				// the ParameterSymbol branch above.
+				(void) symbol;
 			}, [&](auto&, const ast::InstanceSymbol&) {
 				// no-op
 			}));
