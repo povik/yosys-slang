@@ -1,0 +1,19 @@
+# Regression: exporting an empty blackbox whose port type is a user-defined
+# nettype used to segfault. The port's DeclaredType links to the nettype's
+# declaration, so DeclaredType::getTypeSyntax() returns nullptr, which was
+# dereferenced unconditionally in export_blackbox_to_rtlil().
+read_slang --empty-blackboxes <<SV
+package NetsPkg;
+  nettype real realNet;
+endpackage
+
+module rDriver
+  import NetsPkg::*;
+  (output realNet out);
+endmodule
+
+module top();
+  rDriver r1(.out());
+endmodule
+SV
+select -assert-mod-count 1 =rDriver =A:blackbox %i
