@@ -6,14 +6,186 @@
 //
 #pragma once
 
+#include "diag.h"
+#include "kernel/log.h"
 #include "kernel/rtlil.h"
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <string>
 
 #include "cases.h"
 #include "slang/ast/ASTVisitor.h"
+#include "slang/ast/SemanticFacts.h"
+#include "slang/ast/Statement.h"
+#include "slang/ast/expressions/CallExpression.h"
+#include "slang/ast/statements/ConditionalStatements.h"
+#include "slang/ast/statements/LoopStatements.h"
+#include "slang/ast/statements/MiscStatements.h"
+#include "slang/ast/symbols/ValueSymbol.h"
+#include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
 #include "variables.h"
 
 namespace slang_frontend {
+
+struct SwitchHelper
+{
+	Case *parent;
+	Case *&current_case;
+	Switch *sw;
+
+	using VariableState = ProceduralContext::VariableState;
+
+	VariableState &vstate;
+	VariableState::Map save_map;
+	std::vector<std::tuple<Case *, VariableBits, RTLIL::SigSpec>> branch_updates;
+	bool entered = false, finished = false;
+
+	SwitchHelper(ProceduralContext &context, RTLIL::SigSpec signal)
+		: parent(context.current_case), current_case(context.current_case), vstate(context.vstate)
+	{
+		sw = parent->add_switch(signal);
+	}
+
+	~SwitchHelper()
+	{
+		log_assert(!entered);
+		log_assert(branch_updates.empty() || finished);
+	}
+
+	SwitchHelper(const SwitchHelper &) = delete;
+	SwitchHelper &operator=(const SwitchHelper &) = delete;
+	SwitchHelper(SwitchHelper &&other)
+		: parent(other.parent), current_case(other.current_case), sw(other.sw),
+		  vstate(other.vstate), entered(other.entered), finished(other.finished)
+	{
+		branch_updates.swap(other.branch_updates);
+		save_map.swap(other.save_map);
+		other.entered = false;
+		other.finished = false;
+	}
+
+	void enter_branch(std::vector<RTLIL::SigSpec> compare)
+	{
+		save_map.clear();
+		vstate.save(save_map);
+		log_assert(!entered);
+		log_assert(current_case == parent);
+		current_case = sw->add_case(compare);
+		entered = true;
+	}
+
+	void exit_branch()
+	{
+		log_assert(entered);
+		log_assert(current_case != parent);
+		Case *this_case = current_case;
+		current_case = parent;
+		entered = false;
+		auto updates = vstate.restore(save_map);
+		branch_updates.push_back(std::make_tuple(this_case, updates.first, updates.second));
+	}
+
+	void branch(std::vector<RTLIL::SigSpec> compare, std::function<void()> f)
+	{
+		// TODO: extend detection
+		if (compare.size() == 1 && compare[0].is_fully_def() && sw->signal.is_fully_def() &&
+				sw->signal != compare[0]) {
+			// dead branch
+			return;
+		}
+
+		enter_branch(compare);
+		f();
+		exit_branch();
+	}
+
+	void finish(NetlistContext &netlist)
+	{
+		VariableBits updated_anybranch;
+		for (auto &branch : branch_updates)
+			updated_anybranch.append(std::get<1>(branch));
+		updated_anybranch.sort_and_unify();
+
+		// end-of-scope variables
+		Yosys::pool<Variable> eos_variables;
+
+		auto &va = vstate.visible_assignments;
+		for (auto bit : updated_anybranch)
+			if (bit.variable.kind != Variable::Static && !va.count(bit))
+				eos_variables.insert(bit.variable);
+
+		for (auto chunk : updated_anybranch.chunks()) {
+			if (chunk.variable.kind != Variable::Static && eos_variables.count(chunk.variable)) {
+				for (uint64_t i = 0; i < chunk.bitwidth(); i++)
+					log_assert(!va.count(chunk[i]));
+
+				continue;
+			}
+
+			std::string name_suggestion;
+			if (auto symbol = chunk.variable.get_symbol())
+				name_suggestion = RTLIL::unescape_id(netlist.id(*symbol)) + chunk.slice_text();
+
+			AttributeGuard guard(netlist);
+			if (sw->statement)
+				transfer_attrs(netlist, *sw->statement, guard);
+
+			RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
+			RTLIL::SigSpec w = netlist.add_placeholder_signal(chunk.bitwidth(), name_suggestion);
+			parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
+			vstate.set(chunk, w);
+		}
+
+		for (auto &branch : branch_updates) {
+			Case *rule;
+			VariableBits target;
+			RTLIL::SigSpec source;
+			std::tie(rule, target, source) = branch;
+
+			int done = 0;
+			for (auto chunk : target.chunks()) {
+				if (eos_variables.count(chunk.variable)) {
+					done += (int)chunk.bitwidth();
+					continue;
+				}
+
+				// get the wire (or some part of it) which we created up above
+				RTLIL::SigSpec target_w;
+				for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
+					log_assert(va.count(chunk[i]));
+					target_w.append(va.at(chunk[i]));
+				}
+
+				rule->aux_actions.push_back(
+						RTLIL::SigSig(target_w, source.extract(done, (int)chunk.bitwidth())));
+				done += (int)chunk.bitwidth();
+			}
+		}
+
+		finished = true;
+	}
+};
+
+static const ast::Statement *unwrap_statement(const ast::Statement *statement)
+{
+	switch (statement->kind) {
+	case ast::StatementKind::Block:
+		return unwrap_statement(&statement->as<ast::BlockStatement>().body);
+	case ast::StatementKind::List: {
+		auto &list = statement->as<ast::StatementList>();
+		if (list.list.size() == 1) {
+			return unwrap_statement(list.list[0]);
+		}
+		break;
+	}
+	default: break;
+	}
+	return statement;
+}
 
 struct StatementExecutor : public ast::ASTVisitor<StatementExecutor, ast::VisitFlags::Statements>
 {
@@ -28,165 +200,6 @@ public:
 		: netlist(context.netlist), context(context), eval(context.eval),
 		  unroll_limit(context.unroll_limit)
 	{}
-
-	struct SwitchHelper
-	{
-		Case *parent;
-		Case *&current_case;
-		Switch *sw;
-
-		using VariableState = ProceduralContext::VariableState;
-
-		VariableState &vstate;
-		VariableState::Map save_map;
-		std::vector<std::tuple<Case *, VariableBits, RTLIL::SigSpec>> branch_updates;
-		bool entered = false, finished = false;
-
-		SwitchHelper(ProceduralContext &context, RTLIL::SigSpec signal)
-			: parent(context.current_case), current_case(context.current_case),
-			  vstate(context.vstate)
-		{
-			sw = parent->add_switch(signal);
-		}
-
-		~SwitchHelper()
-		{
-			log_assert(!entered);
-			log_assert(branch_updates.empty() || finished);
-		}
-
-		SwitchHelper(const SwitchHelper &) = delete;
-		SwitchHelper &operator=(const SwitchHelper &) = delete;
-		SwitchHelper(SwitchHelper &&other)
-			: parent(other.parent), current_case(other.current_case), sw(other.sw),
-			  vstate(other.vstate), entered(other.entered), finished(other.finished)
-		{
-			branch_updates.swap(other.branch_updates);
-			save_map.swap(other.save_map);
-			other.entered = false;
-			other.finished = false;
-		}
-
-		void enter_branch(std::vector<RTLIL::SigSpec> compare)
-		{
-			save_map.clear();
-			vstate.save(save_map);
-			log_assert(!entered);
-			log_assert(current_case == parent);
-			current_case = sw->add_case(compare);
-			entered = true;
-		}
-
-		void exit_branch()
-		{
-			log_assert(entered);
-			log_assert(current_case != parent);
-			Case *this_case = current_case;
-			current_case = parent;
-			entered = false;
-			auto updates = vstate.restore(save_map);
-			branch_updates.push_back(std::make_tuple(this_case, updates.first, updates.second));
-		}
-
-		void branch(std::vector<RTLIL::SigSpec> compare, std::function<void()> f)
-		{
-			// TODO: extend detection
-			if (compare.size() == 1 && compare[0].is_fully_def() && sw->signal.is_fully_def() &&
-					sw->signal != compare[0]) {
-				// dead branch
-				return;
-			}
-
-			enter_branch(compare);
-			f();
-			exit_branch();
-		}
-
-		void finish(NetlistContext &netlist)
-		{
-			VariableBits updated_anybranch;
-			for (auto &branch : branch_updates)
-				updated_anybranch.append(std::get<1>(branch));
-			updated_anybranch.sort_and_unify();
-
-			// end-of-scope variables
-			Yosys::pool<Variable> eos_variables;
-
-			auto &va = vstate.visible_assignments;
-			for (auto bit : updated_anybranch)
-				if (bit.variable.kind != Variable::Static && !va.count(bit))
-					eos_variables.insert(bit.variable);
-
-			for (auto chunk : updated_anybranch.chunks()) {
-				if (chunk.variable.kind != Variable::Static &&
-						eos_variables.count(chunk.variable)) {
-					for (uint64_t i = 0; i < chunk.bitwidth(); i++)
-						log_assert(!va.count(chunk[i]));
-
-					continue;
-				}
-
-				std::string name_suggestion;
-				if (auto symbol = chunk.variable.get_symbol())
-					name_suggestion = RTLIL::unescape_id(netlist.id(*symbol)) + chunk.slice_text();
-
-				AttributeGuard guard(netlist);
-				if (sw->statement)
-					transfer_attrs(netlist, *sw->statement, guard);
-
-				RTLIL::SigSpec w_default = vstate.evaluate(netlist, chunk);
-				RTLIL::SigSpec w =
-						netlist.add_placeholder_signal(chunk.bitwidth(), name_suggestion);
-				parent->aux_actions.push_back(RTLIL::SigSig(w, w_default));
-				vstate.set(chunk, w);
-			}
-
-			for (auto &branch : branch_updates) {
-				Case *rule;
-				VariableBits target;
-				RTLIL::SigSpec source;
-				std::tie(rule, target, source) = branch;
-
-				int done = 0;
-				for (auto chunk : target.chunks()) {
-					if (eos_variables.count(chunk.variable)) {
-						done += (int)chunk.bitwidth();
-						continue;
-					}
-
-					// get the wire (or some part of it) which we created up above
-					RTLIL::SigSpec target_w;
-					for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
-						log_assert(va.count(chunk[i]));
-						target_w.append(va.at(chunk[i]));
-					}
-
-					rule->aux_actions.push_back(
-							RTLIL::SigSig(target_w, source.extract(done, (int)chunk.bitwidth())));
-					done += (int)chunk.bitwidth();
-				}
-			}
-
-			finished = true;
-		}
-	};
-
-	static const ast::Statement *unwrap_statement(const ast::Statement *statement)
-	{
-		switch (statement->kind) {
-		case ast::StatementKind::Block:
-			return unwrap_statement(&statement->as<ast::BlockStatement>().body);
-		case ast::StatementKind::List: {
-			auto &list = statement->as<ast::StatementList>();
-			if (list.list.size() == 1) {
-				return unwrap_statement(list.list[0]);
-			}
-			break;
-		}
-		default: break;
-		}
-		return statement;
-	}
 
 	void handle(const ast::ImmediateAssertionStatement &statement)
 	{
@@ -224,13 +237,13 @@ public:
 		transfer_attrs(netlist, statement, cell);
 	}
 
-	void handle(const ast::ConcurrentAssertionStatement &stmt)
+	void handle(const ast::ConcurrentAssertionStatement &statement)
 	{
 		if (!netlist.settings.ignore_assertions.value_or(false)) {
-			if (stmt.assertionKind == ast::AssertionKind::Expect) {
-				netlist.add_diag(diag::ExpectStatementUnsupported, stmt.sourceRange);
+			if (statement.assertionKind == ast::AssertionKind::Expect) {
+				netlist.add_diag(diag::ExpectStatementUnsupported, statement.sourceRange);
 			} else {
-				netlist.add_diag(diag::SVAUnsupported, stmt.sourceRange);
+				process_sva_property(statement, containing_block, context, statement.propertySpec);
 			}
 		}
 	}
@@ -580,7 +593,7 @@ public:
 		std::vector<SwitchHelper> sw_stack;
 		std::vector<std::optional<int32_t>> loopVarStack(stmt.loopDims.size(), std::nullopt);
 		// Initialize loop vars ranges
-		for (auto i = 0; i < stmt.loopDims.size(); ++i) {
+		for (size_t i = 0; i < stmt.loopDims.size(); ++i) {
 			auto loopDim = stmt.loopDims[i];
 			if (loopDim.loopVar && loopDim.range) {
 				loopVarStack[loopVarStack.size() - i - 1] = loopDim.range->left;
@@ -590,11 +603,6 @@ public:
 
 		std::vector<slang::ast::ForeachLoopStatement::LoopDim> reversedDims(
 				stmt.loopDims.rbegin(), stmt.loopDims.rend());
-		for (auto i = 0; i < loopVarStack.size(); ++i) {
-			if (loopVarStack[i]) {
-				auto currDim = reversedDims[i];
-			}
-		}
 
 		RegisterEscapeConstructGuard guard1(context, EscapeConstructKind::Loop, &stmt);
 		unroll_limit.enter_unrolling();
@@ -618,7 +626,7 @@ public:
 			}
 
 			bool doBreak = true;
-			for (int i = 0; i < loopVarStack.size(); ++i) {
+			for (size_t i = 0; i < loopVarStack.size(); ++i) {
 				if (!loopVarStack[i])
 					continue;
 
@@ -630,7 +638,7 @@ public:
 					break;
 				} else if (i != loopVarStack.size() - 1) {
 					bool nextDimFound = false;
-					int j = i + 1;
+					size_t j = i + 1;
 					for (; j < loopVarStack.size(); ++j) {
 						if (loopVarStack[j] && *loopVarStack[j] != reversedDims[j].range->right) {
 							nextDimFound = true;
@@ -643,7 +651,7 @@ public:
 												   ? *loopVarStack[j] - 1
 												   : *loopVarStack[j] + 1;
 						doBreak = false;
-						for (int k = 0; k < j; ++k) {
+						for (size_t k = 0; k < j; ++k) {
 							if (loopVarStack[k])
 								*loopVarStack[k] = reversedDims[k].range->left;
 						}
@@ -653,7 +661,7 @@ public:
 				}
 			}
 
-			for (auto i = 0; i < loopVarStack.size(); ++i) {
+			for (size_t i = 0; i < loopVarStack.size(); ++i) {
 				if (loopVarStack[i]) {
 					auto currDim = reversedDims[i];
 					set_iterator_value(*currDim.loopVar, *loopVarStack[i]);

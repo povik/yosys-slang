@@ -1,0 +1,17 @@
+name: Bazel build
+on: [push, pull_request]
+jobs:
+  bazel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+      - name: Build
+        run: |
+          bazel build //...

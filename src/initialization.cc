@@ -4,8 +4,14 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
+#include "kernel/rtlil.h"
 #include "slang/ast/ASTVisitor.h"
+#include "slang/ast/SemanticFacts.h"
+#include "slang/ast/symbols/BlockSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/MemberSymbols.h"
+#include "slang/ast/symbols/ValueSymbol.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/Type.h"
 
@@ -14,13 +20,13 @@
 
 namespace slang_frontend {
 
-template <typename Func> void visit_netlist_variables(NetlistContext &netlist, Func &&visit)
+template <typename Func> void visit_netlist_variables(NetlistContext &netlist, Func &&visit_fn)
 {
 	netlist.realm.visit(ast::makeVisitor(
 			[&](auto &, const ast::VariableSymbol &symbol) {
 				if (symbol.getType().isFixedSize() &&
 						symbol.lifetime == ast::VariableLifetime::Static) {
-					visit(symbol);
+					visit_fn(symbol);
 				}
 			},
 			[&](auto &visitor, const ast::InstanceSymbol &symbol) {
@@ -65,7 +71,7 @@ template <typename Func> void visit_netlist_variables(NetlistContext &netlist, F
 							ast_invariant(
 									port, port.internalSymbol->as<ast::VariableSymbol>().lifetime ==
 												  ast::VariableLifetime::Static);
-							visit(port);
+							visit_fn(port);
 						}
 					}));
 		}

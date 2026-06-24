@@ -1,0 +1,12 @@
+read_slang --no-implicit-memories <<EOF
+module top;
+localparam ADDRW = 14;
+logic clk;
+logic[ADDRW-1:0] aaddr;
+reg [32-1:0] mem [2**ADDRW-1:0];
+
+always_ff @(posedge clk) begin
+    mem[aaddr][0] <= '0;
+end
+endmodule
+EOF

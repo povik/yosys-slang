@@ -4,8 +4,12 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
+#include "slang/ast/Scope.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/types/Type.h"
+#include <cstdint>
+#include <string>
 
 #include "slang_frontend.h"
 #include "variables.h"

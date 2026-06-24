@@ -43,7 +43,14 @@ if(WIN32)
 
     target_link_options(yosys::yosys INTERFACE ${YOSYS_LINKFLAGS})
 
-    target_link_libraries(yosys::yosys INTERFACE yosys_exe)
+    execute_process(
+        COMMAND ${YOSYS_CONFIG} --ldlibs
+        OUTPUT_VARIABLE YOSYS_LDLIBS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+    message(STATUS "yosys-config --ldlibs: ${YOSYS_LDLIBS}")
+    target_link_libraries(yosys::yosys INTERFACE ${YOSYS_LDLIBS})
 endif()
 
 set(YOSYS_BINDIR ${YOSYS_BINDIR} PARENT_SCOPE)

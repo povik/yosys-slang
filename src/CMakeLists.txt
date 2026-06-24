@@ -30,6 +30,7 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     slang_frontend.cc
     slang_frontend.h
     statements.h
+    sva.cc
     variables.cc
     variables.h
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
@@ -46,6 +47,9 @@ if (BUILD_AS_PLUGIN)
         PREFIX ""
         OUTPUT_NAME "slang"
         SUFFIX ".so"
+        # Plugin should hide internals
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN YES
     )
 
     if (WIN32)

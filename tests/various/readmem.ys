@@ -1,0 +1,151 @@
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top1(input [1:0] addr);
+	reg [7:0] x[0:3];
+	reg [7:0] y[0:3];
+
+	initial begin
+		$readmemh("readmem_data.hex", x, 0, 3);
+		y = '{8'h01, 8'h2a, 8'hff, 8'h80};
+	end
+
+	wire [7:0] lhs = x[addr];
+	wire [7:0] rhs = y[addr];
+
+	always_comb
+		if (^addr !== 'x)
+			assert(lhs === rhs);
+endmodule
+EOF
+chformal -lower
+memory_collect
+memory_map
+sat -verify -enable_undef -prove-asserts -show-all
+
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top2(input [1:0] addr);
+	(* rom_block *)
+	reg [7:0] x[0:3];
+	reg [7:0] y[0:3];
+
+	initial begin
+		$readmemb("readmem_bin.bin", x);
+		y = '{8'b00000001, 8'b00101010, 8'b11111111, 8'b10000000};
+	end
+
+	always_comb
+		if (^addr !== 'x)
+			assert(x[addr] === y[addr]);
+endmodule
+EOF
+chformal -lower
+memory_collect
+select -assert-count 1 t:$mem_v2
+memory_map
+sat -verify -enable_undef -prove-asserts -show-all
+
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top3(input [2:0] addr);
+	reg [7:0] x[0:7];
+	reg [7:0] y[0:7];
+
+	initial begin
+		x = '{8{8'h00}};
+		$readmemh("readmem_data.hex", x, 1);
+		y = '{8'h00, 8'h01, 8'h2a, 8'hff, 8'h80, 8'h00, 8'h00, 8'h00};
+	end
+
+	wire [7:0] lhs = x[addr];
+	wire [7:0] rhs = y[addr];
+
+	always_comb
+		if (^addr !== 'x)
+			assert(lhs === rhs);
+endmodule
+EOF
+chformal -lower
+memory_collect
+memory_map
+sat -verify -enable_undef -prove-asserts -show-all
+
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top4(input [2:0] addr);
+	(* rom_block *)
+	reg [7:0] x[0:7];
+	reg [7:0] y[0:7];
+
+	initial begin
+		x = '{8{8'h00}};
+		$readmemh("readmem_at.hex", x);
+		y = '{8'h11, 8'h00, 8'haa, 8'hbb, 8'h00, 8'hcc, 8'h00, 8'hdd};
+	end
+
+	always_comb
+		if (^addr !== 'x)
+			assert(x[addr] === y[addr]);
+endmodule
+EOF
+chformal -lower
+memory_collect
+memory_map
+sat -verify -enable_undef -prove-asserts -show-all
+
+# Read with comments and also swap left/right bounds
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top5(input [1:0] addr);
+	(* rom_block *)
+	reg [7:0] x[3:0];
+	reg [7:0] y[3:0];
+
+	initial begin
+		$readmemh("readmem_comments.hex", x);
+		y = '{8'h04, 8'h03, 8'h02, 8'h01};
+	end
+
+	wire [7:0] lhs = x[addr];
+	wire [7:0] rhs = y[addr];
+
+	always_comb
+		if (^addr !== 'x)
+			assert(lhs === rhs);
+endmodule
+EOF
+chformal -lower
+memory_collect
+memory_map
+sat -verify -enable_undef -prove-asserts -show-all
+
+design -reset
+read_slang --no-implicit-memories <<EOF
+module top6(input [1:0] addr);
+	reg [7:0] x[3:0];
+	reg [7:0] y[3:0];
+
+	initial begin
+		$readmemb("readmem_xz.bin", x);
+		y = '{8'bzz1100xx, 8'bxxzz0011, 8'bzzzzzzzz, 8'bxxxxxxxx};
+	end
+
+	wire [7:0] lhs = x[addr];
+	wire [7:0] rhs = y[addr];
+
+	always_comb
+		if (^addr !== 'x)
+			assert(lhs === rhs);
+endmodule
+EOF
+chformal -lower
+memory_collect
+memory_map
+sat -verify -enable_undef -prove-asserts -show-all
+
+design -reset
+read_slang readmem_relative.sv
+chformal -lower
+memory_collect
+memory_map
+sat -verify -enable_undef -prove-asserts -show-all

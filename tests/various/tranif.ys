@@ -1,0 +1,8 @@
+test_slangdiag -expect "primitives of type 'tranif1' unsupported"
+read_slang <<EOF
+// 28. Gate-level and switch-level modeling
+// 28.8. Bidirectional pass switches
+module top (inout control, inout inout1, inout inout2);
+  tranif1 t1 (inout1,inout2,control);
+endmodule
+EOF

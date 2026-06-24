@@ -6,9 +6,11 @@
 //
 #pragma once
 
+#include "kernel/rtlil.h"
 #include "slang/ast/symbols/ValueSymbol.h"
 
 #include "diag.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
 #include "variables.h"
 
@@ -124,7 +126,6 @@ struct Case
 		std::set<VariableBit> has_mask_switches;
 
 		for (auto &action : actions) {
-			bool raise_complex = false;
 			VariableBits lvalue;
 			RTLIL::SigSpec enables, lstaging, rvalue;
 

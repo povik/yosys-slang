@@ -5,6 +5,8 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #include "diag.h"
+#include "slang/diagnostics/Diagnostics.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
 
 namespace slang_frontend {
@@ -105,6 +107,7 @@ DiagCode NoteModuleBlackboxBecauseAttribute(DiagSubsystem::Netlist, 1051);
 DiagCode NoteModuleBlackboxBecauseEmpty(DiagSubsystem::Netlist, 1052);
 DiagCode NoteModuleNotDissolvedBecauseBlackbox(DiagSubsystem::Netlist, 1053);
 DiagCode NoteModuleNotDissolvedBecauseKeepHierarchy(DiagSubsystem::Netlist, 1054);
+DiagCode NoteModuleNotDissolvedBecauseInOut(DiagSubsystem::Netlist, 1084);
 DiagCode BlockingAssignmentAfterNonblocking(DiagSubsystem::Netlist, 1055);
 DiagCode NonblockingAssignmentAfterBlocking(DiagSubsystem::Netlist, 1056);
 DiagCode NotePreviousAssignment(DiagSubsystem::Netlist, 1057);
@@ -122,6 +125,15 @@ DiagCode ErrorNonconstantInitialEval(DiagSubsystem::Netlist, 1071);
 DiagCode DeprecatedOption(DiagSubsystem::Netlist, 1072);
 DiagCode GuessingInputPort(DiagSubsystem::Netlist, 1073);
 DiagCode UnsupportedSystemTask(DiagSubsystem::Netlist, 1074);
+DiagCode UnsupportedSVAFeature(DiagSubsystem::Netlist, 1075);
+DiagCode RepetitionsUnsupported(DiagSubsystem::Netlist, 1076);
+DiagCode SVAClockingRequiresEdge(DiagSubsystem::Netlist, 1077);
+DiagCode ErrorNonconstantArgument(DiagSubsystem::Netlist, 1078);
+DiagCode ReadmemFileNotFound(DiagSubsystem::Netlist, 1079);
+DiagCode ReadmemInvalidAddress(DiagSubsystem::Netlist, 1080);
+DiagCode ReadmemAddressOutsideOfRange(DiagSubsystem::Netlist, 1081);
+DiagCode ReadmemWordsRangeMismatch(DiagSubsystem::Netlist, 1082);
+DiagCode ReadmemBadBinaryDigit(DiagSubsystem::Netlist, 1083);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -263,6 +275,8 @@ void setup_messages(slang::DiagnosticEngine &engine)
 	engine.setSeverity(NoteModuleNotDissolvedBecauseBlackbox, DiagnosticSeverity::Note);
 	engine.setMessage(NoteModuleNotDissolvedBecauseKeepHierarchy, "instance of module '{}' will not dissolve because of '--keep-hierarchy' option");
 	engine.setSeverity(NoteModuleNotDissolvedBecauseKeepHierarchy, DiagnosticSeverity::Note);
+	engine.setMessage(NoteModuleNotDissolvedBecauseInOut, "instance of module '{}' will not dissolve because the module has an inout port");
+	engine.setSeverity(NoteModuleNotDissolvedBecauseInOut, DiagnosticSeverity::Note);
 
 	engine.setMessage(BlockingAssignmentAfterNonblocking, "blocking assignment to variable '{}' is not supported after previous non-blocking assignment");
 	engine.setSeverity(BlockingAssignmentAfterNonblocking, DiagnosticSeverity::Error);
@@ -312,6 +326,33 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(UnsupportedSystemTask, "unsupported system task '{}'");
 	engine.setSeverity(UnsupportedSystemTask, DiagnosticSeverity::Error);
+
+	engine.setMessage(UnsupportedSVAFeature, "encountered unsupported SVA feature");
+	engine.setSeverity(UnsupportedSVAFeature, DiagnosticSeverity::Error);
+
+	engine.setMessage(RepetitionsUnsupported, "repetitions unsupported");
+	engine.setSeverity(RepetitionsUnsupported, DiagnosticSeverity::Error);
+
+	engine.setMessage(SVAClockingRequiresEdge, "SVA clocking requires a signal edge");
+	engine.setSeverity(SVAClockingRequiresEdge, DiagnosticSeverity::Error);
+
+	engine.setMessage(ErrorNonconstantArgument, "failed to evaluate system function with non-constant argument");
+	engine.setSeverity(ErrorNonconstantArgument, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemFileNotFound, "failed to open file '{}'");
+	engine.setSeverity(ReadmemFileNotFound, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemInvalidAddress, "cannot parse address '{}' in '{}'");
+	engine.setSeverity(ReadmemInvalidAddress, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemAddressOutsideOfRange, "address '{}' (hexadecimal) is out of range");
+	engine.setSeverity(ReadmemAddressOutsideOfRange, DiagnosticSeverity::Error);
+
+	engine.setMessage(ReadmemWordsRangeMismatch, "number of words in '{}' doesn't match the range");
+	engine.setSeverity(ReadmemWordsRangeMismatch, DiagnosticSeverity::Warning);
+
+	engine.setMessage(ReadmemBadBinaryDigit, "digit larger than 1 is used in '{}'");
+	engine.setSeverity(ReadmemBadBinaryDigit, DiagnosticSeverity::Error);
 	// clang-format on
 }
 }; // namespace diag

@@ -5,7 +5,27 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 #pragma once
+#include <functional>
+#include <optional>
+#include <string>
+#include <string_view>
+
+#include "async_pattern.h"
+#include "diag.h"
+#include "kernel/log.h"
+#include "slang/ast/ASTVisitor.h"
+#include "slang/ast/Compilation.h"
+#include "slang/ast/Expression.h"
+#include "slang/ast/expressions/MiscExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
+#include "slang/ast/statements/MiscStatements.h"
+#include "slang/ast/symbols/BlockSymbols.h"
+#include "slang/ast/symbols/PortSymbols.h"
+#include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/text/SourceLocation.h"
 #include "slang_frontend.h"
+
+extern slang::ast::Compilation *global_compilation;
 
 namespace slang_frontend {
 

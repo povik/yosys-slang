@@ -4,8 +4,12 @@
 // Copyright Martin Povišer <povik@cutebit.org>
 // Distributed under the terms of the ISC license, see LICENSE
 //
+#include "kernel/log.h"
+#include "kernel/rtlil.h"
+#include "slang/ast/Expression.h"
 #include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/types/Type.h"
+#include <cstdint>
 
 // Fix for Yosys declaring ceil_log2 as both inline and non-inline
 // but not defining the non-inline one; be sure to include utils.h
@@ -210,8 +214,6 @@ RTLIL::SigSpec AddressingResolver::raw_demux(RTLIL::SigSpec val, int from, int t
 
 		RTLIL::SigSpec val_gated = netlist.Mux(RTLIL::SigSpec(RTLIL::S0, stride), val, valid);
 
-		RTLIL::SigSpec demux_result = netlist.Demux(val_gated, sel);
-
 		positive = netlist.Demux(val_gated, sel).extract(0, to * stride);
 		log_assert(positive.size() == to * stride);
 	}
@@ -276,6 +278,8 @@ RTLIL::SigSpec AddressingResolver::mux(RTLIL::SigSpec val, int output_len)
 {
 	log_assert(output_len == stride);
 	log_assert(val.size() % stride == 0);
+	if (raw_signal.is_fully_def())
+		return extract(val, output_len);
 	return raw_mux({RTLIL::SigSpec(RTLIL::Sx, std::max(0, base_offset * stride - val.size())), val,
 						   RTLIL::SigSpec(RTLIL::Sx, std::max(0, stride * -base_offset))},
 			-std::max(0, base_offset), std::max(0, -base_offset + val.size() / stride), output_len);

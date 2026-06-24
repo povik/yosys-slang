@@ -1,0 +1,18 @@
+read_slang <<EOF
+module expression_attrs(
+	input logic a,
+	input logic b,
+	input logic c,
+	output logic y,
+	output logic z,
+	output logic w
+);
+	assign y = a & b;
+	assign z = a ? b : c;
+	assign w = ~a;
+endmodule
+EOF
+
+select -assert-count 1 t:$and A:src %i
+select -assert-count 1 t:$mux A:src %i
+select -assert-count 1 t:$not A:src %i

@@ -6,7 +6,23 @@
 //
 // clang-format off
 #pragma once
+#include <variant>
+#include <tuple>
+#include <cstdint>
+#include <string_view>
+#include <string>
+#include <utility>
+#include <optional>
+#include "kernel/log.h"
+#include "kernel/yosys_common.h"
 #include "slang/ast/EvalContext.h"
+#include "slang/ast/Scope.h"
+#include "slang/ast/SemanticFacts.h"
+#include "slang/ast/symbols/CompilationUnitSymbols.h"
+#include "slang/diagnostics/Diagnostics.h"
+#include "slang/numeric/ConstantValue.h"
+#include "slang/text/SourceLocation.h"
+#include "slang/util/Enum.h"
 #include "kernel/rtlil.h"
 
 // work around yosys PR #4524 changing the way you ask for pointer hashing
@@ -26,7 +42,9 @@ namespace slang {
 	class DiagnosticEngine;
 	class CommandLine;
 	namespace ast {
+		class AssertionExpr;
 		class Compilation;
+		class ConcurrentAssertionStatement;
 		class Symbol;
 		class Expression;
 		class SubroutineSymbol;
@@ -42,6 +60,7 @@ namespace slang {
 		class NetSymbol;
 		class ElementSelectExpression;
 		class RangeSelectExpression;
+		class StatementBlockSymbol;
 	};
 };
 
@@ -67,10 +86,10 @@ class ProceduralContext;
 class RegisterEscapeConstructGuard;
 class EnterAutomaticScopeGuard;
 class VariableBits;
-class VariableBit;
-class VariableChunk;
+struct VariableBit;
+struct VariableChunk;
 struct ProcessTiming;
-class Case;
+struct Case;
 class LValue;
 
 class Variable {
@@ -143,6 +162,10 @@ struct EvalContext {
 	// Evaluates the given symbols/expressions to their value in this context
 	RTLIL::SigSpec operator()(ast::Expression const &expr);
 
+	// Evaluates the given expression using SVA rules.
+	// See IEEE Std 1800-2017 section 16.14.6
+	RTLIL::SigSpec sva(ast::Expression const &expr);
+
 	// Evaluates the given expression, inserts an extra sign bit if need
 	// be so that the result can always be interpreted as a signed value
 	RTLIL::SigSpec eval_signed(ast::Expression const &expr);
@@ -159,10 +182,14 @@ struct EvalContext {
 	RTLIL::SigSpec connection_lhs(ast::AssignmentExpression const &assign);
 
 	EvalContext(NetlistContext &netlist);
-	EvalContext(NetlistContext &netlist, ProceduralContext &procedural);
+	EvalContext(ProceduralContext &procedural);
 
 	// for testing
 	bool ignore_ast_constants = false;
+
+	// Variable reading within SVA is special depending on whether the variable
+	// is static, automatic, or is part of an expression casted to `const`
+	bool in_sva_expression = false;
 
 	friend class EnterAutomaticScopeGuard;
 };
@@ -321,7 +348,6 @@ public:
 
 private:
 	ProceduralContext &context;
-	const ast::Scope *scope;
 };
 
 struct RTLILBuilder {
@@ -329,6 +355,10 @@ struct RTLILBuilder {
 
 	RTLIL::Module *canvas;
 	Yosys::dict<RTLIL::IdString, RTLIL::Const> staged_attributes;
+	// Source ranges are kept unformatted until bless_cell() actually emits a
+	// cell; many expression leaves never need an `src` string.
+	slang::SourceRange staged_source_range;
+	bool staged_source_range_valid = false;
 
 	unsigned next_id = 0;
 	std::string new_id(std::string base = std::string());
@@ -358,6 +388,7 @@ struct RTLILBuilder {
 				 bool a_signed, bool b_signed, int y_width);
 
 	SigSpec CountOnes(SigSpec sig, int result_width);
+	SigSpec Clog2(SigSpec sig, int result_width);
 
 	void add_dual_edge_aldff(const std::string &base_name, RTLIL::SigSpec clk,
 							 RTLIL::SigSpec aload, RTLIL::SigSpec d, RTLIL::SigSpec q,
@@ -399,11 +430,16 @@ public:
 		: builder(builder)
 	{
 		save.swap(builder.staged_attributes);
+		save_source_range = builder.staged_source_range;
+		save_source_range_valid = builder.staged_source_range_valid;
+		builder.staged_source_range_valid = false;
 	}
 
 	~AttributeGuard()
 	{
 		save.swap(builder.staged_attributes);
+		builder.staged_source_range = save_source_range;
+		builder.staged_source_range_valid = save_source_range_valid;
 	}
 
 	void set(RTLIL::IdString id, RTLIL::Const value)
@@ -411,9 +447,17 @@ public:
 		builder.staged_attributes[id] = value;
 	}
 
+	void set_source(slang::SourceRange source_range)
+	{
+		builder.staged_source_range = source_range;
+		builder.staged_source_range_valid = true;
+	}
+
 private:
 	RTLILBuilder &builder;
 	Yosys::dict<RTLIL::IdString, RTLIL::Const> save;
+	slang::SourceRange save_source_range;
+	bool save_source_range_valid = false;
 };
 
 class DiagnosticIssuer {
@@ -500,8 +544,8 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 	std::string id(const ast::ValueSymbol &sym);
 	std::string hdlname(const ast::Symbol &sym);
 
-	RTLIL::SigSpec add_wire(const ast::ValueSymbol &sym);
-	RTLIL::SigSpec wire(const ast::Symbol &sym);
+	const RTLIL::SigSpec& add_wire(const ast::ValueSymbol &sym);
+	const RTLIL::SigSpec& wire(const ast::Symbol &sym);
 	RTLIL::SigSpec convert_static(VariableBits bits);
 
 	struct Memory {
@@ -568,6 +612,7 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 // slang_frontend.cc
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
+std::string format_src(slang::SourceRange source_range);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard);
 template<typename T> void transfer_attrs(T &from, RTLIL::AttrObject *to);
@@ -684,9 +729,9 @@ private:
 	};
 
 	std::variant<Variable, Concatenation, RangeSelect, MemberAccess, MemoryWrite> descriptor;
-	bool contiguous_slice_;
-	bool static_;
 	uint64_t bitsize;
+	bool static_;
+	bool contiguous_slice_;
 
 	LValue(decltype(descriptor) descriptor, uint64_t bitsize, bool static_, bool contiguous_slice_)
 		: descriptor(std::move(descriptor)), bitsize(bitsize), static_(static_), contiguous_slice_(contiguous_slice_) {}
@@ -695,5 +740,13 @@ private:
 								   ProceduralContext &context, LValue &lvalue,
 								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
 };
+
+// sva.cc
+void process_sva_property(const ast::ConcurrentAssertionStatement &statement,
+						  const ast::StatementBlockSymbol *block,
+						  ProceduralContext &procedural, const ast::AssertionExpr &expr);
+void process_freestanding_sva_property(NetlistContext &netlist,
+									   const ast::ConcurrentAssertionStatement &statement,
+						  			   const ast::StatementBlockSymbol *block);
 
 };

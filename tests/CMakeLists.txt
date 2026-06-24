@@ -27,6 +27,7 @@ set(ALL_TESTS
     unit/async.ys
     unit/dualedge.ys
     unit/function_call.ys
+    unit/expression_attrs.ys
     unit/latch.ys
     unit/selftests.tcl
     various/assign_mixing.ys
@@ -34,6 +35,7 @@ set(ALL_TESTS
     various/bb_detect.ys
     various/blackbox_scenarios.ys
     various/bus_range.ys
+    various/concurrent_assert.ys
     various/defaults.ys
     various/delays.ys
     various/dualedge.ys
@@ -41,11 +43,13 @@ set(ALL_TESTS
     various/flop_naming.ys
     various/formal_stmts.ys
     various/hierref_error.ys
+    various/huge_reg.ys
     various/ignore_asserts.ys
     various/init.ys
     various/intf_array_naming.ys
     various/intf_w_hierarchy.ys
     various/issue142.ys
+    various/issue143.ys
     various/issue208.ys
     various/issue227.ys
     various/issue240.ys
@@ -55,11 +59,15 @@ set(ALL_TESTS
     various/mem_inference.ys
     various/meminit.ys
     various/pragmas.ys
+    various/readmem.ys
+    various/readmem_diag.ys
     various/regress.ys
     various/stringattrs.ys
     various/stringparams.ys
     various/timescale.ys
+    various/tranif.ys
     various/top_attr.ys
+    various/unimplemented.ys
     various/unknown_cells.ys
     various/toplevel_intf.ys
     various/wait_test.ys

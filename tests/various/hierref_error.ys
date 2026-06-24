@@ -48,3 +48,17 @@ module top();
 	wire g = i1.w;
 endmodule
 EOF
+
+design -reset
+test_slangdiag -expect "hierarchical reference across preserved module boundary"
+read_slang --keep-hierarchy <<EOF
+module submod(inout pad, output out);
+	assign out = pad;
+	wire w = pad;
+endmodule
+
+module top(inout pad, output out);
+	submod i1(.pad(pad), .out(out));
+	wire g = i1.w;
+endmodule
+EOF

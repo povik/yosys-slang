@@ -5,20 +5,66 @@
 // Distributed under the terms of the ISC license, see LICENSE
 //
 // clang-format off
+#include <string.h>
+#include <cstdlib>
+#include <cstdio>
+#include <cassert>
+#include <fstream>
+#include <limits>
+#include <sstream>
+#include <exception>
+#include <cmath>
+#include <iostream>
+#include <cstdint>
+#include <string_view>
+#include <string>
+#include <cstddef>
+#include <utility>
+#include <filesystem>
+#include <optional>
+#include <vector>
+
 #include "slang/ast/ASTVisitor.h"
+#include "kernel/yosys_common.h"
+#include "kernel/log.h"
 #include "slang/ast/Compilation.h"
 #include "slang/ast/EvalContext.h"
+#include "slang/ast/Expression.h"
 #include "slang/ast/SemanticFacts.h"
+#include "slang/ast/Statement.h"
+#include "slang/ast/Symbol.h"
 #include "slang/ast/SystemSubroutine.h"
+#include "slang/ast/expressions/AssertionExpr.h"
+#include "slang/ast/expressions/AssignmentExpressions.h"
+#include "slang/ast/expressions/CallExpression.h"
+#include "slang/ast/expressions/LiteralExpressions.h"
+#include "slang/ast/expressions/MiscExpressions.h"
+#include "slang/ast/expressions/Operator.h"
+#include "slang/ast/expressions/OperatorExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
+#include "slang/ast/statements/MiscStatements.h"
+#include "slang/ast/symbols/BlockSymbols.h"
+#include "slang/ast/symbols/CheckerSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/MemberSymbols.h"
+#include "slang/ast/symbols/ParameterSymbols.h"
+#include "slang/ast/symbols/SpecifySymbols.h"
+#include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/ast/types/AllTypes.h"
 #include "slang/diagnostics/CompilationDiags.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
+#include "slang/diagnostics/Diagnostics.h"
 #include "slang/diagnostics/LookupDiags.h"
 #include "slang/driver/Driver.h"
+#include "slang/numeric/ConstantValue.h"
+#include "slang/numeric/SVInt.h"
+#include "slang/syntax/SyntaxKind.h"
 #include "slang/syntax/SyntaxPrinter.h"
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/AllSyntax.h"
 #include "slang/text/Json.h"
+#include "slang/text/SourceLocation.h"
+#include "slang/util/SmallVector.h"
 #include "slang/util/Util.h"
 
 #include "kernel/bitpattern.h"
@@ -103,11 +149,9 @@ slang::SourceRange source_location(const ast::Expression &expr)		{ return expr.s
 slang::SourceRange source_location(const ast::Statement &stmt)		{ return stmt.sourceRange; }
 slang::SourceRange source_location(const ast::TimingControl &stmt)	{ return stmt.sourceRange; }
 
-template<typename T>
-std::string format_src(const T &obj)
+std::string format_src(slang::SourceRange sr)
 {
 	auto sm = global_sourcemgr;
-	auto sr = source_location(obj);
 
 	if (!sm->isFileLoc(sr.start()) || !sm->isFileLoc(sr.end()))
 		return "";
@@ -123,6 +167,12 @@ std::string format_src(const T &obj)
 			(int) sm->getLineNumber(sr.start()), (int) sm->getColumnNumber(sr.start()),
 			(int) sm->getLineNumber(sr.end()), (int) sm->getColumnNumber(sr.end()));
 	}
+}
+
+template<typename T>
+std::string format_src(const T &obj)
+{
+	return format_src(source_location(obj));
 }
 
 };
@@ -268,9 +318,7 @@ template void transfer_attrs<const ast::Symbol>(NetlistContext &netlist, const a
 template<typename T>
 void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard)
 {
-	auto src = format_src(from);
-	if (!src.empty())
-		guard.set(ID::src, src);
+	guard.set_source(source_location(from));
 
 	for (auto attr : global_compilation->getAttributes(from)) {
 		if (auto value = convert_attr_value(netlist, attr)) {
@@ -692,8 +740,11 @@ RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression cons
 {
 	require(expr, expr.isFixedSize());
 	RTLIL::SigSpec cat;
+	std::vector<RTLIL::SigSpec> parts;
 
-	for (auto stream : expr.streams()) {
+	auto streams = expr.streams();
+	parts.reserve(streams.size());
+	for (auto stream : streams) {
 		require(*stream.operand, !stream.withExpr);
 		auto& op = *stream.operand;
 		RTLIL::SigSpec item;
@@ -703,8 +754,13 @@ RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression cons
 		else
 			item = (*this)(*stream.operand);
 
-		cat = {cat, item};
+		parts.push_back(item);
 	}
+
+	// SigSpec appends LSB-first; streams were evaluated left-to-right above,
+	// so append them in reverse to preserve SystemVerilog ordering.
+	for (auto part_it = parts.rbegin(); part_it != parts.rend(); ++part_it)
+		cat.append(*part_it);
 
 	require(expr, expr.getSliceSize() <= std::numeric_limits<int>::max());
 	int slice = expr.getSliceSize();
@@ -712,8 +768,12 @@ RTLIL::SigSpec EvalContext::streaming(ast::StreamingConcatenationExpression cons
 		return cat;
 	} else {
 		RTLIL::SigSpec reorder;
+		std::vector<RTLIL::SigSpec> slices;
 		for (int i = 0; i < cat.size(); i += slice)
-			reorder = {reorder, cat.extract(i, std::min(slice, cat.size() - i))};
+			slices.push_back(cat.extract(i, std::min(slice, cat.size() - i)));
+		// Slice extraction also walks LSB-first, so rebuild in reverse order.
+		for (auto part_it = slices.rbegin(); part_it != slices.rend(); ++part_it)
+			reorder.append(*part_it);
 		return reorder;
 	}
 }
@@ -801,6 +861,286 @@ RTLIL::SigSpec handle_past(EvalContext &eval, const ast::CallExpression &call)
 	return past_wire;
 }
 
+static const RTLIL::Const reverse_data(RTLIL::Const &orig, int width)
+{
+	std::vector<RTLIL::State> bits;
+	log_assert(orig.size() % width == 0);
+	bits.reserve(orig.size());
+	for (int i = orig.size() - width; i >= 0; i -= width)
+		bits.insert(bits.end(), orig.begin() + i, orig.begin() + i + width);
+	return bits;
+}
+
+/*
+ * The following two functions contain parts adapted from Yosys
+ * Copyright (C) 2012  Claire Xenia Wolf <claire@yosyshq.com>
+ * Licensed under the ISC License
+ */
+int str_to_state_vect(std::vector<RTLIL::State> &data, const char *str, uint64_t mem_width, bool is_hex)
+{
+	// All digits in string (MSB at index 0)
+	std::vector<uint8_t> digits;
+	std::vector<RTLIL::State> data_word;
+	data_word.reserve(mem_width);
+
+	while (*str) {
+		if ('0' <= *str && *str <= '9')
+			digits.push_back(*str - '0');
+		else if ('a' <= *str && *str <= 'f')
+			digits.push_back(10 + *str - 'a');
+		else if ('A' <= *str && *str <= 'F')
+			digits.push_back(10 + *str - 'A');
+		else if(*str == 'x' || *str == 'X')
+			digits.push_back(0xf0);
+		else if (*str == 'z' || *str == 'Z')
+			digits.push_back(0xf1);
+		str++;
+	}
+
+	// Either hex or binary for readmem[h/b]
+	int base = is_hex ? 16 : 2;
+	int bits_per_digit = is_hex ? 4 : 1;
+	
+	for (auto it = digits.rbegin(), e = digits.rend(); it != e; it++) {
+		if (*it > (base-1) && *it < 0xf0)
+			return 1;
+
+		for (int i = 0; i < bits_per_digit; i++) {
+			int bitmask = 1 << i;
+			if (*it == 0xf0)
+				data_word.push_back(RTLIL::Sx);
+			else if (*it == 0xf1)
+				data_word.push_back(RTLIL::Sz);
+			else
+				data_word.push_back((*it & bitmask) ? RTLIL::S1 : RTLIL::S0);
+		}
+	}
+
+	RTLIL::State msb = data_word.empty() ? RTLIL::S0 : data_word.back();
+
+	// Truncate/expand word to memory width
+	if (msb == RTLIL::S0 || msb == RTLIL::S1)
+		data_word.resize(mem_width, RTLIL::S0);
+	else
+		data_word.resize(mem_width, msb);
+
+	data.insert(data.end(), data_word.begin(), data_word.end());
+	return 0;
+}
+
+// clang-format on
+void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
+{
+	NetlistContext &netlist = context.netlist;
+	std::string mem_filename;
+
+	auto filename_arg = call.arguments()[0];
+	auto filename_result = filename_arg->eval(context.eval.const_);
+	if (filename_result.bad()) {
+		netlist.add_diag(diag::ErrorNonconstantArgument, filename_arg->sourceRange);
+		return;
+	}
+
+	if (!filename_arg->isImplicitString()) {
+		auto &diag = netlist.add_diag(diag::ArgumentTypeUnsupported, filename_arg->sourceRange);
+		diag << filename_arg->type->toString();
+		return;
+	} else {
+		auto constval = filename_result.convertToStr();
+		mem_filename = constval.str();
+	}
+
+	std::ifstream f;
+	f.open(mem_filename);
+
+	// Try to find memory file relative to the source file containing readmem
+	if (f.fail()) {
+		slang::SourceLocation loc = call.sourceRange.start();
+		slang::BufferID buf_id = loc.buffer();
+		std::filesystem::path file_path = global_sourcemgr->getFullPath(buf_id);
+		std::string parent_path = file_path.parent_path().string();
+
+		if (!parent_path.empty() &&
+				parent_path.back() != std::filesystem::path::preferred_separator)
+			parent_path += std::filesystem::path::preferred_separator;
+
+		f.open(parent_path + mem_filename);
+	}
+
+	if (f.fail() || mem_filename.size() == 0) {
+		auto &diag = netlist.add_diag(diag::ReadmemFileNotFound, filename_arg->sourceRange);
+		diag << mem_filename;
+		return;
+	}
+
+	ast_invariant(call, ast::AssignmentExpression::isKind(call.arguments()[1]->kind));
+	auto &assign = call.arguments()[1]->as<ast::AssignmentExpression>();
+	auto &target_type = *assign.left().type;
+
+	// Check the second argument matches an allowed target
+	if (!target_type.isUnpackedArray() ||
+			!ast::EmptyArgumentExpression::isKind(assign.right().kind)) {
+		netlist.add_diag(diag::UnsupportedLhs, assign.sourceRange);
+		return;
+	}
+
+	VariableBits target = context.eval.lhs(assign.left());
+	slang::ConstantRange target_range = target_type.getFixedRange();
+	int32_t start_addr = target_range.lower();
+	int32_t finish_addr = target_range.upper();
+
+	if (call.arguments().size() > 2) {
+		auto start_arg = call.arguments()[2];
+		auto start_result = start_arg->eval(context.eval.const_);
+		// Check that start_addr argument is a constant value
+		if (start_result.bad()) {
+			netlist.add_diag(diag::ErrorNonconstantArgument, start_arg->sourceRange);
+			return;
+		}
+		ast_invariant(call, start_result.isInteger());
+		start_addr = start_result.integer().as<int32_t>().value();
+		if (!target_range.containsPoint(start_addr)) {
+			auto &diag =
+					netlist.add_diag(diag::ReadmemAddressOutsideOfRange, start_arg->sourceRange);
+			diag << start_addr;
+			return;
+		}
+	}
+
+	if (call.arguments().size() > 3) {
+		auto finish_arg = call.arguments()[3];
+		auto finish_result = finish_arg->eval(context.eval.const_);
+		// Check that finish_addr argument is a constant value
+		if (finish_result.bad()) {
+			netlist.add_diag(diag::ErrorNonconstantArgument, finish_arg->sourceRange);
+			return;
+		}
+		ast_invariant(call, finish_result.isInteger());
+		finish_addr = finish_result.integer().as<int32_t>().value();
+		if (!target_range.containsPoint(finish_addr)) {
+			auto &diag =
+					netlist.add_diag(diag::ReadmemAddressOutsideOfRange, finish_arg->sourceRange);
+			diag << finish_addr;
+			return;
+		}
+	}
+
+	std::vector<RTLIL::State> data;
+	uint64_t word_size = target_type.getArrayElementType()->getBitstreamWidth();
+	bool in_comment = false;
+	bool no_jumps = true;
+	int num_words = 0;
+	int increment = start_addr < finish_addr ? 1 : -1;
+	int32_t cursor = start_addr;
+	int32_t data_first_address = start_addr;
+
+	slang::ConstantRange command_range(start_addr, finish_addr);
+
+	auto flush_data = [&]() {
+		RTLIL::Const const_(data);
+		assert(const_.size() % word_size == 0);
+
+		bool needs_reversal = (increment == -1 && target_range.isLittleEndian()) ||
+							  (increment == 1 && !target_range.isLittleEndian());
+
+		int nwords = const_.size() / word_size;
+		// HDL address corresponding to the base of const_ after reversal
+		int32_t hdl_base =
+				needs_reversal ? data_first_address + (nwords - 1) * increment : data_first_address;
+
+		uint32_t base = target_range.isLittleEndian() ? hdl_base - target_range.right
+													  : target_range.right - hdl_base;
+
+		context.do_simple_assign(call.sourceRange.start(),
+				target.extract(((uint64_t)base) * word_size, const_.size()),
+				needs_reversal ? reverse_data(const_, word_size) : const_,
+				/* blocking= */ true);
+		data.clear();
+	};
+
+	while (!f.eof()) {
+		std::string line, token;
+		std::getline(f, line);
+
+		// Remove multiline comments
+		for (size_t i = 0; i < line.size(); i++) {
+			if (in_comment && line.compare(i, 2, "*/") == 0) {
+				line[i] = ' ';
+				line[i + 1] = ' ';
+				in_comment = false;
+				continue;
+			}
+			if (!in_comment && line.compare(i, 2, "/*") == 0) {
+				in_comment = true;
+			}
+			if (in_comment)
+				line[i] = ' ';
+		}
+
+		std::istringstream iss(line);
+		while (iss >> token) {
+			if (token.compare(0, 2, "//") == 0)
+				break;
+
+			if (token[0] == '@') {
+				token = token.substr(1);
+				const char *nptr = token.c_str();
+				char *endptr;
+				int32_t next_addr = strtol(nptr, &endptr, 16);
+				if (!*nptr || *endptr) {
+					auto &diag = netlist.add_diag(diag::ReadmemInvalidAddress, call.sourceRange);
+					diag << std::string(nptr) << mem_filename;
+					return;
+				}
+
+				if (!command_range.containsPoint(next_addr)) {
+					auto &diag =
+							netlist.add_diag(diag::ReadmemAddressOutsideOfRange, call.sourceRange);
+					diag << token;
+					return;
+				}
+
+				// Flush data before jumping to the next address
+				if (next_addr != cursor) {
+					if (!data.empty())
+						flush_data();
+					cursor = next_addr;
+					data_first_address = next_addr;
+				}
+				no_jumps = false;
+				continue;
+			}
+
+			int res = str_to_state_vect(
+					data, token.c_str(), word_size, call.getSubroutineName() == "$readmemh");
+			if (res != 0) {
+				// Can only occur when digit is greater than 1 for $readmemb
+				auto &diag = netlist.add_diag(diag::ReadmemBadBinaryDigit, call.sourceRange);
+				diag << mem_filename;
+				return;
+			}
+			num_words++;
+
+			if ((cursor == finish_addr) || (increment > 0 && cursor > finish_addr) ||
+					(increment < 0 && cursor < finish_addr)) {
+				break;
+			}
+
+			cursor += increment;
+		}
+	}
+
+	if (!data.empty())
+		flush_data();
+
+	if (call.arguments().size() == 4 && no_jumps &&
+			num_words != std::abs(finish_addr - start_addr) + 1) {
+		auto &diag = netlist.add_diag(diag::ReadmemWordsRangeMismatch, call.sourceRange);
+		diag << mem_filename;
+	}
+}
+// clang-format off
+
 void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 {
 	NetlistContext &netlist = context.netlist;
@@ -848,9 +1188,17 @@ void handle_display(ProceduralContext &context, const ast::CallExpression &call)
 	fmt.emit_rtlil(cell);
 }
 
+RTLIL::SigSpec EvalContext::sva(ast::Expression const &expr)
+{
+	bool in_sva_expression_save = in_sva_expression;
+	in_sva_expression = true;
+	auto ret = (*this)(expr);
+	in_sva_expression = in_sva_expression_save;
+	return ret;
+}
+
 RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 {
-	RTLIL::Module *mod = netlist.canvas;
 	RTLIL::SigSpec ret;
 	size_t repl_count;
 
@@ -957,7 +1305,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			ast_invariant(symbol, ast::ValueSymbol::isKind(symbol.kind));
 			Variable variable1 = variable(symbol.as<ast::ValueSymbol>());
 			log_assert((bool) variable1);
-			if (procedural) {
+			if (procedural && (!in_sva_expression || variable1.kind != Variable::Static)) {
 				if (procedural->timing.kind == ProcessTiming::Initial && ast::NetSymbol::isKind(symbol.kind)) {
 					netlist.add_diag(diag::ReadingNetStateFromInitialBlockUnsupported, expr.sourceRange);
 					ret = RTLIL::SigSpec(RTLIL::Sx, (int) expr.type->getBitstreamWidth());
@@ -1104,7 +1452,14 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Conversion:
 		{
 			const ast::ConversionExpression &conv = expr.as<ast::ConversionExpression>();
-			if (conv.operand().kind != ast::ExpressionKind::Streaming) {
+			if (conv.isConstCast) {
+				// See IEEE Std 1800-2017 section 16.14.6: the insides of a const cast
+				// follow the rules of ordinary procedural evaluation
+				bool in_sva_expression_save = in_sva_expression;
+				in_sva_expression = false;
+				ret = apply_conversion(conv, (*this)(conv.operand()));
+				in_sva_expression = in_sva_expression_save;
+			} else if (conv.operand().kind != ast::ExpressionKind::Streaming) {
 				ret = apply_conversion(conv, (*this)(conv.operand()));
 			} else {
 				const ast::Type &to = conv.type->getCanonicalType();
@@ -1137,7 +1492,7 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 		{
 			const ast::ElementSelectExpression &elemsel = expr.as<ast::ElementSelectExpression>();
 
-			if (netlist.is_inferred_memory(elemsel.value())) {
+			if (netlist.is_inferred_memory(elemsel.value()) && !in_sva_expression) {
 				int width = elemsel.type->getBitstreamWidth();
 				std::string id = netlist.id(elemsel.value()
 										.as<ast::ValueExpressionBase>().symbol);
@@ -1173,8 +1528,15 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 	case ast::ExpressionKind::Concatenation:
 		{
 			const ast::ConcatenationExpression &concat = expr.as<ast::ConcatenationExpression>();
-			for (auto op : concat.operands())
-				ret = {ret, (*this)(*op)};
+			auto operands = concat.operands();
+			std::vector<RTLIL::SigSpec> parts;
+			parts.reserve(operands.size());
+			for (auto op : operands)
+				parts.push_back((*this)(*op));
+			// SigSpec appends LSB-first; operands are evaluated in source order
+			// above and appended in reverse to preserve concatenation order.
+			for (auto part_it = parts.rbegin(); part_it != parts.rend(); ++part_it)
+				ret.append(*part_it);
 		}
 		break;
 	case ast::ExpressionKind::SimpleAssignmentPattern:
@@ -1189,10 +1551,16 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 			}
 
 			auto &pattern_expr = static_cast<const ast::AssignmentPatternExpressionBase&>(expr);
+			auto elements = pattern_expr.elements();
 
 			ret = {};
-			for (auto elem : pattern_expr.elements())
-				ret = {ret, (*this)(*elem)};
+			std::vector<RTLIL::SigSpec> parts;
+			parts.reserve(elements.size());
+			for (auto elem : elements)
+				parts.push_back((*this)(*elem));
+			// Assignment patterns use the same bit ordering as concatenations.
+			for (auto part_it = parts.rbegin(); part_it != parts.rend(); ++part_it)
+				ret.append(*part_it);
 			ret = ret.repeat(repl_count);
 		}
 		break;
@@ -1241,11 +1609,19 @@ RTLIL::SigSpec EvalContext::operator()(ast::Expression const &expr)
 					auto arg = call.arguments()[0];
 					auto sig = (*this)(*arg);
 					ret = netlist.CountOnes(sig, (int)call.type->getBitstreamWidth());
+				} else if (name == "$clog2") {
+					ast_invariant(expr, call.arguments().size() == 1);
+					auto arg = call.arguments()[0];
+					auto sig = (*this)(*arg);
+					ret = netlist.Clog2(sig, (int)call.type->getBitstreamWidth());
 				} else if (name == "$past") {
 					ret = handle_past(*this, call);
 				} else if (name == "$signed" || name == "$unsigned") {
 					require(expr, call.arguments().size() == 1);
 					ret = (*this)(*call.arguments()[0]);
+				} else if (name == "$readmemb" || name == "$readmemh") {
+					require(expr, !(call.arguments().size() < 2 || call.arguments().size() > 4));
+					handle_readmem(*procedural, call);
 				} else {
 					auto &d = netlist.add_diag(diag::UnsupportedSystemTask, expr.sourceRange);
 					d << name;
@@ -1306,8 +1682,8 @@ EvalContext::EvalContext(NetlistContext &netlist)
 {
 }
 
-EvalContext::EvalContext(NetlistContext &netlist, ProceduralContext &procedural)
-	: netlist(netlist), procedural(&procedural),
+EvalContext::EvalContext(ProceduralContext &procedural)
+	: netlist(procedural.netlist), procedural(&procedural),
 	  const_(ast::ASTContext(netlist.compilation.getRoot(), ast::LookupLocation::max))
 {
 }
@@ -1659,7 +2035,32 @@ public:
 
 	void handle(const ast::ProceduralBlockSymbol &symbol)
 	{
-		interpret(symbol);
+		if (symbol.isFromAssertion &&
+				symbol.procedureKind == ast::ProceduralBlockKind::Always) {
+			const ast::StatementBlockSymbol *block_symbol = nullptr;
+			const ast::Statement *body = &symbol.getBody();
+			if (ast::BlockStatement::isKind(body->kind)) {
+				auto &block = body->as<ast::BlockStatement>();
+				block_symbol = block.blockSymbol;
+				body = &block.body;
+			}
+			ast_invariant(symbol, ast::ConcurrentAssertionStatement::isKind(body->kind) ||
+									ast::ImmediateAssertionStatement::isKind(body->kind));
+			if (!netlist.settings.ignore_assertions.value_or(false)) {
+				if (ast::ConcurrentAssertionStatement::isKind(body->kind)) {
+					process_freestanding_sva_property(netlist, body->as<ast::ConcurrentAssertionStatement>(),
+													  block_symbol);
+				} else {
+					ProceduralContext procedure(netlist, ProcessTiming::implicit);
+					symbol.getBody().visit(StatementExecutor(procedure));
+					RTLIL::Process *rtlil_proc = netlist.canvas->addProcess(netlist.new_id());
+					transfer_attrs(netlist, symbol, rtlil_proc);
+					procedure.copy_case_tree_into(rtlil_proc->root_case);
+				}
+			}
+		} else {
+			interpret(symbol);
+		}
 	}
 
 	void handle(const ast::NetSymbol &symbol)
@@ -1720,7 +2121,7 @@ public:
 		netlist.add_diag(diag::MultiportUnsupported, sym.location);
 	}
 
-	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec connection, slang::SourceRange range)
+	void inline_port_connection(const ast::PortSymbol &port, RTLIL::SigSpec connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -1737,7 +2138,7 @@ public:
 		netlist.add_continuous_driver(internal_signal, connection);
 	}
 
-	void inline_port_connection(const ast::PortSymbol &port, VariableBits connection, slang::SourceRange range)
+	void inline_port_connection(const ast::PortSymbol &port, VariableBits connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -1764,7 +2165,7 @@ public:
 		}
 	}
 
-	void inline_port_connection_driver(const ast::PortSymbol &port, RTLIL::SigSpec connection, slang::SourceRange range)
+	void inline_port_connection_driver(const ast::PortSymbol &port, RTLIL::SigSpec connection, [[maybe_unused]] slang::SourceRange range)
 	{
 		if (port.isNullPort)
 			return;
@@ -2372,7 +2773,7 @@ public:
 		auto id = (!sym.name.compare("")) ? netlist.new_id() : netlist.id(sym);
 		RTLIL::IdString op;
 		bool inv_y = false;
-		RTLIL::Cell *cell;
+		RTLIL::Cell *cell = nullptr;
 		ast_invariant(sym, ports.front()->kind == ast::ExpressionKind::Assignment);
 		auto &assign = ports.front()->as<ast::AssignmentExpression>();
 		auto y = netlist.eval.connection_lhs(assign);
@@ -2443,7 +2844,7 @@ public:
 					transfer_attrs(netlist, sym, cell);
 					const auto& ports = sym.primitiveType.ports;
 
-					for (int i = 0; i < sym.getPortConnections().size(); ++i) {
+					for (size_t i = 0; i < sym.getPortConnections().size(); ++i) {
 						const auto *conn= sym.getPortConnections()[i];
 						if (!conn)
 							continue;
@@ -2517,10 +2918,16 @@ public:
 					cell = pmos; // transfer_attrs to pmos after switch block
 				} else {
 					// bidir (tran/rtran/tranif0/rtranif0/tranif1/rtranif1) are unsupported
-					netlist.add_diag(diag::PrimTypeUnsupported, sym.location);
+					netlist.add_diag(diag::PrimTypeUnsupported, sym.location) << type;
 				}
 			}
 		}
+
+		if (!cell) {
+			// We've encountered an error - let's stop right here
+			return;
+		}
+
 		cell->fixup_parameters();
 		transfer_attrs(netlist, sym, cell);
 		if (inv_y) {
@@ -2741,7 +3148,7 @@ bool is_special_net(const ast::Symbol &symbol)
 		&& is_special_net_type(symbol.as<ast::NetSymbol>().netType);
 }
 
-RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
+const RTLIL::SigSpec& NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 {
 	auto &type = symbol.getType();
 
@@ -2767,7 +3174,7 @@ RTLIL::SigSpec NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 			special_net_symbols.push_back(&net);
 		}
 	}
-	return sig;
+	return wire_cache[&symbol];
 }
 
 void finalize_special_nets(NetlistContext &netlist)
@@ -2842,6 +3249,31 @@ bool NetlistContext::should_dissolve(const ast::InstanceSymbol &sym, slang::Diag
 	// interfaces are always dissolved
 	if (sym.isInterface())
 		return true;
+
+	if (sym.isModule()) {
+		for (auto *conn : sym.getPortConnections()) {
+			if (conn->port.kind == ast::SymbolKind::Port) {
+				auto &port = conn->port.as<ast::PortSymbol>();
+				if (port.direction != ast::ArgumentDirection::InOut)
+					continue;
+				if (why_not_dissolved) {
+					auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseInOut, port.location);
+					note << sym.body.name;
+				}
+				return false;
+			}
+			if (conn->port.kind == ast::SymbolKind::MultiPort) {
+				auto &port = conn->port.as<ast::MultiPortSymbol>();
+				if (port.direction != ast::ArgumentDirection::InOut)
+					continue;
+				if (why_not_dissolved) {
+					auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseInOut, port.location);
+					note << sym.body.name;
+				}
+				return false;
+			}
+		}
+	}
 
 	// the rest depends on the hierarchy mode
 	switch (settings.hierarchy_mode()) {
@@ -2919,7 +3351,7 @@ const ast::InstanceBodySymbol &NetlistContext::find_common_ancestor(const ast::I
 	auto pa = path(&a);
 	auto pb = path(&b);
 
-	int i = 0;
+	size_t i = 0;
 	for (; i < std::min(pa.size(), pb.size()); i++) {
 		if (pa[i] != pb[i])
 			break;
@@ -2949,7 +3381,7 @@ bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::Sourc
 	return true;
 }
 
-RTLIL::SigSpec NetlistContext::wire(const ast::Symbol &symbol)
+const RTLIL::SigSpec& NetlistContext::wire(const ast::Symbol &symbol)
 {
 	auto it = wire_cache.find(&symbol);
 	if (it == wire_cache.end())
@@ -2963,10 +3395,15 @@ RTLIL::SigSpec NetlistContext::convert_static(VariableBits bits)
 
 	for (auto vchunk : bits.chunks()) {
 		switch (vchunk.variable.kind) {
-		case Variable::Static:
-			ret.append(wire(*vchunk.variable.get_symbol())
-					.extract((int)vchunk.base, (int)vchunk.length));
+		case Variable::Static: {
+			const RTLIL::SigSpec &signal = wire(*vchunk.variable.get_symbol());
+			// Avoid per-bit SigSpec::extract() work for the normal one-chunk wire case.
+			if (signal.is_chunk())
+				ret.append(signal.as_chunk().extract((int)vchunk.base, (int)vchunk.length));
+			else
+				ret.append(signal.extract((int)vchunk.base, (int)vchunk.length));
 			break;
+		}
 		case Variable::Dummy:
 			ret.append(add_placeholder_signal(vchunk.length, "dummy"));
 			break;
@@ -3009,6 +3446,8 @@ USING_YOSYS_NAMESPACE
 
 struct SlangVersionPass : Pass {
 	SlangVersionPass() : Pass("slang_version", "display revision of slang frontend") {}
+
+	bool replace_existing_pass() const override { return true; }
 
 	void help() override
 	{
@@ -3103,6 +3542,8 @@ void catch_forbidden_options(slang::driver::Driver &driver) {
 
 struct SlangFrontend : Frontend {
 	SlangFrontend() : Frontend("slang", "read SystemVerilog (slang)") {}
+
+	bool replace_existing_pass() const override { return true; }
 
 	void help() override
 	{
@@ -3342,6 +3783,8 @@ struct SlangFrontend : Frontend {
 struct SlangDefaultsPass : Pass {
 	SlangDefaultsPass() : Pass("slang_defaults", "set default options for read_slang") {}
 
+	bool replace_existing_pass() const override { return true; }
+
 	void help() override
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
@@ -3395,6 +3838,8 @@ struct SlangDefaultsPass : Pass {
 struct TestSlangDiagPass : Pass {
 	TestSlangDiagPass() : Pass("test_slangdiag", "test diagnostics emission by the slang frontend") {}
 
+	bool replace_existing_pass() const override { return true; }
+
 	void help() override
 	{
 		log("Perform internal test of the slang frontend.\n");
@@ -3442,6 +3887,8 @@ public:
 
 struct TestSlangExprPass : Pass {
 	TestSlangExprPass() : Pass("test_slangexpr", "test expression evaluation within slang frontend") {}
+
+	bool replace_existing_pass() const override { return true; }
 
 	void help() override
 	{

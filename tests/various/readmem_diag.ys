@@ -1,0 +1,35 @@
+design -reset
+test_slangdiag -expect "failed to open file 'no_such_file_anywhere.hex'"
+read_slang <<EOF
+module top();
+	reg [7:0] x[0:3];
+	initial $readmemh("no_such_file_anywhere.hex", x);
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "digit larger than 1 is used in 'readmem_bad_bin.bin'"
+read_slang <<EOF
+module top();
+	reg [3:0] x[0:3];
+	initial $readmemb("readmem_bad_bin.bin", x);
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "cannot parse address 'notahexnumber' in 'readmem_bad_addr.hex'"
+read_slang <<EOF
+module top();
+	reg [7:0] x[0:3];
+	initial $readmemh("readmem_bad_addr.hex", x);
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "address 'ff' (hexadecimal) is out of range"
+read_slang <<EOF
+module top();
+	reg [7:0] x[0:3];
+	initial $readmemh("readmem_addr_oor.hex", x);
+endmodule
+EOF

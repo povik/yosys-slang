@@ -311,5 +311,34 @@ function automatic int f10();
 	f10 = foo[2][1];
 endfunction
 initial $t(f10());
+function automatic [11:0] f11();
+    automatic logic [3:0] i = 4'd0;
+    f11 = {i++, i++, i++};
+endfunction
+initial $t(f11());
+function automatic [11:0] f12();
+    automatic logic [3:0] i = 4'd0;
+    f12 = {>>4{i++, i++, i++}};
+endfunction
+initial $t(f12());
+function automatic [11:0] f13();
+    automatic logic [3:0] i = 4'd0;
+    f13 = {<<4{i++, i++, i++}};
+endfunction
+initial $t(f13());
+function automatic [15:0] f14();
+    automatic int j = 0;
+    automatic logic [11:0] v = 12'b0;
+    {>>4{v[4*(j++) +: 4], v[4*(j++) +: 4], v[4*(j++) +: 4]}} = 12'h123;
+    f14 = {v, 4'(j)};
+endfunction
+initial $t(f14());
+function automatic [15:0] f15();
+    automatic int j = 0;
+    automatic logic [11:0] v = 12'b0;
+    {<<4{v[j++ +: 4], v[j++ +: 4], v[j++ +: 4]}} = 12'h123;
+    f15 = {v, 4'(j)};
+endfunction
+initial $t(f15());
 
 endmodule
