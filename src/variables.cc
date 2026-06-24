@@ -126,6 +126,8 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 			if (linst.arrayPath[i] != rinst.arrayPath[i])
 				return linst.arrayPath[i] < rinst.arrayPath[i];
 		}
+		if (lhs->location != rhs->location)
+			return lhs->location < rhs->location;
 		break;
 	}
 	default: break;

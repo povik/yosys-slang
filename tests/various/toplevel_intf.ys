@@ -1,0 +1,63 @@
+read_slang --allow-toplevel-iface-ports <<EOF
+interface bus();
+	logic a, b;
+	modport primary(input a, output b);
+endinterface
+
+module top(bus.primary prim);
+	wire c = prim.a;
+	assign prim.b = ~prim.a;
+endmodule
+EOF
+
+select -assert-count 1 w:prim.a
+select -assert-count 1 w:prim.b
+
+design -reset
+read_slang --allow-toplevel-iface-ports <<EOF
+interface bus();
+	logic a;
+	modport src(output a);
+	modport dst(input a);
+endinterface
+
+module top(bus.src s0, bus.src s1, bus.dst d);
+	always_comb begin
+		if (d.a) begin
+			s0.a = 1'b1;
+			s1.a = 1'b0;
+		end else begin
+			s0.a = 1'b0;
+			s1.a = 1'b1;
+		end
+	end
+endmodule
+EOF
+select -assert-count 1 w:s0.a
+select -assert-count 1 w:s1.a
+select -assert-count 1 w:d.a
+
+design -reset
+read_slang --allow-toplevel-iface-ports <<EOF
+interface bus(input clk);
+	logic a;
+	modport primary(input a);
+endinterface
+module m1(bus.primary intf [0:1][3:2]);
+	wire w = intf[0][3].a;
+endmodule
+EOF
+
+design -reset
+test_slangdiag -expect "interface port on kept module boundary must be a modport"
+read_slang --allow-toplevel-iface-ports <<EOF
+interface bus();
+	logic a, b;
+	modport primary(input a, output b);
+endinterface
+
+module top(bus prim);
+	wire c = prim.a;
+	assign prim.b = ~prim.a;
+endmodule
+EOF
