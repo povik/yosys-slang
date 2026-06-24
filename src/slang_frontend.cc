@@ -2109,8 +2109,10 @@ public:
 		netlist.detected_memories = mem_detect.memory_candidates;
 	}
 
-	void add_internal_wires(const ast::InstanceBodySymbol &body)
+	bool add_internal_wires(const ast::InstanceBodySymbol &body)
 	{
+		bool success = true;
+
 		std::unordered_set<const slang::ast::SubroutineSymbol *> visited_subroutines;
 		body.visit(ast::makeVisitor([&](auto&, const ast::ValueSymbol &sym) {
 			if (!sym.getType().isFixedSize())
@@ -2196,28 +2198,26 @@ public:
 			for (auto *conn : body.parentInstance->getPortConnections()) {
 				if (conn->port.kind != ast::SymbolKind::InterfacePort)
 					continue;
-				auto [iface_sym, ref_modport] = conn->getIfaceConn();
-				if (!iface_sym || !ref_modport)
-					continue;
-				if (iface_sym->kind != ast::SymbolKind::Instance)
-					continue;
 
-				iface_sym->visit(ast::makeVisitor(
-					[&](auto &visitor, const ast::ModportSymbol &modport) {
-						if (!modport.name.compare(ref_modport->name)) {
-							netlist.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
-								netlist.id(conn->port);
-							visitor.visitDefault(modport);
-						}
-					},
-					[&](auto &, const ast::ModportPortSymbol &port) {
+				if (!conn->getIfaceConn().second) {
+					netlist.add_diag(diag::ModportRequired, conn->port.location);
+					success = false;
+					continue;
+				}
+
+				visit_interface_elements(conn, [&](const ast::ModportSymbol &modport, std::string &hierpath_suffix) {
+					netlist.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
+								netlist.id(conn->port) + hierpath_suffix;
+					modport.visit(ast::makeVisitor([&](auto &, const ast::ModportPortSymbol &port) {
 						if (!port.getType().isFixedSize())
 							return;
 						netlist.add_wire(port);
-					}
-				));
+					}));
+				});
 			}
 		}
+
+		return success;
 	}
 
 	void handle(const ast::InstanceBodySymbol &body)
@@ -2227,7 +2227,9 @@ public:
 			// find inferred memories
 			detect_memories(body);
 			// add all internal wires before we enter the body
-			add_internal_wires(body);
+			if (!add_internal_wires(body)) {
+				return;
+			}
 			// Evaluate inline initializers on variables
 			evaluate_decl_initializers(netlist);
 			// Visit the body for the bulk of processing
