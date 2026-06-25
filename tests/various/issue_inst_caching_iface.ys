@@ -1,0 +1,43 @@
+# Regression test: with instance caching enabled (--disable-instance-caching=false)
+# slang shares a single canonical body among instances it considers identical,
+# but it ignores interface port connections when doing so. The frontend used to
+# reuse that shared body for sibling instances and crash with "wire for symbol
+# ... is missing" because the body's interface references stayed resolved against
+# the canonical instance's connections. The two dummy instances below have
+# identical bodies but connect to different interface instances.
+read_slang --keep-hierarchy --disable-instance-caching=false <<EOF
+interface bus(input clk);
+	logic req, resp;
+	modport send_flit(output req, input resp);
+	modport recv_flit(input req, output resp);
+endinterface
+
+module dummy(
+	bus.send_flit send,
+	bus.recv_flit recv
+);
+	always_comb begin
+		send.req = recv.req;
+	end
+endmodule
+
+module top(
+	input clk,
+	input logic b_req, d_req,
+	output logic a_req, c_req
+);
+	bus a(clk), b(clk), c(clk), d(clk);
+	assign b.req = b_req;
+	assign d.req = d_req;
+	assign a_req = a.req;
+	assign c_req = c.req;
+	dummy u1(.send(a), .recv(b));
+	dummy u2(.send(c), .recv(d));
+endmodule
+EOF
+hierarchy -top top
+flatten
+opt
+# Each instance must wire its own interfaces: a.req <= b.req, c.req <= d.req.
+# A crossed-up shared body would make a_req depend on d_req (or c_req on b_req).
+sat -verify -prove a_req b_req -prove c_req d_req
