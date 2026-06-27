@@ -218,9 +218,11 @@ struct InferredMemoryDetector : public TimingPatternInterpretor,
 	{
 		for (auto stmt : prologue)
 			stmt->visit(*this);
+		// Async reset branches can still contain nonblocking element writes to
+		// candidate memories; recognize those before falling back to disqualify.
+		wr_allowed = true;
 		for (auto &branch : async)
 			branch.body.visit(*this);
-		wr_allowed = true;
 		sync_body.visit(*this);
 		wr_allowed = false;
 	}
