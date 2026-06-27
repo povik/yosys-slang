@@ -2360,7 +2360,20 @@ public:
 
 			RTLIL::Cell *cell = netlist.canvas->addCell(netlist.id(sym), module_type_id(*ref_body));
 			cell->set_string_attribute(ID::hdlname, netlist.hdlname(sym));
-			for (auto *conn : sym.getPortConnections()) {
+
+			// `ref_body` may be a body shared (cached) among several instances;
+			// the emitted submodule is generated against its canonical instance.
+			// Interface references inside that body resolve against the canonical
+			// instance's connections, so the submodule's interface port wires and
+			// scope remapping must be set up from the canonical instance, while
+			// this cell is wired up from `sym`'s own connections. When caching is
+			// off (or this is the canonical instance) the two coincide.
+			auto port_conns = sym.getPortConnections();
+			auto canon_port_conns = ref_body->parentInstance->getPortConnections();
+			log_assert(port_conns.size() == canon_port_conns.size());
+
+			for (size_t conn_idx = 0; conn_idx < port_conns.size(); conn_idx++) {
+				auto *conn = port_conns[conn_idx];
 				slang::SourceLocation loc;
 				if (auto expr = conn->getExpression())
 					loc = expr->sourceRange.start();
@@ -2391,58 +2404,82 @@ public:
 						continue;
 					}
 
-					visit_interface_elements(conn, [&](const ast::ModportSymbol &modport, std::string &hierpath_suffix) {
+					// Collect the modport ports reachable through an interface port
+					// connection, in a stable order, together with the array-element
+					// suffix of the interface they belong to.
+					struct ModportElem {
+						const ast::ModportSymbol *modport;
+						const ast::ModportPortSymbol *port;
+						std::string suffix;
+					};
+					auto collect = [](const ast::PortConnection *c) {
+						std::vector<ModportElem> elems;
+						visit_interface_elements(c, [&](const ast::ModportSymbol &modport, std::string &suffix) {
+							modport.visit(ast::makeVisitor([&](auto&, const ast::ModportPortSymbol &port) {
+								elems.push_back({&modport, &port, suffix});
+							}));
+						});
+						return elems;
+					};
+
+					// The submodule (and the symbols its body references) are tied to
+					// the canonical instance; the cell is wired from `sym`. Both
+					// enumerations have identical structure since slang only shares a
+					// body among instances whose interface connections are equivalent.
+					auto *canon_conn = canon_port_conns[conn_idx];
+					auto canon_elems = collect(canon_conn);
+					auto cur_elems = collect(conn);
+					log_assert(canon_elems.size() == cur_elems.size());
+
+					for (size_t k = 0; k < cur_elems.size(); k++) {
+						const ModportElem &ce = canon_elems[k];
+						const ModportElem &ue = cur_elems[k];
+
+						// Interface port wire inside the submodule, identified by the
+						// canonical modport port symbol (which the body references).
+						RTLIL::SigSpec port_sig;
 						if (inserted) {
-							submodule.scopes_remap[&static_cast<const ast::Scope&>(modport)] =
-								submodule.id(conn->port) + hierpath_suffix;
+							submodule.scopes_remap[&static_cast<const ast::Scope&>(*ce.modport)] =
+								submodule.id(canon_conn->port) + ce.suffix;
+							port_sig = submodule.add_wire(*ce.port);
+							RTLIL::Wire *w = port_sig.as_wire();
+							log_assert(w);
+							switch (ce.port->direction) {
+							case ast::ArgumentDirection::In:
+								submodule.register_driven(Variable::from_symbol(ce.port));
+								w->port_input = true;
+								break;
+							case ast::ArgumentDirection::Out:
+								w->port_output = true;
+								break;
+							case ast::ArgumentDirection::InOut:
+								submodule.register_driven(Variable::from_symbol(ce.port));
+								w->port_input = true;
+								w->port_output = true;
+								break;
+							case ast::ArgumentDirection::Ref:
+								netlist.add_diag(diag::RefUnsupported, ce.port->location);
+								break;
+							default:
+								log_abort();
+							}
+						} else {
+							port_sig = submodule.wire(*ce.port);
 						}
 
-						modport.visit(ast::makeVisitor([&](auto&, const ast::ModportPortSymbol &port) {
-							RTLIL::SigSpec port_sig;
-							if (inserted) {
-								port_sig = submodule.add_wire(port);
-								RTLIL::Wire *w = port_sig.as_wire();
-								log_assert(w);
-								switch (port.direction) {
-								case ast::ArgumentDirection::In:
-									submodule.register_driven(Variable::from_symbol(&port));
-									w->port_input = true;
-									break;
-								case ast::ArgumentDirection::Out:
-									w->port_output = true;
-									break;
-								case ast::ArgumentDirection::InOut:
-									submodule.register_driven(Variable::from_symbol(&port));
-									w->port_input = true;
-									w->port_output = true;
-									break;
-								case ast::ArgumentDirection::Ref:
-									netlist.add_diag(diag::RefUnsupported, port.location);
-									break;
-								default:
-									log_abort();
-								}
-							} else {
-								port_sig = submodule.wire(port);
-							}
-
-							ast_invariant(port, port.internalSymbol);
-							const ast::Scope *parent = port.getParentScope();
-							ast_invariant(port, parent->asSymbol().kind == ast::SymbolKind::Modport);
-							const ast::ModportSymbol &modport = parent->asSymbol().as<ast::ModportSymbol>();
-
-							RTLIL::IdString port_name = port_sig.as_wire()->name;
-							if (netlist.scopes_remap.count(&modport)) {
-								cell->setPort(port_name, netlist.wire(port));
-								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
-									netlist.register_driven(port);
-							} else {
-								cell->setPort(port_name, netlist.wire(*port.internalSymbol));
-								if (port.direction == ast::ArgumentDirection::Out || port.direction == ast::ArgumentDirection::InOut)
-									netlist.register_driven(*port.internalSymbol);
-							}
-						}));
-					});
+						// Wire the cell up from this instance's own connection.
+						ast_invariant(*ue.port, ue.port->internalSymbol);
+						RTLIL::IdString port_name = port_sig.as_wire()->name;
+						if (netlist.scopes_remap.count(ue.modport)) {
+							cell->setPort(port_name, netlist.wire(*ue.port));
+							if (ue.port->direction == ast::ArgumentDirection::Out || ue.port->direction == ast::ArgumentDirection::InOut)
+								netlist.register_driven(*ue.port);
+						} else {
+							cell->setPort(port_name, netlist.wire(*ue.port->internalSymbol));
+							if (ue.port->direction == ast::ArgumentDirection::Out || ue.port->direction == ast::ArgumentDirection::InOut)
+								netlist.register_driven(*ue.port->internalSymbol);
+						}
+					}
 					break;
 				}
 				case ast::SymbolKind::MultiPort: {
