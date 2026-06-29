@@ -1040,15 +1040,15 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		RTLIL::Const const_(data);
 		assert(const_.size() % word_size == 0);
 
-		bool needs_reversal = (increment == -1 && target_range.isLittleEndian()) ||
-							  (increment == 1 && !target_range.isLittleEndian());
+		bool needs_reversal = (increment == -1 && target_range.isDescending()) ||
+							  (increment == 1 && !target_range.isDescending());
 
 		int nwords = const_.size() / word_size;
 		// HDL address corresponding to the base of const_ after reversal
 		int32_t hdl_base =
 				needs_reversal ? data_first_address + (nwords - 1) * increment : data_first_address;
 
-		uint32_t base = target_range.isLittleEndian() ? hdl_base - target_range.right
+		uint32_t base = target_range.isDescending() ? hdl_base - target_range.right
 													  : target_range.right - hdl_base;
 
 		context.do_simple_assign(call.sourceRange.start(),
@@ -2980,7 +2980,7 @@ static void build_hierpath2(NetlistContext &netlist,
 		s << array.getExternalName();
 	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
 		auto &block = symbol->as<ast::GenerateBlockSymbol>();
-		if (auto index = block.arrayIndex) {
+		if (auto index = block.getArrayIndex()) {
 			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]" << sep;
 		} else {
 			s << block.getExternalName() << sep;
@@ -3046,7 +3046,7 @@ static bool build_hierpath3(const ast::Scope *relative_to,
 		s << array.getExternalName();
 	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
 		auto &block = symbol->as<ast::GenerateBlockSymbol>();
-		if (auto index = block.arrayIndex) {
+		if (auto index = block.getArrayIndex()) {
 			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]";
 		} else {
 			s << block.getExternalName();
@@ -3162,7 +3162,7 @@ const RTLIL::SigSpec& NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 			type.as<ast::PackedArrayType>().elementType.isScalar()) {
 		auto range = type.getFixedRange();
 		auto *w = sig.as_wire();
-		if (!range.isLittleEndian())
+		if (!range.isDescending())
 			w->upto = true;
 		w->start_offset = range.lower();
 	}

@@ -98,16 +98,16 @@ void import_blackboxes_from_rtlil(
 					Token(target, TokenKind::CloseBracket, {}, "", SourceLocation::NoLocation)));
 
 			port_list.push_back(alloc.emplace<ImplicitAnsiPortSyntax>(
-					*alloc.emplace<SyntaxList<AttributeInstanceSyntax>>(nullptr),
+					*alloc.emplace<SyntaxList<AttributeInstanceSyntax>>(alloc, std::span<const TokenOrSyntax>{}),
 					*alloc.emplace<VariablePortHeaderSyntax>(Token(),
 							token(direction, "", false, true), Token(),
 							*alloc.emplace<ImplicitTypeSyntax>(Token(),
 									*alloc.emplace<SyntaxList<VariableDimensionSyntax>>(
-											dims.copy(target)),
+											alloc, dims.copy(target)),
 									Token())),
 					*alloc.emplace<DeclaratorSyntax>(
 							token(TokenKind::Identifier, RTLIL::escape_id(port->name.str()), true),
-							*alloc.emplace<SyntaxList<VariableDimensionSyntax>>(nullptr),
+							*alloc.emplace<SyntaxList<VariableDimensionSyntax>>(alloc, std::span<const TokenOrSyntax>{}),
 							nullptr)));
 			port_list.push_back(token(TokenKind::Comma));
 		}
@@ -120,7 +120,7 @@ void import_blackboxes_from_rtlil(
 				*alloc.emplace<SyntaxList<PackageImportDeclarationSyntax>>(nullptr),
 				nullptr, // parameters: todo
 				alloc.emplace<AnsiPortListSyntax>(token(TokenKind::OpenParenthesis),
-						*alloc.emplace<SeparatedSyntaxList<MemberSyntax>>(port_list.copy(target)),
+						*alloc.emplace<SeparatedSyntaxList<MemberSyntax>>(alloc, port_list.copy(target)),
 						token(TokenKind::CloseParenthesis)),
 				token(TokenKind::Semicolon));
 
@@ -130,19 +130,19 @@ void import_blackboxes_from_rtlil(
 				token(TokenKind::Identifier, "blackbox", true), nullptr));
 		attrs.push_back(alloc.emplace<AttributeInstanceSyntax>(token(TokenKind::OpenParenthesis),
 				token(TokenKind::Star),
-				*alloc.emplace<SeparatedSyntaxList<AttributeSpecSyntax>>(attrs_spec.copy(target)),
+				*alloc.emplace<SeparatedSyntaxList<AttributeSpecSyntax>>(alloc, attrs_spec.copy(target)),
 				token(TokenKind::Star, "", true), token(TokenKind::CloseParenthesis)));
 
 		auto syntax = alloc.emplace<ModuleDeclarationSyntax>(SyntaxKind::ModuleDeclaration,
-				*alloc.emplace<SyntaxList<AttributeInstanceSyntax>>(attrs.copy(target)), *header,
-				*alloc.emplace<SyntaxList<MemberSyntax>>(nullptr),
+				*alloc.emplace<SyntaxList<AttributeInstanceSyntax>>(alloc, attrs.copy(target)), *header,
+				*alloc.emplace<SyntaxList<MemberSyntax>>(alloc, std::span<const TokenOrSyntax>{}),
 				token(TokenKind::EndModuleKeyword, "", false, true), nullptr);
 
 		decls.push_back(syntax);
 	}
 
 	auto unit_syntax = alloc.emplace<CompilationUnitSyntax>(
-			*target.emplace<SyntaxList<MemberSyntax>>(decls.copy(target)),
+			*target.emplace<SyntaxList<MemberSyntax>>(alloc, decls.copy(target)),
 			token(TokenKind::EndOfFile, "", false, false));
 	auto tree = std::shared_ptr<SyntaxTree>(new SyntaxTree(
 			unit_syntax, mgr, std::move(alloc), &target.getDefaultLibrary(), nullptr));
