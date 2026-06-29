@@ -3310,18 +3310,24 @@ bool NetlistContext::should_dissolve(const ast::InstanceSymbol &sym, slang::Diag
 	}
 }
 
-const ast::InstanceBodySymbol &NetlistContext::find_symbol_realm(const ast::Symbol &symbol)
+const ast::InstanceBodySymbol *NetlistContext::find_symbol_realm(const ast::Symbol &symbol)
 {
 	const ast::Scope *scope = symbol.getParentScope();
 
 	while (true) {
 		const ast::Symbol &scope_symbol = scope->asSymbol();
+		if (scope_symbol.kind == ast::SymbolKind::Root) {
+			// For special cases when the hierarchical value
+			// is outside the hierarchy of modules
+			// (e.g. a static variable inside a package).
+			return nullptr;
+		}
 		if (scope_symbol.kind == ast::SymbolKind::InstanceBody) {
 			auto parent = scope_symbol.as<ast::InstanceBodySymbol>().parentInstance;
 			log_assert(parent->getParentScope());
 			if (parent->getParentScope()->asSymbol().kind == ast::SymbolKind::Root
 					|| !should_dissolve(*parent)) {
-				return scope_symbol.as<ast::InstanceBodySymbol>();
+				return &scope_symbol.as<ast::InstanceBodySymbol>();
 			} else {
 				scope = parent->getParentScope();
 			}
@@ -3339,7 +3345,8 @@ const ast::InstanceBodySymbol &NetlistContext::find_common_ancestor(const ast::I
 		path.push_back(body);
 		while (body->parentInstance->getParentScope()->asSymbol().kind !=
 					ast::SymbolKind::Root) {
-			body = &find_symbol_realm(*body->parentInstance);
+			body = find_symbol_realm(*body->parentInstance);
+			log_assert(body);
 			path.push_back(body);
 			log_assert(body->parentInstance);
 			log_assert(body->parentInstance->getParentScope());
@@ -3362,15 +3369,19 @@ const ast::InstanceBodySymbol &NetlistContext::find_common_ancestor(const ast::I
 
 bool NetlistContext::check_hier_ref(const ast::ValueSymbol &symbol, slang::SourceRange range, bool silent)
 {
-	const ast::InstanceBodySymbol &symbol_realm = find_symbol_realm(symbol);
+	const ast::InstanceBodySymbol *symbol_realm = find_symbol_realm(symbol);
+	if (!symbol_realm) {
+		add_diag(diag::HierarchicalRefOutsideModulesUnsupported, range);
+		return false;
+	}
 
-	if (&symbol_realm != &realm) {
+	if (symbol_realm != &realm) {
 		auto &diag = add_diag(diag::ReferenceAcrossKeptHierBoundary, range);
-		auto &common = find_common_ancestor(symbol_realm, realm);
+		auto &common = find_common_ancestor(*symbol_realm, realm);
 		if (!silent) {
-			if (&symbol_realm != &common) {
+			if (symbol_realm != &common) {
 				// emit diagnostic for boundary on the hierarchical path to the symbol
-				(void) should_dissolve(*symbol_realm.parentInstance, &diag);
+				(void) should_dissolve(*symbol_realm->parentInstance, &diag);
 			} else {
 				// emit diagnostic for boundary on the hierarchical path to the expression
 				(void) should_dissolve(*realm.parentInstance, &diag);
