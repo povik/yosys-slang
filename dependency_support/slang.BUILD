@@ -63,6 +63,7 @@ genrule(
         "slang/diagnostics/CompilationDiags.h",
         "slang/diagnostics/ConstEvalDiags.h",
         "slang/diagnostics/DeclarationsDiags.h",
+        "slang/diagnostics/DriverDiags.h",
         "slang/diagnostics/ExpressionsDiags.h",
         "slang/diagnostics/GeneralDiags.h",
         "slang/diagnostics/LexerDiags.h",
@@ -136,6 +137,7 @@ cc_library(
         ":slang/diagnostics/CompilationDiags.h",
         ":slang/diagnostics/ConstEvalDiags.h",
         ":slang/diagnostics/DeclarationsDiags.h",
+        ":slang/diagnostics/DriverDiags.h",
         ":slang/diagnostics/ExpressionsDiags.h",
         ":slang/diagnostics/GeneralDiags.h",
         ":slang/diagnostics/LexerDiags.h",
@@ -161,12 +163,15 @@ cc_library(
         "-std=c++20",
         "-Wno-unused-parameter",
     ],
-    defines = ["SLANG_BOOST_SINGLE_HEADER"],
     includes = [
         "external",
         "include",
         "source/ast/builtins",
     ],
     visibility = ["@yosys-slang//:__subpackages__"],
-    deps = ["@fmt"],
+    deps = [
+        "@fmt",
+        "@boost//regex:regex",
+        "@tomlplusplus//:tomlplusplus",
+    ],
 )

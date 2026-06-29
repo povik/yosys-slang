@@ -24,7 +24,7 @@ namespace slang_frontend {
 
 void AddressingResolver::interpret_index(RTLIL::SigSpec signal, int width_down, int width_up)
 {
-	if (range.isLittleEndian()) {
+	if (range.isDescending()) {
 		base_offset = -range.right - width_down + 1;
 		raw_signal = signal;
 	} else {
@@ -59,7 +59,7 @@ AddressingResolver::AddressingResolver(EvalContext &eval, const ast::RangeSelect
 		ast_invariant(sel, lv.isInteger() && rv.isInteger());
 		raw_signal = {RTLIL::S0};
 
-		if (range.isLittleEndian())
+		if (range.isDescending())
 			base_offset = rv.integer().as<int>().value() - range.right;
 		else
 			base_offset = range.right - rv.integer().as<int>().value();

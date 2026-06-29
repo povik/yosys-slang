@@ -1040,15 +1040,15 @@ void handle_readmem(ProceduralContext &context, const ast::CallExpression &call)
 		RTLIL::Const const_(data);
 		assert(const_.size() % word_size == 0);
 
-		bool needs_reversal = (increment == -1 && target_range.isLittleEndian()) ||
-							  (increment == 1 && !target_range.isLittleEndian());
+		bool needs_reversal = (increment == -1 && target_range.isDescending()) ||
+							  (increment == 1 && !target_range.isDescending());
 
 		int nwords = const_.size() / word_size;
 		// HDL address corresponding to the base of const_ after reversal
 		int32_t hdl_base =
 				needs_reversal ? data_first_address + (nwords - 1) * increment : data_first_address;
 
-		uint32_t base = target_range.isLittleEndian() ? hdl_base - target_range.right
+		uint32_t base = target_range.isDescending() ? hdl_base - target_range.right
 													  : target_range.right - hdl_base;
 
 		context.do_simple_assign(call.sourceRange.start(),
@@ -2980,7 +2980,7 @@ static void build_hierpath2(NetlistContext &netlist,
 		s << array.getExternalName();
 	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
 		auto &block = symbol->as<ast::GenerateBlockSymbol>();
-		if (auto index = block.arrayIndex) {
+		if (auto index = block.getArrayIndex()) {
 			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]" << sep;
 		} else {
 			s << block.getExternalName() << sep;
@@ -3046,7 +3046,7 @@ static bool build_hierpath3(const ast::Scope *relative_to,
 		s << array.getExternalName();
 	} else if (symbol->kind == ast::SymbolKind::GenerateBlock) {
 		auto &block = symbol->as<ast::GenerateBlockSymbol>();
-		if (auto index = block.arrayIndex) {
+		if (auto index = block.getArrayIndex()) {
 			s << "[" << index->toString(slang::LiteralBase::Decimal, false) << "]";
 		} else {
 			s << block.getExternalName();
@@ -3162,7 +3162,7 @@ const RTLIL::SigSpec& NetlistContext::add_wire(const ast::ValueSymbol &symbol)
 			type.as<ast::PackedArrayType>().elementType.isScalar()) {
 		auto range = type.getFixedRange();
 		auto *w = sig.as_wire();
-		if (!range.isLittleEndian())
+		if (!range.isDescending())
 			w->upto = true;
 		w->start_offset = range.lower();
 	}
@@ -3545,13 +3545,58 @@ struct SlangFrontend : Frontend {
 
 	bool replace_existing_pass() const override { return true; }
 
+	std::string wrap_text(std::string desc, size_t width = 70)
+	{
+	    constexpr const char* indent = "        ";
+
+	    std::replace(desc.begin(), desc.end(), '\n', ' ');
+	    std::replace(desc.begin(), desc.end(), '\r', ' ');
+
+	    std::string result;
+	    size_t pos = 0;
+
+	    while (pos < desc.size()) {
+	        while (pos < desc.size() && desc[pos] == ' ')
+	            ++pos;
+
+	        if (pos >= desc.size())
+	            break;
+
+	        if (desc.size() - pos <= width) {
+	            result += desc.substr(pos);
+	            break;
+	        }
+
+	        size_t end = desc.rfind(' ', pos + width);
+	        if (end == std::string::npos || end < pos)
+	            end = pos + width;
+
+	        result += desc.substr(pos, end - pos);
+	        result += '\n';
+	        result += indent;
+
+	        pos = end;
+	    }
+	    return result;
+	}
+
 	void help() override
 	{
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
-		log("%s\n", driver.cmdLine.getHelpText("Slang-based SystemVerilog frontend").c_str());
+		log("\n");
+		log("    read_slang [options] [filename]\n");
+		log("\n");
+		log("Slang-based SystemVerilog frontend.\n");
+		log("\n");
+		for (auto& opt : driver.cmdLine.getHelpOptions()) { 
+			log("    %s\n", opt.first.c_str());
+			log("        %s\n",wrap_text(opt.second).c_str());
+			log("\n");
+		}
+		log("\n");
 	}
 
 	std::optional<std::string> read_heredoc(std::vector<std::string> &args)

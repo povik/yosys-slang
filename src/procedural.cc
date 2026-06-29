@@ -279,7 +279,7 @@ void ProceduralContext::update_variable_state(slang::SourceLocation loc, Variabl
 					bool big_endian = !symbol.as<ast::ValueSymbol>()
 											   .getType()
 											   .getFixedRange()
-											   .isLittleEndian();
+											   .isDescending();
 					netlist.add_memory_init(netlist.id(symbol), chunk.base, big_endian,
 							rvalue.extract((int)base, (int)size).as_const());
 				}

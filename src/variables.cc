@@ -104,11 +104,11 @@ bool order_symbols_within_scope(const ast::Symbol *lhs, const ast::Symbol *rhs)
 	case ast::SymbolKind::GenerateBlock: {
 		auto &lblock = lhs->as<ast::GenerateBlockSymbol>();
 		auto &rblock = rhs->as<ast::GenerateBlockSymbol>();
-		if (((bool)lblock.arrayIndex) != ((bool)rblock.arrayIndex))
-			return ((bool)lblock.arrayIndex) < ((bool)rblock.arrayIndex);
-		if (lblock.arrayIndex) {
-			if (*lblock.arrayIndex != *rblock.arrayIndex) {
-				auto result = (*lblock.arrayIndex) < (*rblock.arrayIndex);
+		if (((bool)lblock.getArrayIndex()) != ((bool)rblock.getArrayIndex()))
+			return ((bool)lblock.getArrayIndex()) < ((bool)rblock.getArrayIndex());
+		if (lblock.getArrayIndex()) {
+			if (*lblock.getArrayIndex() != *rblock.getArrayIndex()) {
+				auto result = (*lblock.getArrayIndex()) < (*rblock.getArrayIndex());
 				log_assert(!result.isUnknown());
 				return (bool)result;
 			}

@@ -10,7 +10,7 @@ foreach fn [glob *.sv] {
 	log -push
 	design -reset
 
-	read_slang $fn
+	read_slang --infer-input-ports-as-vars $fn
 	check -assert
 
 	chformal -lower
