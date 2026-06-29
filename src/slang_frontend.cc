@@ -3545,13 +3545,58 @@ struct SlangFrontend : Frontend {
 
 	bool replace_existing_pass() const override { return true; }
 
+	std::string wrap_text(std::string desc, size_t width = 70)
+	{
+	    constexpr const char* indent = "        ";
+
+	    std::replace(desc.begin(), desc.end(), '\n', ' ');
+	    std::replace(desc.begin(), desc.end(), '\r', ' ');
+
+	    std::string result;
+	    size_t pos = 0;
+
+	    while (pos < desc.size()) {
+	        while (pos < desc.size() && desc[pos] == ' ')
+	            ++pos;
+
+	        if (pos >= desc.size())
+	            break;
+
+	        if (desc.size() - pos <= width) {
+	            result += desc.substr(pos);
+	            break;
+	        }
+
+	        size_t end = desc.rfind(' ', pos + width);
+	        if (end == std::string::npos || end < pos)
+	            end = pos + width;
+
+	        result += desc.substr(pos, end - pos);
+	        result += '\n';
+	        result += indent;
+
+	        pos = end;
+	    }
+	    return result;
+	}
+
 	void help() override
 	{
 		slang::driver::Driver driver;
 		driver.addStandardArgs();
 		SynthesisSettings settings;
 		settings.addOptions(driver.cmdLine);
-		log("%s\n", driver.cmdLine.getHelpText("Slang-based SystemVerilog frontend").c_str());
+		log("\n");
+		log("    read_slang [options] [filename]\n");
+		log("\n");
+		log("Slang-based SystemVerilog frontend.\n");
+		log("\n");
+		for (auto& opt : driver.cmdLine.getHelpOptions()) { 
+			log("    %s\n", opt.first.c_str());
+			log("        %s\n",wrap_text(opt.second).c_str());
+			log("\n");
+		}
+		log("\n");
 	}
 
 	std::optional<std::string> read_heredoc(std::vector<std::string> &args)
