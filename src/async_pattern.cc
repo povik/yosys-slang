@@ -63,7 +63,7 @@ void TimingPatternInterpretor::handle_always(const ast::ProceduralBlockSymbol &s
 		case ast::TimingControlKind::SignalEvent: {
 			const auto &sigev = ev->as<ast::SignalEventControl>();
 
-			if (sigev.iffCondition)
+			if (sigev.iffCondition && sigev.edge == ast::EdgeKind::None)
 				issuer.add_diag(diag::IffUnsupported, sigev.iffCondition->sourceRange);
 
 			switch (sigev.edge) {
@@ -239,6 +239,9 @@ void TimingPatternInterpretor::interpret_async_pattern(const ast::ProceduralBloc
 					});
 
 			if (found != triggers.end()) {
+				if ((*found)->iffCondition)
+					issuer.add_diag(diag::IffUnsupported, (*found)->iffCondition->sourceRange);
+
 				if ((*found)->edge !=
 						(polarity ? ast::EdgeKind::PosEdge : ast::EdgeKind::NegEdge)) {
 					auto &diag = issuer.add_diag(

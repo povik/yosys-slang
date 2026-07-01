@@ -1,0 +1,192 @@
+read_slang <<EOF
+module dff_iff01_gate(input logic clk, input logic en,
+					  input logic [3:0] d, output logic [3:0] q);
+	always_ff @(posedge clk iff en) begin
+		q <= d + 1;
+	end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \dff_iff01_gold
+	wire width 4 $1
+	wire input 1 \clk
+	wire width 4 input 3 \d
+	wire input 2 \en
+	wire width 4 output 4 \q
+
+	cell $add $2
+		parameter \A_SIGNED 0
+		parameter \A_WIDTH 4
+		parameter \B_SIGNED 0
+		parameter \B_WIDTH 1
+		parameter \Y_WIDTH 4
+		connect \A \d
+		connect \B 1'1
+		connect \Y $1
+	end
+
+	cell $dffe $3
+		parameter \EN_POLARITY 1'1
+		parameter \CLK_POLARITY 1'1
+		parameter \WIDTH 4
+		connect \CLK \clk
+		connect \D $1
+		connect \Q \q
+		connect \EN \en
+	end
+end
+EOF
+
+async2sync
+equiv_make dff_iff01_gold dff_iff01_gate dff_iff01_equiv
+equiv_induct dff_iff01_equiv
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module dff_iff02_gate(input logic clk, input logic en,
+					  input logic d, output logic q);
+	always @(posedge clk iff en) begin
+		q <= d;
+	end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \dff_iff02_gold
+	wire input 1 \clk
+	wire input 2 \en
+	wire input 3 \d
+	wire output 4 \q
+
+	cell $dffe $1
+		parameter \EN_POLARITY 1'1
+		parameter \CLK_POLARITY 1'1
+		parameter \WIDTH 1
+		connect \CLK \clk
+		connect \D \d
+		connect \Q \q
+		connect \EN \en
+	end
+end
+EOF
+
+async2sync
+equiv_make dff_iff02_gold dff_iff02_gate dff_iff02_equiv
+equiv_induct dff_iff02_equiv
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module dff_iff03_gate(input logic clk, input logic rst, input logic en,
+					  input logic [3:0] d, output logic [3:0] q);
+	always_ff @(posedge clk iff en or posedge rst) begin
+		if (rst)
+			q <= 4'b0;
+		else
+			q <= d;
+	end
+endmodule
+EOF
+
+read_verilog <<EOF
+module dff_iff03_gold(input clk, input rst, input en,
+					  input [3:0] d, output reg [3:0] q);
+	always @(posedge clk or posedge rst) begin
+		if (rst)
+			q <= 4'b0;
+		else if (en)
+			q <= d;
+	end
+endmodule
+EOF
+
+proc
+async2sync
+equiv_make dff_iff03_gold dff_iff03_gate dff_iff03_equiv
+equiv_induct dff_iff03_equiv
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module dff_past01_gate(input logic clk, input logic d, output logic q);
+	always_ff @(posedge clk) begin
+		q <= $past(d);
+	end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \dff_past01_gold
+	wire input 1 \clk
+	wire input 2 \d
+	wire output 3 \q
+	wire $$past$1
+
+	cell $dff $1
+		parameter \CLK_POLARITY 1'1
+		parameter \WIDTH 1
+		connect \CLK \clk
+		connect \D \d
+		connect \Q $$past$1
+	end
+
+	cell $dff $2
+		parameter \CLK_POLARITY 1'1
+		parameter \WIDTH 1
+		connect \CLK \clk
+		connect \D $$past$1
+		connect \Q \q
+	end
+end
+EOF
+
+async2sync
+equiv_make -inames dff_past01_gold dff_past01_gate dff_past01_equiv
+equiv_induct dff_past01_equiv
+equiv_status -assert
+
+design -reset
+read_slang <<EOF
+module dff_past02_gate(input logic clk, input logic en, input logic d, output logic q);
+	always_ff @(posedge clk iff en) begin
+		q <= $past(d);
+	end
+endmodule
+EOF
+
+read_rtlil <<EOF
+module \dff_past02_gold
+	wire input 1 \clk
+	wire input 2 \en
+	wire input 3 \d
+	wire output 4 \q
+	wire $$past$1
+
+	cell $dffe $1
+		parameter \CLK_POLARITY 1'1
+		parameter \EN_POLARITY 1'1
+		parameter \WIDTH 1
+		connect \CLK \clk
+		connect \EN \en
+		connect \D \d
+		connect \Q $$past$1
+	end
+
+	cell $dffe $2
+		parameter \CLK_POLARITY 1'1
+		parameter \EN_POLARITY 1'1
+		parameter \WIDTH 1
+		connect \CLK \clk
+		connect \EN \en
+		connect \D $$past$1
+		connect \Q \q
+	end
+end
+EOF
+
+async2sync
+equiv_make -inames dff_past02_gold dff_past02_gate dff_past02_equiv
+equiv_induct dff_past02_equiv
+equiv_status -assert
